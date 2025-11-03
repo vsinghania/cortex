@@ -1,0 +1,200 @@
+import { v4 as uuidv4 } from 'uuid';
+import type { AuthSvcInterface } from './auth_svc_interface.js';
+import type {
+  AuthContext,
+  AuthResult,
+  LoginInput,
+  LogoutResult,
+  MeResult,
+  RefreshResult,
+  RegisterInput
+} from './types/auth.types.js';
+import type { User } from '../user/types/user.types.js';
+import { createUserRepository } from '../user/repositories/user_repository.js';
+import type { UserRepository } from '../user/repositories/user_repository_interface.js';
+import { createRefreshTokenRepository } from './repositories/refresh_token_repository.js';
+import type { RefreshTokenRepository } from './repositories/refresh_token_repository_interface.js';
+import { hashPassword, verifyPassword } from './utils/password_utils.js';
+import {
+  accessTokenTtlSec,
+  issueRefreshToken,
+  refreshTokenTtlSec,
+  sha256Base64Url,
+  signAccessToken
+} from './utils/token_utils.js';
+import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from '../common/errors.js';
+
+const APP_DB = process.env.MONGO_DB_APP ?? 'cortex';
+
+function redactUser(user: User): Omit<User, 'password_hash'> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { password_hash, ...rest } = user as any;
+  return rest;
+}
+
+export class AuthSvc implements AuthSvcInterface {
+  private user_repo!: UserRepository;
+  private rt_repo!: RefreshTokenRepository;
+
+  async init(): Promise<void> {
+    this.user_repo = await createUserRepository({ db: APP_DB });
+    this.rt_repo = await createRefreshTokenRepository({ db: APP_DB });
+  }
+
+  static async create(): Promise<AuthSvc> {
+    const svc = new AuthSvc();
+    await svc.init();
+    return svc;
+  }
+
+  async register(input: RegisterInput, ctx?: AuthContext): Promise<AuthResult> {
+    const user_repo = this.user_repo;
+    const existing = await user_repo.findByEmail(input.email);
+    if (existing) {
+      throw new ConflictError('Email already registered');
+    }
+
+    const password_hash = await hashPassword(input.password);
+    const user_id = uuidv4();
+
+    const created = await user_repo.createUser({
+      user_id,
+      email: input.email.toLowerCase().trim(),
+      password_hash,
+      roles: input.roles ?? ['user']
+    });
+
+    const { token: access_token } = signAccessToken({ user_id: created.user_id, roles: created.roles });
+    const { token: refresh_token, token_hash, expires_at } = issueRefreshToken();
+    const rt_repo = this.rt_repo;
+    await rt_repo.createSession({
+      user_id: created.user_id,
+      token_hash,
+      user_agent: ctx?.user_agent ?? null,
+      ip: ctx?.ip ?? null,
+      expires_at
+    });
+
+    return {
+      user: redactUser(created),
+      tokens: {
+        access_token,
+        refresh_token,
+        access_token_expires_in_sec: accessTokenTtlSec(),
+        refresh_token_expires_in_sec: refreshTokenTtlSec()
+      }
+    };
+  }
+
+  async login(input: LoginInput, ctx?: AuthContext): Promise<AuthResult> {
+    const user_repo = this.user_repo;
+    const user = await user_repo.findByEmail(input.email);
+    if (!user) {
+      throw new UnauthorizedError('Invalid credentials');
+    }
+
+    const valid = await verifyPassword(input.password, user.password_hash);
+    if (!valid) {
+      throw new UnauthorizedError('Invalid credentials');
+    }
+
+    // Update last_login_at (best effort)
+    await user_repo.setLastLoginAt(user.user_id, new Date());
+
+    const { token: access_token } = signAccessToken({ user_id: user.user_id, roles: user.roles });
+    const { token: refresh_token, token_hash, expires_at } = issueRefreshToken();
+    const rt_repo = this.rt_repo;
+    await rt_repo.createSession({
+      user_id: user.user_id,
+      token_hash,
+      user_agent: ctx?.user_agent ?? null,
+      ip: ctx?.ip ?? null,
+      expires_at
+    });
+
+    return {
+      user: redactUser(user),
+      tokens: {
+        access_token,
+        refresh_token,
+        access_token_expires_in_sec: accessTokenTtlSec(),
+        refresh_token_expires_in_sec: refreshTokenTtlSec()
+      }
+    };
+  }
+
+  async refresh(refresh_token: string, ctx?: AuthContext): Promise<RefreshResult> {
+    if (!refresh_token || typeof refresh_token !== 'string') {
+      throw new BadRequestError('Missing refresh token');
+    }
+
+    const token_hash = sha256Base64Url(refresh_token);
+    const rt_repo = this.rt_repo;
+    const session = await rt_repo.findByTokenHash(token_hash);
+    if (!session) {
+      throw new UnauthorizedError('Invalid refresh token');
+    }
+    if (session.revoked_at) {
+      throw new UnauthorizedError('Refresh token revoked');
+    }
+    if (session.expires_at.getTime() <= Date.now()) {
+      // prune or mark as revoked for hygiene (best effort)
+      await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+      throw new UnauthorizedError('Refresh token expired');
+    }
+
+    // Load user
+    const user_repo = this.user_repo;
+    const user = await user_repo.findByUserId(session.user_id);
+    if (!user) {
+      // Revoke session if user missing
+      await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+      throw new NotFoundError('User not found for refresh token');
+    }
+
+    const { token: new_access } = signAccessToken({ user_id: user.user_id, roles: user.roles });
+    const { token: new_refresh, token_hash: new_hash, expires_at: new_expires } = issueRefreshToken();
+
+    // Rotate session
+    const rotated = await rt_repo.rotateSession({
+      old_token_hash: token_hash,
+      new_token_hash: new_hash,
+      new_expires_at: new_expires
+    });
+    if (!rotated) {
+      throw new UnauthorizedError('Refresh token rotation failed');
+    }
+
+    // Attach latest UA/IP (best effort)
+    // Not strictly required; skip write if not provided
+    if (ctx?.ip || ctx?.user_agent) {
+      // no-op for now; could patch created refresh doc if we want freshest ctx on the new token
+    }
+
+    return {
+      tokens: {
+        access_token: new_access,
+        refresh_token: new_refresh,
+        access_token_expires_in_sec: accessTokenTtlSec(),
+        refresh_token_expires_in_sec: refreshTokenTtlSec()
+      }
+    };
+  }
+
+  async logout(refresh_token: string): Promise<LogoutResult> {
+    if (!refresh_token) return { success: true };
+    const token_hash = sha256Base64Url(refresh_token);
+    const rt_repo = this.rt_repo;
+    await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+    return { success: true };
+  }
+
+  async getMe(user_id: string): Promise<MeResult> {
+    const user_repo = this.user_repo;
+    const user = await user_repo.findByUserId(user_id);
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+    return redactUser(user);
+  }
+}
