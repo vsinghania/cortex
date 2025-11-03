@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import {pinoHttp} from 'pino-http';
-import { notFoundHandler, errorHandler } from '../common/middlewares/error_handler.js'
+import { ErrorHandlerMiddleware } from '../common/middlewares/error_handler.js'
 import { nanoid } from 'nanoid';
 import { logger } from '../common/logger.js';
 import { AiController } from './ai/ai.controller.js';
@@ -39,8 +39,8 @@ export class App {
 
     this.registerRoutes();
 
-    this.app.use(notFoundHandler);
-    this.app.use(errorHandler);
+    this.app.use(ErrorHandlerMiddleware.notFoundHandler);
+    this.app.use(ErrorHandlerMiddleware.errorHandler);
 
     return;
   }

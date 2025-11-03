@@ -47,6 +47,18 @@ export class HttpError<TDetails extends HttpErrorDetails = HttpErrorDetails> ext
   static isHttpError(err: unknown): err is HttpError {
     return err instanceof HttpError || (typeof err === "object" && !!err && "status_code" in err && "error_code" in err);
   }
+
+  static toResponse(err: Error, reqUrl?: string) {
+    const e = HttpError.isHttpError(err)
+      ? err
+      : new InternalServerError("An unexpected error occurred", { cause: err });
+    return {
+      http_error: e,
+      status: e.status_code,
+      body: e.toJSON(reqUrl),
+      headers: { "content-type": "application/problem+json", ...(e.headers ?? {}) }
+    };
+  }
 }
 
 export class BadRequestError<T extends HttpErrorDetails = HttpErrorDetails> extends HttpError<T> {
@@ -98,16 +110,4 @@ export class ServiceUnavailableError<T extends HttpErrorDetails = HttpErrorDetai
   constructor(message = "Service Unavailable", opts?: { details?: T; cause?: unknown }) {
     super(503, "service_unavailable", message, opts);
   }
-}
-
-export function toResponse(err: Error, reqUrl?: string) {
-  const e = HttpError.isHttpError(err)
-    ? err
-    : new InternalServerError("An unexpected error occurred", { cause: err });
-  return {
-    http_error: e,
-    status: e.status_code,
-    body: e.toJSON(reqUrl),
-    headers: { "content-type": "application/problem+json", ...(e.headers ?? {}) }
-  };
 }

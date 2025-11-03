@@ -1,5 +1,5 @@
 import express from 'express';
-import { getDbHealth } from '../../db/mongo/health.js';
+import { DbHealthUtils } from '../../db/mongo/health.js';
 import { logger } from '../../common/logger.js';
 
 export class HealthController {
@@ -25,7 +25,7 @@ export class HealthController {
         ? Number(req.query.port)
         : undefined;
 
-    const health = getDbHealth({ host, port });
+    const health = DbHealthUtils.getDbHealth({ host, port });
     const code = health.status === 'up' ? 200 : 503;
 
     const total = health.details.length;

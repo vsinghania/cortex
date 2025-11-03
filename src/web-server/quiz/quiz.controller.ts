@@ -3,7 +3,6 @@ import { logger } from '../../common/logger.js';
 import { Answer, AnswerSchema, Question, QuestionSchema, Quiz, QuizGenRequest, QuizGenRequestSchema, QuizSchema } from '../../quiz_svc/types/quiz.types.js';
 import { QuizSvc } from '../../quiz_svc/quiz_svc.js';
 import { z } from 'zod';
-import { validate } from '../../common/middlewares/validate.js';
 import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 
 export class QuizController {

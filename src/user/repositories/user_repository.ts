@@ -2,12 +2,9 @@ import type { Connection, Model } from 'mongoose';
 import { type CreateUserInput, type UpdateUserPatch, type User } from '../types/user.types.js';
 import { UserModelFactory } from '../models/user_model.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 import type { UserRepository as IUserRepository } from './user_repository_interface.js';
 
-function toDomain(doc: any): User {
-  const obj = typeof doc?.toJSON === 'function' ? doc.toJSON() : doc;
-  return obj as User;
-}
 
 export class MongooseUserRepository implements IUserRepository {
   private static readonly factory = new UserModelFactory();
@@ -31,17 +28,17 @@ export class MongooseUserRepository implements IUserRepository {
       password_hash: input.password_hash,
       roles: input.roles ?? ['user']
     });
-    return toDomain(created);
+    return MongooseUtils.toDomain<User>(created);
   }
 
   async findByUserId(user_id: string): Promise<User | null> {
     const found = await this.model.findOne({ user_id }).lean();
-    return found ? (toDomain(found) as User) : null;
+    return found ? (MongooseUtils.toDomain<User>(found) as User) : null;
   }
 
   async findByEmail(email: string): Promise<User | null> {
     const found = await this.model.findOne({ email: email.toLowerCase().trim() }).lean();
-    return found ? (toDomain(found) as User) : null;
+    return found ? (MongooseUtils.toDomain<User>(found) as User) : null;
   }
 
   async updateByUserId(user_id: string, patch: UpdateUserPatch): Promise<User | null> {
@@ -56,7 +53,7 @@ export class MongooseUserRepository implements IUserRepository {
       { new: true }
     ).lean();
 
-    return updated ? (toDomain(updated) as User) : null;
+    return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
   }
 
   async setLastLoginAt(user_id: string, at: Date): Promise<User | null> {
@@ -65,10 +62,6 @@ export class MongooseUserRepository implements IUserRepository {
       { $set: { last_login_at: at } },
       { new: true }
     ).lean();
-    return updated ? (toDomain(updated) as User) : null;
+    return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
   }
-}
-
-export async function createUserRepository(params: { db: string; host?: string; port?: number }): Promise<IUserRepository> {
-  return MongooseUserRepository.create(params);
 }

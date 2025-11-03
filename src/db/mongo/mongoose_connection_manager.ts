@@ -7,17 +7,7 @@ type BootstrapOptions = {
   serverSelectionTimeoutMS?: number;
 };
 
-function uriFor(host: string, port: number, db: string) {
-  return `mongodb://${host}:${port}/${db}`;
-}
 
-function toConnectOptions(opts?: BootstrapOptions): ConnectOptions {
-  return {
-    minPoolSize: opts?.minPoolSize ?? 5,
-    maxPoolSize: opts?.maxPoolSize ?? 10,
-    serverSelectionTimeoutMS: opts?.serverSelectionTimeoutMS ?? 5000
-  };
-}
 
 export class MongooseConnectionManager {
   private static instance: MongooseConnectionManager | null = null;
@@ -33,6 +23,18 @@ export class MongooseConnectionManager {
   private in_flight = new Map<string, Promise<Connection>>();
 
   private constructor() {}
+
+  private static uriFor(host: string, port: number, db: string) {
+    return `mongodb://${host}:${port}/${db}`;
+  }
+
+  private static toConnectOptions(opts?: BootstrapOptions): ConnectOptions {
+    return {
+      minPoolSize: opts?.minPoolSize ?? 5,
+      maxPoolSize: opts?.maxPoolSize ?? 10,
+      serverSelectionTimeoutMS: opts?.serverSelectionTimeoutMS ?? 5000
+    };
+  }
 
   static async getInstance(params?: { host: string; port: number; options?: BootstrapOptions }): Promise<MongooseConnectionManager> {
     if (!MongooseConnectionManager.instance) {
@@ -102,7 +104,7 @@ export class MongooseConnectionManager {
       this.base_conn = null;
     }
 
-    const connect_opts = toConnectOptions(options);
+    const connect_opts = MongooseConnectionManager.toConnectOptions(options);
     this.base_bootstrap_opts = options;
 
     // If a root already exists for this host:port, promote it to base
@@ -116,7 +118,7 @@ export class MongooseConnectionManager {
       return;
     }
 
-    const uri = uriFor(host, port, 'admin'); // base/root connects to admin
+    const uri = MongooseConnectionManager.uriFor(host, port, 'admin'); // base/root connects to admin
     logger.info({ msg: 'Bootstrapping Mongo base connection', host, port, ...connect_opts });
 
     const conn = mongoose.createConnection(uri, connect_opts);
@@ -148,8 +150,8 @@ export class MongooseConnectionManager {
     const inflight = this.in_flight.get(key);
     if (inflight) return inflight;
 
-    const uri = uriFor(host, port, 'admin');
-    const connect_opts = toConnectOptions(this.base_bootstrap_opts);
+    const uri = MongooseConnectionManager.uriFor(host, port, 'admin');
+    const connect_opts = MongooseConnectionManager.toConnectOptions(this.base_bootstrap_opts);
 
     logger.info({ msg: 'Creating Mongo root connection', host, port, ...connect_opts });
 

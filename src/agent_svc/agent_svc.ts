@@ -3,9 +3,9 @@ import type { AgentSvcInterface } from './agent_svc_interface.js';
 import type { AgentSession } from './types/session.types.js';
 import type { SessionMessage } from './types/session_message.types.js';
 import { SessionManager } from './session_manager.js';
-import { runOrchestratorStep, ORCHESTRATOR_AGENT_NAME } from './orchestrator_stub.js';
+import { ORCHESTRATOR_AGENT_NAME, Orchestrator } from './orchestrator_stub.js';
 import type { Cache } from '../lib/cache/cache.types.js';
-import { createLruCache } from '../lib/cache/lru_cache.js';
+import { LruCache } from '../lib/cache/lru_cache.js';
 import { logger } from '../common/logger.js';
 
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -19,20 +19,10 @@ type CacheEntry = {
 
 
 
-function appendToTail(entry: CacheEntry, msgs: SessionMessage[]) {
-  if (!msgs || msgs.length === 0) return;
-  entry.tail.push(...msgs);
-  if (entry.tail.length > MAX_TAIL) {
-    entry.tail.splice(0, entry.tail.length - MAX_TAIL);
-  }
-}
 
-function keyFor(user_id: string, session_id: string) {
-  return `${user_id}:${session_id}`;
-}
 
 export class AgentSvc implements AgentSvcInterface {
-  private managers: Cache<string, CacheEntry> = createLruCache<string, CacheEntry>({
+  private managers: Cache<string, CacheEntry> = new LruCache<string, CacheEntry>({
     max: 1000,
     default_ttl_ms: TTL_MS,
     update_age_on_get: true,
@@ -42,6 +32,18 @@ export class AgentSvc implements AgentSvcInterface {
       } catch {}
     }
   });
+
+  private static appendToTail(entry: CacheEntry, msgs: SessionMessage[]) {
+    if (!msgs || msgs.length === 0) return;
+    entry.tail.push(...msgs);
+    if (entry.tail.length > MAX_TAIL) {
+      entry.tail.splice(0, entry.tail.length - MAX_TAIL);
+    }
+  }
+
+  private static keyFor(user_id: string, session_id: string) {
+    return `${user_id}:${session_id}`;
+  }
 
   // Core entrypoint per requirements
   async handleUserPrompt(params: {
@@ -74,10 +76,10 @@ export class AgentSvc implements AgentSvcInterface {
     };
 
     const user_appended_count = await entry.manager.appendMessages([userMsg]);
-    appendToTail(entry, [userMsg]);
+    AgentSvc.appendToTail(entry, [userMsg]);
 
     // Orchestrator phase (static name for now)
-    const orchestratorRaw = await runOrchestratorStep({
+    const orchestratorRaw = await Orchestrator.runOrchestratorStep({
       user_id,
       session_id: effective_session_id,
       agent_name: ORCHESTRATOR_AGENT_NAME
@@ -96,8 +98,8 @@ export class AgentSvc implements AgentSvcInterface {
         ? await entry.manager.appendMessages(orchestratorMessages)
         : 0;
 
-    appendToTail(entry, orchestratorMessages);
-    this.managers.set(keyFor(user_id, effective_session_id), entry);
+    AgentSvc.appendToTail(entry, orchestratorMessages);
+    this.managers.set(AgentSvc.keyFor(user_id, effective_session_id), entry);
 
     const header = entry.manager.getSession()!;
 
@@ -130,8 +132,8 @@ export class AgentSvc implements AgentSvcInterface {
     const appended_count =
       prepared.length > 0 ? await entry.manager.appendMessages(prepared) : 0;
 
-    appendToTail(entry, prepared);
-    this.managers.set(keyFor(user_id, session_id), entry);
+    AgentSvc.appendToTail(entry, prepared);
+    this.managers.set(AgentSvc.keyFor(user_id, session_id), entry);
 
     return { appended_count };
   }
@@ -141,7 +143,7 @@ export class AgentSvc implements AgentSvcInterface {
     session_id: string;
   }): Promise<AgentSession | null> {
     const { user_id, session_id } = params;
-    const k = keyFor(user_id, session_id);
+    const k = AgentSvc.keyFor(user_id, session_id);
     const cached = this.managers.get(k);
     if (cached) {
       return cached.manager.getSession();
@@ -181,12 +183,12 @@ export class AgentSvc implements AgentSvcInterface {
       });
       const sid = manager.ids.session_id;
       const entry: CacheEntry = { manager, tail: [] };
-      this.managers.set(keyFor(user_id, sid), entry);
+      this.managers.set(AgentSvc.keyFor(user_id, sid), entry);
       return { entry, session, session_id: sid, created_new: true };
     }
 
     // Use existing
-    const k = keyFor(user_id, params.session_id);
+    const k = AgentSvc.keyFor(user_id, params.session_id);
     const cached = this.managers.get(k);
     if (cached) {
       const header = cached.manager.getSession()!;
@@ -203,8 +205,4 @@ export class AgentSvc implements AgentSvcInterface {
     this.managers.set(k, rebuilt);
     return { entry: rebuilt, session: header, session_id: params.session_id, created_new: false };
   }
-}
-
-export async function createAgentSvc(): Promise<AgentSvc> {
-  return new AgentSvc();
 }

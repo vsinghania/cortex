@@ -3,12 +3,8 @@ import type { Note } from '../types/note.types.js';
 import type { NoteRepository, NoteListParams, NoteListResult } from './note_repository_interface.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
 import { NoteModelFactory } from '../models/index.js';
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 
-// Keep domain conversion narrow and consistent
-function toDomain(doc: any): Note {
-  const obj = typeof doc?.toJSON === 'function' ? doc.toJSON() : doc;
-  return obj as Note;
-}
 
 export class MongooseNoteRepository implements NoteRepository {
   private static readonly factory = new NoteModelFactory();
@@ -28,7 +24,7 @@ export class MongooseNoteRepository implements NoteRepository {
 
   async createNote(note: Note): Promise<Note> {
     const created = await this.model.create(note);
-    return toDomain(created);
+    return MongooseUtils.toDomain<Note>(created);
   }
 
   async getNoteByKey(params: {
@@ -41,7 +37,7 @@ export class MongooseNoteRepository implements NoteRepository {
       source: params.source,
       external_id: params.external_id
     }).lean();
-    return found ? (toDomain(found) as Note) : null;
+    return found ? (MongooseUtils.toDomain<Note>(found) as Note) : null;
   }
 
   async listNotes(params: NoteListParams): Promise<NoteListResult> {
@@ -69,7 +65,7 @@ export class MongooseNoteRepository implements NoteRepository {
     ]);
     console.log(JSON.stringify(items));
     return {
-      items: items.map((i: any) => toDomain(i)),
+      items: items.map((i: any) => MongooseUtils.toDomain<Note>(i)),
       total
     };
   }
@@ -112,7 +108,7 @@ export class MongooseNoteRepository implements NoteRepository {
       { new: true }
     ).lean();
 
-    return updated ? (toDomain(updated) as Note) : null;
+    return updated ? (MongooseUtils.toDomain<Note>(updated) as Note) : null;
   }
 
   async deleteNoteByKey(params: {
@@ -155,7 +151,7 @@ export class MongooseNoteRepository implements NoteRepository {
     ]);
 
     return {
-      items: items.map((i: any) => toDomain(i)),
+      items: items.map((i: any) => MongooseUtils.toDomain<Note>(i)),
       total
     };
   }

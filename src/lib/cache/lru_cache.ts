@@ -81,10 +81,3 @@ export class LruCache<K extends {}, V extends {}> implements Cache<K, V> {
     }
   }
 }
-
-/**
- * Convenience factory preserving the previous API shape.
- */
-export function createLruCache<K extends {}, V extends {}>(opts: CacheOptions = {}): Cache<K, V> {
-  return new LruCache<K, V>(opts);
-}

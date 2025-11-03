@@ -143,7 +143,7 @@ export class StdioMcpClient implements McpClientInterface {
 
   // tools
   async listTools(opts?: RpcOptions): Promise<ToolDescription[]> {
-    const res = await this.client.listTools(undefined, toRequestOptions(opts));
+    const res = await this.client.listTools(undefined, StdioMcpClient.toRequestOptions(opts));
     return res.tools as unknown as ToolDescription[];
   }
 
@@ -151,25 +151,25 @@ export class StdioMcpClient implements McpClientInterface {
     const res = await this.client.callTool(
       { name: input.name, arguments: input.arguments },
       undefined,
-      toRequestOptions(opts)
+      StdioMcpClient.toRequestOptions(opts)
     );
     return res as unknown as CallToolResult;
   }
 
   // resources
   async listResources(opts?: RpcOptions): Promise<ResourceDescription[]> {
-    const res = await this.client.listResources(undefined, toRequestOptions(opts));
+    const res = await this.client.listResources(undefined, StdioMcpClient.toRequestOptions(opts));
     return res.resources as unknown as ResourceDescription[];
   }
 
   async readResource(uri: string, opts?: RpcOptions): Promise<ResourceReadResult> {
-    const res = await this.client.readResource({ uri }, toRequestOptions(opts));
+    const res = await this.client.readResource({ uri }, StdioMcpClient.toRequestOptions(opts));
     return res as unknown as ResourceReadResult;
   }
 
   // prompts
   async listPrompts(opts?: RpcOptions): Promise<PromptDescription[]> {
-    const res = await this.client.listPrompts(undefined, toRequestOptions(opts));
+    const res = await this.client.listPrompts(undefined, StdioMcpClient.toRequestOptions(opts));
     return res.prompts as unknown as PromptDescription[];
   }
 
@@ -177,7 +177,7 @@ export class StdioMcpClient implements McpClientInterface {
     const argMap = args
       ? (Object.fromEntries(Object.entries(args).map(([k, v]) => [k, String(v)])) as Record<string, string>)
       : undefined;
-    const res = await this.client.getPrompt({ name, arguments: argMap }, toRequestOptions(opts));
+    const res = await this.client.getPrompt({ name, arguments: argMap }, StdioMcpClient.toRequestOptions(opts));
     return res as unknown as PromptResult;
   }
 
@@ -218,15 +218,15 @@ export class StdioMcpClient implements McpClientInterface {
       }
     });
   }
-}
 
-function toRequestOptions(opts?: RpcOptions) {
-  if (!opts) return undefined;
-  return {
-    timeout: opts.timeout_ms,
-    signal: opts.signal,
-    onprogress: opts.on_progress ? (p: any) => opts.on_progress?.(p) : undefined,
-    resetTimeoutOnProgress: opts.reset_timeout_on_progress,
-    maxTotalTimeout: opts.max_total_timeout_ms,
-  } as const;
+  private static toRequestOptions(opts?: RpcOptions) {
+    if (!opts) return undefined;
+    return {
+      timeout: opts.timeout_ms,
+      signal: opts.signal,
+      onprogress: opts.on_progress ? (p: any) => opts.on_progress?.(p) : undefined,
+      resetTimeoutOnProgress: opts.reset_timeout_on_progress,
+      maxTotalTimeout: opts.max_total_timeout_ms,
+    } as const;
+  }
 }

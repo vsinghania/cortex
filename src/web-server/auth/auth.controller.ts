@@ -1,40 +1,42 @@
 import express from 'express';
 import { z } from 'zod';
 import { validateRequest } from '../../lib/decorators/validation_decorators.js';
-import { authRateLimiter } from '../../common/middlewares/rate_limit.js';
-import { requireAuth } from '../../common/middlewares/require_auth.js';
+import { RateLimitMiddleware } from '../../common/middlewares/rate_limit.js';
+import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
 import { AuthSvc } from '../../auth_svc/auth_svc.js';
-import { REFRESH_COOKIE_NAME, refreshTokenTtlSec } from '../../auth_svc/utils/token_utils.js';
+import { REFRESH_COOKIE_NAME, TokenUtils } from '../../auth_svc/utils/token_utils.js';
 
 const EmailSchema = z.string().email();
 const PasswordSchema = z.string().min(8);
 
-function refreshCookieOptions() {
-  const secure = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
-  const domain = process.env.COOKIE_DOMAIN || undefined;
-  const sameSite = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' | 'none' | undefined) ?? 'lax';
-  return {
-    httpOnly: true,
-    secure,
-    sameSite,
-    domain,
-    path: '/',
-    maxAge: refreshTokenTtlSec() * 1000
-  } as const;
-}
 
-function userAgent(req: express.Request) {
-  const ua = req.headers['user-agent'];
-  return typeof ua === 'string' ? ua : undefined;
-}
 
 export class AuthController {
+
+  private static refreshCookieOptions() {
+    const secure = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+    const domain = process.env.COOKIE_DOMAIN || undefined;
+    const sameSite = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' | 'none' | undefined) ?? 'lax';
+    return {
+      httpOnly: true,
+      secure,
+      sameSite,
+      domain,
+      path: '/',
+      maxAge: TokenUtils.refreshTokenTtlSec() * 1000
+    } as const;
+  }
+
+  private static userAgent(req: express.Request) {
+    const ua = req.headers['user-agent'];
+    return typeof ua === 'string' ? ua : undefined;
+  }
   private readonly router: express.Router;
 
   constructor() {
     this.router = express.Router();
     // rate limit auth endpoints
-    this.router.use(authRateLimiter);
+    this.router.use(RateLimitMiddleware.authRateLimiter);
     this.registerRoutes();
   }
 
@@ -47,7 +49,7 @@ export class AuthController {
     this.router.post('/login', this.login.bind(this));
     this.router.post('/refresh', this.refresh.bind(this));
     this.router.post('/logout', this.logout.bind(this));
-    this.router.get('/me', requireAuth, this.me.bind(this));
+    this.router.get('/me', RequireAuthMiddleware.requireAuth, this.me.bind(this));
   }
 
   @validateRequest({ body: z.object({ email: EmailSchema, password: PasswordSchema }) })
@@ -57,11 +59,11 @@ export class AuthController {
       const auth_svc = await AuthSvc.create();
       const result = await auth_svc.register(
         { email, password },
-        { ip: req.ip, user_agent: userAgent(req) }
+        { ip: req.ip, user_agent: AuthController.userAgent(req) }
       );
 
       // Set refresh token cookie, do not expose it in response body
-      const opts = refreshCookieOptions();
+      const opts = AuthController.refreshCookieOptions();
       res.cookie(REFRESH_COOKIE_NAME, result.tokens.refresh_token, opts);
 
       res.status(201).json({
@@ -83,10 +85,10 @@ export class AuthController {
       const auth_svc = await AuthSvc.create();
       const result = await auth_svc.login(
         { email, password },
-        { ip: req.ip, user_agent: userAgent(req) }
+        { ip: req.ip, user_agent: AuthController.userAgent(req) }
       );
 
-      const opts = refreshCookieOptions();
+      const opts = AuthController.refreshCookieOptions();
       res.cookie(REFRESH_COOKIE_NAME, result.tokens.refresh_token, opts);
 
       res.status(200).json({
@@ -110,10 +112,10 @@ export class AuthController {
       const auth_svc = await AuthSvc.create();
       const result = await auth_svc.refresh(refresh_token ?? '', {
         ip: req.ip,
-        user_agent: userAgent(req)
+        user_agent: AuthController.userAgent(req)
       });
 
-      const opts = refreshCookieOptions();
+      const opts = AuthController.refreshCookieOptions();
       res.cookie(REFRESH_COOKIE_NAME, result.tokens.refresh_token, opts);
 
       res.status(200).json({
@@ -136,7 +138,7 @@ export class AuthController {
       const result = await auth_svc.logout(refresh_token ?? '');
 
       // Clear cookie (use same options to ensure browser matches)
-      const opts = refreshCookieOptions();
+      const opts = AuthController.refreshCookieOptions();
       res.clearCookie(REFRESH_COOKIE_NAME, opts);
 
       res.status(200).json({ response: result });

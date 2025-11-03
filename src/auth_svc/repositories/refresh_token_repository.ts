@@ -1,13 +1,10 @@
 import type { Connection, Model } from 'mongoose';
 import { RefreshTokenModelFactory } from '../models/refresh_token_model.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 import type { RefreshSession } from '../types/auth.types.js';
 import type { RefreshTokenRepository as IRefreshTokenRepository } from './refresh_token_repository_interface.js';
 
-function toDomain(doc: any): RefreshSession {
-  const obj = typeof doc?.toJSON === 'function' ? doc.toJSON() : doc;
-  return obj as RefreshSession;
-}
 
 export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
   private static readonly factory = new RefreshTokenModelFactory();
@@ -38,12 +35,12 @@ export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
       ip: input.ip ?? undefined,
       expires_at: input.expires_at
     });
-    return toDomain(created);
+    return MongooseUtils.toDomain<RefreshSession>(created);
   }
 
   async findByTokenHash(token_hash: string): Promise<RefreshSession | null> {
     const found = await this.model.findOne({ token_hash }).lean();
-    return found ? (toDomain(found) as RefreshSession) : null;
+    return found ? (MongooseUtils.toDomain<RefreshSession>(found) as RefreshSession) : null;
   }
 
   async revokeByTokenHash(token_hash: string, opts?: { replaced_by?: string }): Promise<boolean> {
@@ -75,7 +72,7 @@ export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
       ip: old.ip,
       expires_at: params.new_expires_at
     });
-    return toDomain(created);
+    return MongooseUtils.toDomain<RefreshSession>(created);
   }
 
   async revokeAllForUser(user_id: string): Promise<number> {
@@ -93,8 +90,4 @@ export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
     const res = await this.model.deleteMany({ token_hash: { $in: toDelete.map((d: any) => d.token_hash) } });
     return res.deletedCount ?? 0;
   }
-}
-
-export async function createRefreshTokenRepository(params: { db: string; host?: string; port?: number }): Promise<IRefreshTokenRepository> {
-  return MongooseRefreshTokenRepository.create(params);
 }

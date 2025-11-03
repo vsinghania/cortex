@@ -10,35 +10,30 @@ import type {
   RegisterInput
 } from './types/auth.types.js';
 import type { User } from '../user/types/user.types.js';
-import { createUserRepository } from '../user/repositories/user_repository.js';
+import { MongooseUserRepository } from '../user/repositories/user_repository.js';
 import type { UserRepository } from '../user/repositories/user_repository_interface.js';
-import { createRefreshTokenRepository } from './repositories/refresh_token_repository.js';
+import { MongooseRefreshTokenRepository } from './repositories/refresh_token_repository.js';
 import type { RefreshTokenRepository } from './repositories/refresh_token_repository_interface.js';
-import { hashPassword, verifyPassword } from './utils/password_utils.js';
-import {
-  accessTokenTtlSec,
-  issueRefreshToken,
-  refreshTokenTtlSec,
-  sha256Base64Url,
-  signAccessToken
-} from './utils/token_utils.js';
+import { PasswordUtils } from './utils/password_utils.js';
+import { TokenUtils } from './utils/token_utils.js';
 import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from '../common/errors.js';
 
 const APP_DB = process.env.MONGO_DB_APP ?? 'cortex';
 
-function redactUser(user: User): Omit<User, 'password_hash'> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { password_hash, ...rest } = user as any;
-  return rest;
-}
 
 export class AuthSvc implements AuthSvcInterface {
   private user_repo!: UserRepository;
   private rt_repo!: RefreshTokenRepository;
 
+  private static redactUser(user: User): Omit<User, 'password_hash'> {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password_hash, ...rest } = user as any;
+    return rest;
+  }
+
   async init(): Promise<void> {
-    this.user_repo = await createUserRepository({ db: APP_DB });
-    this.rt_repo = await createRefreshTokenRepository({ db: APP_DB });
+    this.user_repo = await MongooseUserRepository.create({ db: APP_DB });
+    this.rt_repo = await MongooseRefreshTokenRepository.create({ db: APP_DB });
   }
 
   static async create(): Promise<AuthSvc> {
@@ -54,7 +49,7 @@ export class AuthSvc implements AuthSvcInterface {
       throw new ConflictError('Email already registered');
     }
 
-    const password_hash = await hashPassword(input.password);
+    const password_hash = await PasswordUtils.hashPassword(input.password);
     const user_id = uuidv4();
 
     const created = await user_repo.createUser({
@@ -64,8 +59,8 @@ export class AuthSvc implements AuthSvcInterface {
       roles: input.roles ?? ['user']
     });
 
-    const { token: access_token } = signAccessToken({ user_id: created.user_id, roles: created.roles });
-    const { token: refresh_token, token_hash, expires_at } = issueRefreshToken();
+    const { token: access_token } = TokenUtils.signAccessToken({ user_id: created.user_id, roles: created.roles });
+    const { token: refresh_token, token_hash, expires_at } = TokenUtils.issueRefreshToken();
     const rt_repo = this.rt_repo;
     await rt_repo.createSession({
       user_id: created.user_id,
@@ -76,12 +71,12 @@ export class AuthSvc implements AuthSvcInterface {
     });
 
     return {
-      user: redactUser(created),
+      user: AuthSvc.redactUser(created),
       tokens: {
         access_token,
         refresh_token,
-        access_token_expires_in_sec: accessTokenTtlSec(),
-        refresh_token_expires_in_sec: refreshTokenTtlSec()
+        access_token_expires_in_sec: TokenUtils.accessTokenTtlSec(),
+        refresh_token_expires_in_sec: TokenUtils.refreshTokenTtlSec()
       }
     };
   }
@@ -93,7 +88,7 @@ export class AuthSvc implements AuthSvcInterface {
       throw new UnauthorizedError('Invalid credentials');
     }
 
-    const valid = await verifyPassword(input.password, user.password_hash);
+    const valid = await PasswordUtils.verifyPassword(input.password, user.password_hash);
     if (!valid) {
       throw new UnauthorizedError('Invalid credentials');
     }
@@ -101,8 +96,8 @@ export class AuthSvc implements AuthSvcInterface {
     // Update last_login_at (best effort)
     await user_repo.setLastLoginAt(user.user_id, new Date());
 
-    const { token: access_token } = signAccessToken({ user_id: user.user_id, roles: user.roles });
-    const { token: refresh_token, token_hash, expires_at } = issueRefreshToken();
+    const { token: access_token } = TokenUtils.signAccessToken({ user_id: user.user_id, roles: user.roles });
+    const { token: refresh_token, token_hash, expires_at } = TokenUtils.issueRefreshToken();
     const rt_repo = this.rt_repo;
     await rt_repo.createSession({
       user_id: user.user_id,
@@ -113,12 +108,12 @@ export class AuthSvc implements AuthSvcInterface {
     });
 
     return {
-      user: redactUser(user),
+      user: AuthSvc.redactUser(user),
       tokens: {
         access_token,
         refresh_token,
-        access_token_expires_in_sec: accessTokenTtlSec(),
-        refresh_token_expires_in_sec: refreshTokenTtlSec()
+        access_token_expires_in_sec: TokenUtils.accessTokenTtlSec(),
+        refresh_token_expires_in_sec: TokenUtils.refreshTokenTtlSec()
       }
     };
   }
@@ -128,7 +123,7 @@ export class AuthSvc implements AuthSvcInterface {
       throw new BadRequestError('Missing refresh token');
     }
 
-    const token_hash = sha256Base64Url(refresh_token);
+    const token_hash = TokenUtils.sha256Base64Url(refresh_token);
     const rt_repo = this.rt_repo;
     const session = await rt_repo.findByTokenHash(token_hash);
     if (!session) {
@@ -152,8 +147,8 @@ export class AuthSvc implements AuthSvcInterface {
       throw new NotFoundError('User not found for refresh token');
     }
 
-    const { token: new_access } = signAccessToken({ user_id: user.user_id, roles: user.roles });
-    const { token: new_refresh, token_hash: new_hash, expires_at: new_expires } = issueRefreshToken();
+    const { token: new_access } = TokenUtils.signAccessToken({ user_id: user.user_id, roles: user.roles });
+    const { token: new_refresh, token_hash: new_hash, expires_at: new_expires } = TokenUtils.issueRefreshToken();
 
     // Rotate session
     const rotated = await rt_repo.rotateSession({
@@ -175,15 +170,15 @@ export class AuthSvc implements AuthSvcInterface {
       tokens: {
         access_token: new_access,
         refresh_token: new_refresh,
-        access_token_expires_in_sec: accessTokenTtlSec(),
-        refresh_token_expires_in_sec: refreshTokenTtlSec()
+        access_token_expires_in_sec: TokenUtils.accessTokenTtlSec(),
+        refresh_token_expires_in_sec: TokenUtils.refreshTokenTtlSec()
       }
     };
   }
 
   async logout(refresh_token: string): Promise<LogoutResult> {
     if (!refresh_token) return { success: true };
-    const token_hash = sha256Base64Url(refresh_token);
+    const token_hash = TokenUtils.sha256Base64Url(refresh_token);
     const rt_repo = this.rt_repo;
     await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
     return { success: true };
@@ -195,6 +190,6 @@ export class AuthSvc implements AuthSvcInterface {
     if (!user) {
       throw new NotFoundError('User not found');
     }
-    return redactUser(user);
+    return AuthSvc.redactUser(user);
   }
 }

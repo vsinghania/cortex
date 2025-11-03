@@ -13,44 +13,9 @@ import type {
   SessionMessageRepository
 } from './session_message_repository_interface.js';
 import { v4 as uuidv4 } from 'uuid';
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 
-// Narrow conversion helper
-function toDomain(doc: any): AgentSessionMessage {
-  const obj = typeof doc?.toJSON === 'function' ? doc.toJSON() : doc;
-  return obj as AgentSessionMessage;
-}
 
-function validateAndNormalizeMessage(
-  base: Omit<AgentSessionMessage, 'user_id' | 'session_id'>
-): Omit<AgentSessionMessage, 'user_id' | 'session_id'> {
-  const msg: Omit<AgentSessionMessage, 'user_id' | 'session_id'> = {
-    ...base,
-    message_id: base.message_id ?? uuidv4(),
-    timestamp: base.timestamp ?? new Date()
-  };
-
-  // content validation
-  const dt = (msg as any)?.content?.data_type;
-  if (dt !== 'json' && dt !== 'string') {
-    throw new Error('content.data_type must be "json" or "string"');
-  }
-
-  // tool/mcp invariants
-  if (msg.model_response_type === 'tool_call') {
-    const td = (msg as any)?.content?.tool_details;
-    if (!td || !td.tool_name || typeof td.tool_name !== 'string') {
-      throw new Error('tool_call requires content.tool_details.tool_name');
-    }
-  }
-  if (msg.model_response_type === 'mcp_call') {
-    const md = (msg as any)?.content?.mcp_details;
-    if (!md || !md.server_name || !md.tool_name) {
-      throw new Error('mcp_call requires content.mcp_details.server_name and .tool_name');
-    }
-  }
-
-  return msg;
-}
 
 export class MongooseSessionMessageRepository implements SessionMessageRepository {
   private static readonly messageFactory = new AgentSessionMessageModelFactory();
@@ -61,6 +26,38 @@ export class MongooseSessionMessageRepository implements SessionMessageRepositor
     private readonly messageModel: Model<AgentSessionMessage>,
     private readonly sessionModel: Model<any>
   ) {}
+
+  private static validateAndNormalizeMessage(
+    base: Omit<AgentSessionMessage, 'user_id' | 'session_id'>
+  ): Omit<AgentSessionMessage, 'user_id' | 'session_id'> {
+    const msg: Omit<AgentSessionMessage, 'user_id' | 'session_id'> = {
+      ...base,
+      message_id: base.message_id ?? uuidv4(),
+      timestamp: base.timestamp ?? new Date()
+    };
+
+    // content validation
+    const dt = (msg as any)?.content?.data_type;
+    if (dt !== 'json' && dt !== 'string') {
+      throw new Error('content.data_type must be "json" or "string"');
+    }
+
+    // tool/mcp invariants
+    if (msg.model_response_type === 'tool_call') {
+      const td = (msg as any)?.content?.tool_details;
+      if (!td || !td.tool_name || typeof td.tool_name !== 'string') {
+        throw new Error('tool_call requires content.tool_details.tool_name');
+      }
+    }
+    if (msg.model_response_type === 'mcp_call') {
+      const md = (msg as any)?.content?.mcp_details;
+      if (!md || !md.server_name || !md.tool_name) {
+        throw new Error('mcp_call requires content.mcp_details.server_name and .tool_name');
+      }
+    }
+
+    return msg;
+  }
 
   // Async factory
   static async create(params: { db: string; host?: string; port?: number }): Promise<SessionMessageRepository> {
@@ -74,7 +71,7 @@ export class MongooseSessionMessageRepository implements SessionMessageRepositor
   async appendMessages(input: AppendMessagesInput): Promise<number> {
     const { user_id, session_id } = input;
     const prepared: AgentSessionMessage[] = input.messages.map((m) => {
-      const normalized = validateAndNormalizeMessage({
+      const normalized = MongooseSessionMessageRepository.validateAndNormalizeMessage({
         message_id: (m as any).message_id,
         sender: m.sender,
         agent_context: m.agent_context,
@@ -137,7 +134,7 @@ export class MongooseSessionMessageRepository implements SessionMessageRepositor
       .lean();
 
     return {
-      items: items.map((i: any) => toDomain(i))
+      items: items.map((i: any) => MongooseUtils.toDomain<AgentSessionMessage>(i))
       // total omitted to avoid extra count; can be added if needed
     };
   }
@@ -154,7 +151,7 @@ export class MongooseSessionMessageRepository implements SessionMessageRepositor
         message_id: params.message_id
       })
       .lean();
-    return found ? (toDomain(found) as AgentSessionMessage) : null;
+    return found ? (MongooseUtils.toDomain<AgentSessionMessage>(found) as AgentSessionMessage) : null;
   }
 
   async deleteMessages(params: {
@@ -204,12 +201,4 @@ export class MongooseSessionMessageRepository implements SessionMessageRepositor
 
     return deletedCount;
   }
-}
-
-export async function createSessionMessageRepository(params: {
-  db: string;
-  host?: string;
-  port?: number;
-}): Promise<SessionMessageRepository> {
-  return MongooseSessionMessageRepository.create(params);
 }

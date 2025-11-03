@@ -17,11 +17,13 @@ Project-specific guidelines for a TypeScript-based web application with AI/quiz 
   - Type definitions: xyz.types.ts (e.g., user.types.ts, ai_prompt.types.ts)
   - Controllers: xyz.controller.ts (e.g., auth.controller.ts, quiz.controller.ts)
 - Avoid excessive comments in code
-- No free/global functions: define all functions inside classes. Public or static methods are allowed; do not export standalone functions to avoid namespace pollution. Only make exceptions when absolutely required, and document the rationale inline.
+- No free/global functions: define all functions inside classes. Public or static methods are allowed; do not export standalone functions to avoid namespace pollution.
+- Allowed exceptions (narrow):
+  - Decorators in lib/decorators/** are permitted to expose decorator factories as top-level functions if required by decorator syntax.
+  - Scripts in scripts/** may use top-level functions for CLI/bootstrap convenience.
 
 ## TypeScript patterns
-- Encapsulate behavior in classes: all functions should be class methods (instance or static). Do not export free/global functions.
-- Exceptions: only when absolutely required (e.g., framework bootstrap).
+- Encapsulate behavior in classes: all functions should be class methods (instance or static). Do not export free/global functions except in the allowed exceptions above.
 - Define types in dedicated types/ subdirectories within each module
 - Use interfaces for service contracts (e.g., agent_interface.ts, ai_svc_interface.ts)
 - Keep models in separate models/ subdirectories when needed

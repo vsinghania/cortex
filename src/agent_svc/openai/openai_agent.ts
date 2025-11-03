@@ -1,6 +1,6 @@
 import { AgentBase } from '../agent_base.js';
 import { Agent as SdkAgent, run } from '@openai/agents';
-import { toSdkFunctionTool, buildMcpServersFromConfig } from './openai_converters.js';
+import { OpenAiConverters } from './openai_converters.js';
 import type { AgentInput, AgentRunOptions, AgentResult, AgentMessage } from '../types/agent.types.js';
 import { mcp_config_schema, type McpConfig } from '../../mcp/client/types/mcp_config.types.js';
 import { logger } from '../../common/logger.js';
@@ -15,7 +15,7 @@ export class OpenAiAgent extends AgentBase {
       const model = process.env.OPENAI_MODEL || 'gpt-4.1';
 
       // Convert in-process tools to Agents SDK tools
-      const function_tools = this.listTools().map(toSdkFunctionTool);
+      const function_tools = this.listTools().map(OpenAiConverters.toSdkFunctionTool);
 
       // Build MCP servers from provided config(s) in options.metadata or input.context
       let mcp_servers: unknown[] = [];
@@ -30,7 +30,7 @@ export class OpenAiAgent extends AgentBase {
         } else {
           mcp_configs = [mcp_config_schema.parse(raw_cfgs)];
         }
-        mcp_servers = await buildMcpServersFromConfig(mcp_configs);
+        mcp_servers = await OpenAiConverters.buildMcpServersFromConfig(mcp_configs);
       }
 
       // TODO: Tool agents as tools and handoffs integration can be added when sub-agents are OpenAI-backed

@@ -2,9 +2,9 @@ import { v4 as uuidv4 } from 'uuid';
 import type { AgentSession, SessionLiveMode } from './types/session.types.js';
 import type { SessionMessage } from './types/session_message.types.js';
 import type { SessionRepository } from './repositories/session_repository_interface.js';
-import { createSessionRepository } from './repositories/mongoose_session_repository.js';
+import { MongooseSessionRepository } from './repositories/mongoose_session_repository.js';
 import type { SessionMessageRepository } from './repositories/session_message_repository_interface.js';
-import { createSessionMessageRepository } from './repositories/mongoose_session_message_repository.js';
+import { MongooseSessionMessageRepository } from './repositories/mongoose_session_message_repository.js';
 
 /**
  * Simple per-session manager with in-memory session header snapshot.
@@ -30,9 +30,9 @@ export class SessionManager {
     session_name?: string;
     live_mode?: SessionLiveMode;
   }): Promise<{ session: AgentSession; manager: SessionManager }> {
-    const { session_repo, messages_repo } = await bootstrapRepos();
+    const { session_repo, messages_repo } = await SessionManager.bootstrapRepos();
     const session_id = uuidv4();
-    const final_name = normalizeNonEmptyName(params.session_name) ?? defaultSessionName();
+    const final_name = SessionManager.normalizeNonEmptyName(params.session_name) ?? SessionManager.defaultSessionName();
     const live_mode = params.live_mode ?? 'live';
 
     const session = await session_repo.createSession({
@@ -50,7 +50,7 @@ export class SessionManager {
   }
 
   static async forExisting(params: { user_id: string; session_id: string }): Promise<SessionManager> {
-    const { session_repo, messages_repo } = await bootstrapRepos();
+    const { session_repo, messages_repo } = await SessionManager.bootstrapRepos();
     const manager = new SessionManager(session_repo, messages_repo, params.user_id, params.session_id);
     const header = await session_repo.getByKey({ user_id: params.user_id, session_id: params.session_id });
     if (!header) {
@@ -62,6 +62,33 @@ export class SessionManager {
 
   private setSession(s: AgentSession) {
     this.session = s;
+  }
+
+  private static async bootstrapRepos(): Promise<{
+    session_repo: SessionRepository;
+    messages_repo: SessionMessageRepository;
+  }> {
+    const host = process.env.MONGO_HOST ?? '127.0.0.1';
+    const port = Number(process.env.MONGO_PORT ?? 27017);
+    const db = 'agent_db';
+
+    const session_repo = await MongooseSessionRepository.create({ db, host, port });
+    const messages_repo = await MongooseSessionMessageRepository.create({ db, host, port });
+    return { session_repo, messages_repo };
+  }
+
+  private static defaultSessionName(now: Date = new Date()): string {
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+  }
+
+  private static normalizeNonEmptyName(name?: string): string | undefined {
+    const trimmed = (name ?? '').trim();
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   async appendUserMessage(user_text: string): Promise<number> {
@@ -121,34 +148,4 @@ export class SessionManager {
   get ids() {
     return { user_id: this.user_id, session_id: this.session_id };
   }
-}
-
-// Internal bootstrap using env for host/port and fixed db 'agent_db'
-async function bootstrapRepos(): Promise<{
-  session_repo: SessionRepository;
-  messages_repo: SessionMessageRepository;
-}> {
-  const host = process.env.MONGO_HOST ?? '127.0.0.1';
-  const port = Number(process.env.MONGO_PORT ?? 27017);
-  const db = 'agent_db';
-
-  const session_repo = await createSessionRepository({ db, host, port });
-  const messages_repo = await createSessionMessageRepository({ db, host, port });
-  return { session_repo, messages_repo };
-}
-
-// Helpers
-
-function defaultSessionName(now: Date = new Date()): string {
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const hh = String(now.getHours()).padStart(2, '0');
-  const min = String(now.getMinutes()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
-}
-
-function normalizeNonEmptyName(name?: string): string | undefined {
-  const trimmed = (name ?? '').trim();
-  return trimmed.length > 0 ? trimmed : undefined;
 }

@@ -4,12 +4,8 @@ import type { Quiz } from '../types/quiz.types.js';
 import type { QuizRepository } from './quiz_repository_interface.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
 import { BaseModelFactory } from '../../db/mongo/base_model_factory.js';
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 
-// Keep domain conversion narrow and consistent
-function toDomain(doc: any): Quiz {
-  const obj = typeof doc?.toJSON === 'function' ? doc.toJSON() : doc;
-  return obj as Quiz;
-}
 
 // Module-private model factory to encapsulate schema/model.
 // The model is created per-Connection and never exported.
@@ -91,12 +87,12 @@ export class MongooseQuizRepository implements QuizRepository {
 
   async createQuiz(quiz: Quiz): Promise<Quiz> {
     const created = await this.model.create(quiz);
-    return toDomain(created);
+    return MongooseUtils.toDomain<Quiz>(created);
   }
 
   async getQuizById(quiz_id: string): Promise<Quiz | null> {
     const found = await this.model.findOne({ quiz_id }).lean();
-    return found ? (toDomain(found) as Quiz) : null;
+    return found ? (MongooseUtils.toDomain<Quiz>(found) as Quiz) : null;
   }
 
   async listQuizzes(params?: { limit?: number; cursor?: string }): Promise<{ items: Quiz[]; next_cursor?: string }> {
@@ -118,7 +114,7 @@ export class MongooseQuizRepository implements QuizRepository {
     }
 
     return {
-      items: items.map((i: any) => toDomain(i)),
+      items: items.map((i: any) => MongooseUtils.toDomain<Quiz>(i)),
       next_cursor
     };
   }
@@ -136,7 +132,7 @@ export class MongooseQuizRepository implements QuizRepository {
       { new: true }
     ).lean();
 
-    return updated ? (toDomain(updated) as Quiz) : null;
+    return updated ? (MongooseUtils.toDomain<Quiz>(updated) as Quiz) : null;
   }
 
   async deleteQuiz(quiz_id: string): Promise<boolean> {

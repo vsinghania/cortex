@@ -3,12 +3,7 @@ import type { AgentSession, CreateSessionInput, UpdateSessionPatch } from '../ty
 import type { SessionRepository, SessionListParams, SessionListResult } from './session_repository_interface.js';
 import { AgentSessionModelFactory } from '../models/index.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
-
-// Keep domain conversion narrow and consistent
-function toDomain(doc: any): AgentSession {
-  const obj = typeof doc?.toJSON === 'function' ? doc.toJSON() : doc;
-  return obj as AgentSession;
-}
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 
 export class MongooseSessionRepository implements SessionRepository {
   private static readonly factory = new AgentSessionModelFactory();
@@ -35,7 +30,7 @@ export class MongooseSessionRepository implements SessionRepository {
       is_archived: input.is_archived ?? false,
       metadata: input.metadata ?? { message_count: 0 }
     });
-    return toDomain(created);
+    return MongooseUtils.toDomain<AgentSession>(created);
   }
 
   async getByKey(params: { user_id: string; session_id: string }): Promise<AgentSession | null> {
@@ -43,7 +38,7 @@ export class MongooseSessionRepository implements SessionRepository {
       user_id: params.user_id,
       session_id: params.session_id
     }).lean();
-    return found ? (toDomain(found) as AgentSession) : null;
+    return found ? (MongooseUtils.toDomain<AgentSession>(found) as AgentSession) : null;
   }
 
   async listSessions(params: SessionListParams): Promise<SessionListResult> {
@@ -62,7 +57,7 @@ export class MongooseSessionRepository implements SessionRepository {
     ]);
 
     return {
-      items: items.map((i: any) => toDomain(i)),
+      items: items.map((i: any) => MongooseUtils.toDomain<AgentSession>(i)),
       total
     };
   }
@@ -84,7 +79,7 @@ export class MongooseSessionRepository implements SessionRepository {
       { new: true }
     ).lean();
 
-    return updated ? (toDomain(updated) as AgentSession) : null;
+    return updated ? (MongooseUtils.toDomain<AgentSession>(updated) as AgentSession) : null;
   }
 
   async deleteByKey(params: { user_id: string; session_id: string }): Promise<boolean> {
@@ -94,8 +89,4 @@ export class MongooseSessionRepository implements SessionRepository {
     });
     return (res.deletedCount ?? 0) > 0;
   }
-}
-
-export async function createSessionRepository(params: { db: string; host?: string; port?: number }): Promise<SessionRepository> {
-  return MongooseSessionRepository.create(params);
 }
