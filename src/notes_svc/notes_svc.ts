@@ -2,6 +2,7 @@ import type { Note, NoteContainer, NoteMetadata, NoteVectorization } from './typ
 import { NoteSource, SyncStatus, Visibility } from './types/note.types.js';
 import type { NoteRepository, NoteListParams as RepoListParams, NoteListResult as RepoListResult } from './repositories/note_repository_interface.js';
 import { MongooseNoteRepository } from './repositories/mongoose_note_repository.js';
+import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 
 export type NoteListParams = RepoListParams;
 export type NoteListResult = RepoListResult;
@@ -47,7 +48,7 @@ export class NotesSvc {
   constructor(private readonly repo: NoteRepository) {}
 
   static async createWithMongo(params?: { db?: string; host?: string; port?: number }): Promise<NotesSvc> {
-    const db = params?.db ?? process.env.MONGO_DB_APP ?? 'cortex';
+    const db = params?.db ?? DbNameResolver.resolve('notes');
     const repo = await MongooseNoteRepository.create({ db, host: params?.host, port: params?.port });
     return new NotesSvc(repo);
   }

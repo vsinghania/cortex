@@ -16,11 +16,6 @@ type CacheEntry = {
   tail: SessionMessage[];
 };
 
-
-
-
-
-
 export class AgentSvc implements AgentSvcInterface {
   private managers: Cache<string, CacheEntry> = new LruCache<string, CacheEntry>({
     max: 1000,

@@ -5,6 +5,7 @@ import type { SessionRepository } from './repositories/session_repository_interf
 import { MongooseSessionRepository } from './repositories/mongoose_session_repository.js';
 import type { SessionMessageRepository } from './repositories/session_message_repository_interface.js';
 import { MongooseSessionMessageRepository } from './repositories/mongoose_session_message_repository.js';
+import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 
 /**
  * Simple per-session manager with in-memory session header snapshot.
@@ -70,7 +71,7 @@ export class SessionManager {
   }> {
     const host = process.env.MONGO_HOST ?? '127.0.0.1';
     const port = Number(process.env.MONGO_PORT ?? 27017);
-    const db = 'agent_db';
+    const db = DbNameResolver.resolve('agent');
 
     const session_repo = await MongooseSessionRepository.create({ db, host, port });
     const messages_repo = await MongooseSessionMessageRepository.create({ db, host, port });

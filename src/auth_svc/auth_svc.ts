@@ -17,8 +17,10 @@ import type { RefreshTokenRepository } from './repositories/refresh_token_reposi
 import { PasswordUtils } from './utils/password_utils.js';
 import { TokenUtils } from './utils/token_utils.js';
 import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from '../common/errors.js';
+import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 
-const APP_DB = process.env.MONGO_DB_APP ?? 'cortex';
+const USER_DB = DbNameResolver.resolve('user');
+const AUTH_DB = DbNameResolver.resolve('auth');
 
 
 export class AuthSvc implements AuthSvcInterface {
@@ -32,8 +34,8 @@ export class AuthSvc implements AuthSvcInterface {
   }
 
   async init(): Promise<void> {
-    this.user_repo = await MongooseUserRepository.create({ db: APP_DB });
-    this.rt_repo = await MongooseRefreshTokenRepository.create({ db: APP_DB });
+    this.user_repo = await MongooseUserRepository.create({ db: USER_DB });
+    this.rt_repo = await MongooseRefreshTokenRepository.create({ db: AUTH_DB });
   }
 
   static async create(): Promise<AuthSvc> {

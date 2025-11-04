@@ -5,11 +5,12 @@ import { setupNotesTools } from './adapter.js';
 import { NotesSvc } from '../../../notes_svc/notes_svc.js';
 import { MongooseConnectionManager } from '../../../db/mongo/mongoose_connection_manager.js';
 import { logger } from '../../../common/logger.js';
+import { DbNameResolver } from '../../../db/mongo/db_name_resolver.js';
 
 async function main() {
   const host = process.env.MONGO_HOST ?? 'localhost';
   const port = Number(process.env.MONGO_PORT ?? 27017);
-  const db = process.env.MONGO_DB_APP ?? 'cortex';
+  const db = DbNameResolver.resolve('notes');
 
   try {
     // Bootstrap Mongo base connection (admin DB)
