@@ -44,3 +44,9 @@ Project-specific guidelines for a TypeScript-based web application with AI/quiz 
   - External responses (LLMs, webhooks, 3rd-party APIs)
   - Env/config at startup
 - Use plain TS types for internal domain/services after validation.
+
+## Git and commit conventions
+- Single-line commit messages only. Do not include a body or additional lines.
+- Keep the subject concise (ideally ≤ 72 characters), present-tense, imperative mood.
+- Prefer a short scope when helpful: type(scope): summary
+- Allowed types: feat, fix, refactor, docs, test, chore, build, ci, perf, revert.
