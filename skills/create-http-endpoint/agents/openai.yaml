@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create HTTP Endpoint"
+  short_description: "Add Cortex-style backend routes"
+  default_prompt: "Use $create-http-endpoint to add a validated HTTP endpoint to this Cortex backend."
