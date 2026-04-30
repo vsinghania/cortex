@@ -61,17 +61,21 @@ export class StdioMcpClient implements McpClientInterface {
     this.state = 'connecting';
     this.connectPromise = (async () => {
       // Build a strongly-typed env map (Record<string, string>) to satisfy StdioClientTransport
-      const envVars: Record<string, string> | undefined =
+      const envVars: Record<string, string> =
         this.cfg.stdio.env
           ? (Object.fromEntries(
               Object.entries(this.cfg.stdio.env as Record<string, unknown>).map(([k, v]) => [k, String(v)])
             ) as Record<string, string>)
-          : undefined;
+          : {};
+
+      if (process.env.MCP_STDIO !== undefined && envVars.MCP_STDIO === undefined) {
+        envVars.MCP_STDIO = process.env.MCP_STDIO;
+      }
 
       const serverParams: StdioServerParameters = {
         command: this.cfg.stdio.command,
         args: this.cfg.stdio.args ?? [],
-        env: envVars,
+        env: Object.keys(envVars).length > 0 ? envVars : undefined,
         cwd: this.cfg.stdio.cwd,
         stderr: "pipe",
       };

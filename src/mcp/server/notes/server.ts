@@ -1,64 +1,61 @@
 import 'dotenv/config';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { setupNotesTools } from './adapter.js';
-import { NotesSvc } from '../../../notes_svc/notes_svc.js';
-import { MongooseConnectionManager } from '../../../db/mongo/mongoose_connection_manager.js';
+import { NotesMcpModule } from './notes_mcp_module.js';
+import { BaseMcpHttpServer } from '../base_mcp_http_server.js';
 import { logger } from '../../../common/logger.js';
-import { DbNameResolver } from '../../../db/mongo/db_name_resolver.js';
+import type { McpModule } from '../mcp_module.js';
+import type { McpHttpConfig, McpServerInfo } from '../types/mcp_server.types.js';
 
-async function main() {
-  const host = process.env.MONGO_HOST ?? 'localhost';
-  const port = Number(process.env.MONGO_PORT ?? 27017);
-  const db = DbNameResolver.resolve('notes');
-
-  try {
-    // Bootstrap Mongo base connection (admin DB)
-    await MongooseConnectionManager.getInstance({ host, port });
-    logger.info({ msg: 'Mongo base connection bootstrapped for MCP server', host, port });
-  } catch (e) {
-    logger.warn({ msg: 'Mongo bootstrap failed for MCP server; continuing. Tools may error.', error: (e as Error)?.message });
+export class NotesMcpHttpServer extends BaseMcpHttpServer {
+  protected getServerInfo(): McpServerInfo {
+    return {
+      name: 'cortex-notes-mcp',
+      version: '1.0.0',
+      log_name: 'notes_mcp',
+      options: {
+        debouncedNotificationMethods: [
+          'notifications/tools/list_changed',
+          'notifications/resources/list_changed',
+          'notifications/prompts/list_changed'
+        ]
+      }
+    };
   }
 
-  // Create Notes service bound to application DB
-  const notes_svc = await NotesSvc.createWithMongo({ db, host, port });
-
-  const server = new McpServer(
-    { name: 'notes-mcp', version: '1.0.0' },
-    {
-      debouncedNotificationMethods: [
-        'notifications/tools/list_changed',
-        'notifications/resources/list_changed',
-        'notifications/prompts/list_changed'
-      ]
+  protected getHttpConfig(): McpHttpConfig {
+    const auth_token = process.env.MCP_NOTES_AUTH_TOKEN;
+    if (!auth_token) {
+      throw new Error('MCP_NOTES_AUTH_TOKEN is required to start the notes MCP HTTP server.');
     }
-  );
 
-  // Register domain tools
-  setupNotesTools(server, notes_svc);
+    return {
+      host: process.env.MCP_NOTES_HOST ?? '127.0.0.1',
+      port: Number(process.env.MCP_NOTES_PORT ?? 3010) || 3010,
+      path: process.env.MCP_NOTES_PATH ?? '/mcp',
+      auth_token,
+      allowed_hosts: NotesMcpHttpServer.resolveAllowedHosts()
+    };
+  }
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  protected async createMcpModules(): Promise<McpModule[]> {
+    return [await NotesMcpModule.create()];
+  }
 
-  logger.info('Notes MCP server (stdio) is ready.');
-
-  const shutdown = async () => {
-    try {
-      const mgr = MongooseConnectionManager.getExistingInstance();
-      if (mgr) {
-        await mgr.disconnectAll();
-      }
-    } finally {
-      process.exit(0);
+  private static resolveAllowedHosts(): string[] | undefined {
+    const raw_allowed_hosts = process.env.MCP_NOTES_ALLOWED_HOSTS;
+    if (!raw_allowed_hosts) {
+      return undefined;
     }
-  };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+    const allowed_hosts = raw_allowed_hosts
+      .split(',')
+      .map((host) => host.trim())
+      .filter(Boolean);
+
+    return allowed_hosts.length > 0 ? allowed_hosts : undefined;
+  }
 }
 
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('Notes MCP server failed to start', err);
+new NotesMcpHttpServer().start().catch((error: unknown) => {
+  logger.error({ err: error }, 'notes_mcp_server_start_failed');
   process.exit(1);
 });

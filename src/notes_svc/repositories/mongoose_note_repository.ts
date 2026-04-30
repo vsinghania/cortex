@@ -63,7 +63,7 @@ export class MongooseNoteRepository implements NoteRepository {
       cursor.skip(offset).limit(limit).lean(),
       this.model.countDocuments(filter)
     ]);
-    console.log(JSON.stringify(items));
+
     return {
       items: items.map((i: any) => MongooseUtils.toDomain<Note>(i)),
       total

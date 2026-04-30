@@ -65,7 +65,7 @@ export class OpenAiConverters {
 
     for (const cfg of arr) {
       if (cfg.transport !== 'stdio' || !cfg.stdio) {
-        throw new Error('Only stdio MCP transport is supported for now.');
+        throw new Error('Only stdio MCP transport is supported by the OpenAI Agents bridge for now; remote HTTP MCP is handled by the Cortex MCP client adapter.');
         }
 
       const { command, args = [], env, cwd, startup_timeout_ms } = cfg.stdio;

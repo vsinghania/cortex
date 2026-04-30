@@ -1,8 +1,9 @@
 import type { McpClientInterface } from "../interfaces/mcp_client_interface.js";
+import { HttpMcpClient } from "../adapters/http_mcp_client.js";
 import { StdioMcpClient } from "../adapters/stdio_mcp_client.js";
 import { mcp_config_schema, type McpConfig } from "../types/mcp_config.types.js";
 
-// Simple singleton registry to prevent multiple stdio spawns for the same config within a process.
+// Simple singleton registry to prevent multiple equivalent MCP clients within a process.
 const clientRegistry = new Map<string, McpClientInterface>();
 
 function stableStringify(obj: Record<string, unknown>) {
@@ -29,18 +30,30 @@ function keyForConfig(cfg: McpConfig): string {
       cmd: cfg.stdio.command,
       args: cfg.stdio.args ?? [],
       cwd: cfg.stdio.cwd ?? "",
-      env: env ?? {}, 
+      env: env ?? {},
       // Startup timeout is excluded from identity (doesn't change which server it is)
     };
     return stableStringify(keyObj);
   }
-  // For other transports (future), include fields that uniquely identify the remote server
+
+  if (cfg.transport === "http" && cfg.http) {
+    const headers = cfg.http.headers
+      ? Object.fromEntries(Object.entries(cfg.http.headers).sort(([a],[b]) => a.localeCompare(b)))
+      : undefined;
+    const keyObj = {
+      transport: "http",
+      base_url: cfg.http.base_url,
+      headers: headers ?? {},
+      auth_token: cfg.http.auth_token ?? "",
+    };
+    return stableStringify(keyObj);
+  }
+
   return stableStringify({ transport: cfg.transport, raw: cfg as unknown as Record<string, unknown> });
 }
 
 /**
  * Create an MCP client from a validated config.
- * Currently supports stdio transport. HTTP will be added later.
  */
 export function createMcpClient(cfg: McpConfig): McpClientInterface {
   if (cfg.transport === "stdio") {
@@ -54,8 +67,18 @@ export function createMcpClient(cfg: McpConfig): McpClientInterface {
     return client;
   }
 
-  // Placeholder for future HTTP/SSE transport
-  throw new Error("HTTP transport not yet implemented");
+  if (cfg.transport === "http") {
+    if (!cfg.http) throw new Error("http config is required for http transport");
+    const key = keyForConfig(cfg);
+    const existing = clientRegistry.get(key);
+    if (existing) return existing;
+
+    const client = new HttpMcpClient({ client: cfg.client, http: cfg.http });
+    clientRegistry.set(key, client);
+    return client;
+  }
+
+  throw new Error(`Unsupported MCP transport: ${cfg.transport}`);
 }
 
 /**
