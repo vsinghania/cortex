@@ -45,24 +45,24 @@ export type NotePatch = Partial<Omit<Note, 'user_id' | 'source' | 'external_id' 
  *  - created_at/updated_at: now
  */
 export class NotesSvc {
-  constructor(private readonly repo: NoteRepository) {}
+  constructor(private readonly notes_repo: NoteRepository) {}
 
-  static async createWithMongo(params?: { db?: string; host?: string; port?: number }): Promise<NotesSvc> {
+  static async create(params?: { db?: string; host?: string; port?: number }): Promise<NotesSvc> {
     const db = params?.db ?? DbNameResolver.resolve('notes');
-    const repo = await MongooseNoteRepository.create({ db, host: params?.host, port: params?.port });
-    return new NotesSvc(repo);
+    const notes_repo = await MongooseNoteRepository.create({ db, host: params?.host, port: params?.port });
+    return new NotesSvc(notes_repo);
   }
 
   async listNotes(params: NoteListParams): Promise<NoteListResult> {
-    return this.repo.listNotes(params);
+    return this.notes_repo.listNotes(params);
   }
 
   async getNoteByKey(key: NoteKey): Promise<Note | null> {
-    return this.repo.getNoteByKey(key);
+    return this.notes_repo.getNoteByKey(key);
   }
 
   async upsertNote(input: NoteUpsertInput): Promise<Note> {
-    const existing = await this.repo.getNoteByKey(input);
+    const existing = await this.notes_repo.getNoteByKey(input);
     const now = new Date();
 
     if (existing) {
@@ -84,11 +84,11 @@ export class NotesSvc {
         vectorization: input.vectorization ?? existing.vectorization
       };
 
-      const updated = await this.repo.updateNoteByKey({
+      const updated = await this.notes_repo.updateNoteByKey({
         ...input,
         patch
       });
-      // repo returns null if not found; but we already checked
+      // notes_repo returns null if not found; but we already checked
       return updated ?? existing;
     }
 
@@ -122,18 +122,18 @@ export class NotesSvc {
       updated_at: now
     };
 
-    return this.repo.createNote(note);
+    return this.notes_repo.createNote(note);
   }
 
   async updateNoteByKey(params: NoteKey & { patch: NotePatch }): Promise<Note | null> {
-    return this.repo.updateNoteByKey(params);
+    return this.notes_repo.updateNoteByKey(params);
   }
 
   async deleteNoteByKey(key: NoteKey): Promise<boolean> {
-    return this.repo.deleteNoteByKey(key);
+    return this.notes_repo.deleteNoteByKey(key);
   }
 
   async searchNotes(params: { user_id: string; query: string; limit?: number; offset?: number }): Promise<NoteListResult> {
-    return this.repo.searchNotes(params);
+    return this.notes_repo.searchNotes(params);
   }
 }

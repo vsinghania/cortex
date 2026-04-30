@@ -114,7 +114,7 @@ export class NotesMcpModule extends McpModule {
     const db = DbNameResolver.resolve('notes');
 
     await this.bootstrapMongo(mongo_host, mongo_port);
-    this.notes_svc = await NotesSvc.createWithMongo({
+    this.notes_svc = await NotesSvc.create({
       db,
       host: mongo_host,
       port: mongo_port
