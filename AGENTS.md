@@ -17,6 +17,8 @@ Project-specific guidelines for a TypeScript-based web application with AI/quiz 
   - Type definitions: xyz.types.ts (e.g., user.types.ts, ai_prompt.types.ts)
   - Controllers: xyz.controller.ts (e.g., auth.controller.ts, quiz.controller.ts)
 - Avoid excessive comments in code
+- Prefer small classes and small methods/functions that each have a single responsibility.
+- Keep method/function parameter lists short; group related inputs into typed objects when it improves readability.
 - No free/global functions: define all functions inside classes. Public or static methods are allowed; do not export standalone functions to avoid namespace pollution.
 - Allowed exceptions (narrow):
   - Decorators in lib/decorators/** are permitted to expose decorator factories as top-level functions if required by decorator syntax.
