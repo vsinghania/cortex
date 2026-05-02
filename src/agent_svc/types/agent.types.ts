@@ -1,4 +1,4 @@
-import type { ZodType } from 'zod';
+import type { AnyZodObject } from 'zod';
 import type { Logger } from 'pino';
 import type { PromptMessage } from '../../ai_svc/types/ai_prompt.types.js';
 
@@ -16,7 +16,6 @@ export type AgentManifest = {
   tool_agent_ids: string[];
   handoff_agent_ids: string[];
   mcp_server_ids: string[];
-  output_schema_ref?: string;
   enabled: boolean;
   version: number;
   created_at: Date;
@@ -38,7 +37,7 @@ export type ToolContext = {
 export interface Tool<TArgs = unknown> {
   name: string;
   description: string;
-  input_schema: ZodType<TArgs>;
+  input_schema: AnyZodObject;
   execute(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
 }
 

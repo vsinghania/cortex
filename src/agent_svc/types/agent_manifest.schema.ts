@@ -11,7 +11,6 @@ export const agent_manifest_schema = z.object({
   tool_agent_ids: z.array(z.string()).default([]),
   handoff_agent_ids: z.array(z.string()).default([]),
   mcp_server_ids: z.array(z.string()).default([]),
-  output_schema_ref: z.string().optional(),
   enabled: z.boolean().default(true),
   version: z.number().int().min(1).default(1),
   created_at: z.coerce.date(),

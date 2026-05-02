@@ -2,6 +2,7 @@ import { Schema } from 'mongoose';
 import type { AgentManifest } from '../types/agent.types.js';
 import { AgentImplKind } from '../types/agent.types.js';
 import { BaseModelFactory } from '../../db/mongo/base_model_factory.js';
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 
 export class AgentModelFactory extends BaseModelFactory<AgentManifest> {
   protected buildSchema(): Schema<AgentManifest> {
@@ -21,7 +22,6 @@ export class AgentModelFactory extends BaseModelFactory<AgentManifest> {
         tool_agent_ids: { type: [String], default: [] },
         handoff_agent_ids: { type: [String], default: [] },
         mcp_server_ids: { type: [String], default: [] },
-        output_schema_ref: { type: String, default: undefined },
         enabled: { type: Boolean, default: true, index: true },
         version: { type: Number, default: 1 },
       },
@@ -34,9 +34,7 @@ export class AgentModelFactory extends BaseModelFactory<AgentManifest> {
 
     schema.set('toJSON', {
       transform(_doc, ret) {
-        Reflect.deleteProperty(ret as any, '_id');
-        Reflect.deleteProperty(ret as any, '__v');
-        return ret;
+        return MongooseUtils.stripMongoFields(ret);
       },
     });
 

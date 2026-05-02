@@ -1,13 +1,26 @@
 export class MongooseUtils {
   private constructor() {}
 
+  public static stripMongoFields(ret: unknown): unknown {
+    if (!ret || typeof ret !== 'object') return ret;
+    const obj = ret as Record<string, unknown>;
+    Reflect.deleteProperty(obj, '_id');
+    Reflect.deleteProperty(obj, '__v');
+    return obj;
+  }
+
   /**
    * Safely convert a Mongoose document or plain object to a typed domain object.
    * - If the object has a toJSON function, it will be used.
    * - Otherwise, the object is returned as-is, typed as T.
    */
-  public static toDomain<T>(doc: any): T {
-    const obj = typeof doc?.toJSON === 'function' ? doc.toJSON() : doc;
+  public static toDomain<T>(doc: unknown): T {
+    const obj =
+      MongooseUtils.hasToJson(doc) ? doc.toJSON() : doc;
     return obj as T;
+  }
+
+  private static hasToJson(doc: unknown): doc is { toJSON: () => unknown } {
+    return !!doc && typeof doc === 'object' && 'toJSON' in doc && typeof doc.toJSON === 'function';
   }
 }

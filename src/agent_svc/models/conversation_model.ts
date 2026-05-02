@@ -2,6 +2,7 @@ import { Schema } from 'mongoose';
 import { Role } from '../../ai_svc/types/ai_prompt.types.js';
 import type { Conversation, ConversationMessage } from '../types/conversation.types.js';
 import { BaseModelFactory } from '../../db/mongo/base_model_factory.js';
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 
 export class ConversationModelFactory extends BaseModelFactory<Conversation> {
   protected buildSchema(): Schema<Conversation> {
@@ -22,9 +23,7 @@ export class ConversationModelFactory extends BaseModelFactory<Conversation> {
 
     schema.set('toJSON', {
       transform(_doc, ret) {
-        Reflect.deleteProperty(ret as any, '_id');
-        Reflect.deleteProperty(ret as any, '__v');
-        return ret;
+        return MongooseUtils.stripMongoFields(ret);
       },
     });
 
@@ -80,9 +79,7 @@ export class ConversationMessageModelFactory extends BaseModelFactory<Conversati
 
     schema.set('toJSON', {
       transform(_doc, ret) {
-        Reflect.deleteProperty(ret as any, '_id');
-        Reflect.deleteProperty(ret as any, '__v');
-        return ret;
+        return MongooseUtils.stripMongoFields(ret);
       },
     });
 

@@ -6,6 +6,7 @@ import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_ma
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 import { DbNameResolver } from '../../db/mongo/db_name_resolver.js';
 import { agent_manifest_schema } from '../types/agent_manifest.schema.js';
+import { InternalServerError } from '../../common/errors.js';
 
 export class MongooseAgentRepository implements AgentRepositoryInterface {
   private static readonly factory = new AgentModelFactory();
@@ -41,7 +42,12 @@ export class MongooseAgentRepository implements AgentRepositoryInterface {
       { $set: manifest },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     ).lean();
-    return MongooseAgentRepository.toDomain(updated as any);
+    if (!updated) {
+      throw new InternalServerError('Failed to upsert agent manifest', {
+        details: { agent_id: manifest.agent_id },
+      });
+    }
+    return MongooseAgentRepository.toDomain(updated);
   }
 
   async setEnabled(agent_id: string, enabled: boolean): Promise<AgentManifest | null> {
