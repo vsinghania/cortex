@@ -27,6 +27,7 @@ Project-specific guidelines for a TypeScript-based web application with AI/quiz 
 ## TypeScript patterns
 - Encapsulate behavior in classes: all functions should be class methods (instance or static). Do not export free/global functions except in the allowed exceptions above.
 - Prefer factory methods for object creation whenever practical, especially for classes that require async initialization or setup. Keep constructors private or minimal where a `static create(...)` method can centralize setup and prevent partially initialized instances.
+- Avoid `any` and `unknown` unless necessary; prefer specific types, interfaces, or validated schemas.
 - Define types in dedicated types/ subdirectories within each module
 - Use interfaces for service contracts (e.g., agent_interface.ts, ai_svc_interface.ts)
 - Keep models in separate models/ subdirectories when needed
