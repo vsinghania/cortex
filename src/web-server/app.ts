@@ -9,6 +9,7 @@ import { QuizController } from './quiz/quiz.controller.js';
 import { HealthController } from './health/health.controller.js';
 import cookieParser from 'cookie-parser';
 import { AuthController } from './auth/auth.controller.js';
+import { AgentController } from './agent/agent.controller.js';
 
 export class App {
 
@@ -64,6 +65,9 @@ export class App {
 
     const ai_controller = new AiController();
     v1_router.use('/ai', ai_controller.getRouter());
+
+    const agent_controller = new AgentController();
+    v1_router.use('/agent', agent_controller.getRouter());
 
     const quiz_controller = new QuizController();
     v1_router.use('/quiz', quiz_controller.getRouter());

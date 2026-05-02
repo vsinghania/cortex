@@ -1,0 +1,65 @@
+import type { Connection, Model } from 'mongoose';
+import type { AgentManifest } from '../types/agent.types.js';
+import type { AgentRepositoryInterface } from './agent_repository_interface.js';
+import { AgentModelFactory } from '../models/agent_model.js';
+import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
+import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
+import { DbNameResolver } from '../../db/mongo/db_name_resolver.js';
+import { agent_manifest_schema } from '../types/agent_manifest.schema.js';
+
+export class MongooseAgentRepository implements AgentRepositoryInterface {
+  private static readonly factory = new AgentModelFactory();
+
+  private constructor(
+    private readonly conn: Connection,
+    private readonly model: Model<AgentManifest>
+  ) {}
+
+  static async create(): Promise<MongooseAgentRepository> {
+    const mgr = await MongooseConnectionManager.getInstance();
+    const db = DbNameResolver.resolve('agent');
+    const conn = await mgr.getDbConnection({ db });
+    const model = MongooseAgentRepository.factory.getModel(conn);
+    return new MongooseAgentRepository(conn, model);
+  }
+
+  async listEnabled(): Promise<AgentManifest[]> {
+    const docs = await this.model.find({ enabled: true }).lean();
+    return docs.map((d) => MongooseAgentRepository.toDomain(d));
+  }
+
+  async getById(agent_id: string): Promise<AgentManifest | null> {
+    const doc = await this.model.findOne({ agent_id }).lean();
+    return doc ? MongooseAgentRepository.toDomain(doc) : null;
+  }
+
+  async upsertByAgentId(
+    manifest: Omit<AgentManifest, 'created_at' | 'updated_at'>
+  ): Promise<AgentManifest> {
+    const updated = await this.model.findOneAndUpdate(
+      { agent_id: manifest.agent_id },
+      { $set: manifest },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+    return MongooseAgentRepository.toDomain(updated as any);
+  }
+
+  async setEnabled(agent_id: string, enabled: boolean): Promise<AgentManifest | null> {
+    const doc = await this.model.findOneAndUpdate(
+      { agent_id },
+      { $set: { enabled } },
+      { new: true }
+    ).lean();
+    return doc ? MongooseAgentRepository.toDomain(doc) : null;
+  }
+
+  async deleteByAgentId(agent_id: string): Promise<boolean> {
+    const res = await this.model.deleteOne({ agent_id });
+    return (res.deletedCount ?? 0) > 0;
+  }
+
+  private static toDomain(raw: unknown): AgentManifest {
+    const obj = MongooseUtils.toDomain<unknown>(raw);
+    return agent_manifest_schema.parse(obj);
+  }
+}

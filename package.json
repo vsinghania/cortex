@@ -46,6 +46,7 @@
     "start": "node dist/web-server/server.js",
     "typecheck": "tsc --noEmit",
     "mcp:smoke": "tsx scripts/mcp_http_smoke.ts",
+    "agent:smoke": "tsx scripts/agent_smoke.ts",
     "mcp:dev": "tsx src/mcp/server/notes/server.ts",
     "mcp:start": "node dist/mcp/server/notes/server.js",
     "mcp:notes:dev": "tsx src/mcp/server/notes/server.ts",
