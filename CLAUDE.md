@@ -1,10 +1,10 @@
 ## Brief overview
-Project-specific guidelines for a TypeScript-based web application with AI/quiz services, following a clean architecture pattern with services, controllers, adapters, and repositories.
+Project-specific guidelines for a TypeScript-based web application with AI services, following a clean architecture pattern with services, controllers, adapters, and repositories.
 
 ## Project architecture
-- Use service layer pattern: separate services (ai_svc, quiz_svc) from web controllers
+- Use service layer pattern: separate services (ai_svc, agent_svc) from web controllers
 - Implement adapter pattern for external integrations (OpenAI, GenAI adapters in ai_svc/adapters/)
-- Place web server controllers in web-server/ directory, organized by feature (ai/, quiz/, user/)
+- Place web server controllers in web-server/ directory, organized by feature (ai/, agent/, user/)
 - Keep common utilities in common/ directory (errors, logger, middlewares)
 - Use repository pattern for data access when applicable
 
@@ -15,7 +15,7 @@ Project-specific guidelines for a TypeScript-based web application with AI/quiz 
 - File naming:
   - Base names: snake_case for TypeScript files
   - Type definitions: xyz.types.ts (e.g., user.types.ts, ai_prompt.types.ts)
-  - Controllers: xyz.controller.ts (e.g., auth.controller.ts, quiz.controller.ts)
+  - Controllers: xyz.controller.ts (e.g., auth.controller.ts, agent.controller.ts)
 - Avoid excessive comments in code
 - Prefer small classes and small methods/functions that each have a single responsibility.
 - Keep method/function parameter lists short; group related inputs into typed objects when it improves readability.
@@ -38,7 +38,7 @@ Project-specific guidelines for a TypeScript-based web application with AI/quiz 
 - Use validation decorators in lib/decorators/validation_decorators.ts
 
 ## Project organization
-- Group related functionality by domain/feature (agent/, ai_svc/, quiz_svc/, user/)
+- Group related functionality by domain/feature (agent/, ai_svc/, user/)
 - Keep infrastructure code (logger, validator, decorators) in lib/ directory
 - Separate web-server concerns from business logic
 

@@ -5,7 +5,6 @@ import { ErrorHandlerMiddleware } from '../common/middlewares/error_handler.js'
 import { nanoid } from 'nanoid';
 import { logger } from '../common/logger.js';
 import { AiController } from './ai/ai.controller.js';
-import { QuizController } from './quiz/quiz.controller.js';
 import { HealthController } from './health/health.controller.js';
 import cookieParser from 'cookie-parser';
 import { AuthController } from './auth/auth.controller.js';
@@ -68,9 +67,6 @@ export class App {
 
     const agent_controller = new AgentController();
     v1_router.use('/agent', agent_controller.getRouter());
-
-    const quiz_controller = new QuizController();
-    v1_router.use('/quiz', quiz_controller.getRouter());
 
     const health_controller = new HealthController();
     v1_router.use('/health', health_controller.getRouter());
