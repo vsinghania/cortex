@@ -1,6 +1,6 @@
 import { Schema } from 'mongoose';
 import type { AgentManifest } from '../types/agent.types.js';
-import { AgentImplKind } from '../types/agent.types.js';
+import { AgentEngine } from '../types/agent.types.js';
 import { BaseModelFactory } from '../../db/mongo/base_model_factory.js';
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 
@@ -12,11 +12,11 @@ export class AgentModelFactory extends BaseModelFactory<AgentManifest> {
         name: { type: String, required: true },
         instructions: { type: String, required: true },
         model: { type: String, default: undefined },
-        implementation: {
+        engine: {
           type: String,
-          enum: Object.values(AgentImplKind),
+          enum: Object.values(AgentEngine),
           required: true,
-          default: AgentImplKind.OpenAiAgents,
+          default: AgentEngine.OpenAi,
         },
         tool_names: { type: [String], default: [] },
         tool_agent_ids: { type: [String], default: [] },

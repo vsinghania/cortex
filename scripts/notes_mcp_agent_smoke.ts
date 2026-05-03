@@ -14,7 +14,7 @@ import { MongooseConnectionManager } from '../src/db/mongo/mongoose_connection_m
 import { MongooseAgentRepository } from '../src/agent_svc/repositories/mongoose_agent_repository.js';
 import { MongooseMcpServerRepository } from '../src/agent_svc/repositories/mongoose_mcp_server_repository.js';
 import { AgentSvc } from '../src/agent_svc/agent_svc.js';
-import { AgentImplKind } from '../src/agent_svc/types/agent.types.js';
+import { AgentEngine } from '../src/agent_svc/types/agent.types.js';
 import {
   McpServerMode,
   McpTransport,
@@ -109,7 +109,7 @@ class NotesMcpAgentSmoke {
         'You are a terse assistant for end-to-end testing of the notes MCP. ' +
         'When asked, call the appropriate notes.* tool exposed by the MCP server, ' +
         'then summarize the result in one or two short sentences.',
-      implementation: AgentImplKind.OpenAiAgents,
+      engine: AgentEngine.OpenAi,
       tool_names: [],
       tool_agent_ids: [],
       handoff_agent_ids: [],

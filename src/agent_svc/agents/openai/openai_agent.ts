@@ -125,9 +125,9 @@ export class OpenAiAgent extends BaseAgent {
           {
             parent: this.manifest.agent_id,
             child: child.manifest.agent_id,
-            child_impl: child.manifest.implementation,
+            child_engine: child.manifest.engine,
           },
-          'Skipping tool_agent: cross-implementation tool_agents are not supported'
+          'Skipping tool_agent: cross-engine tool_agents are not supported'
         );
         continue;
       }
@@ -150,9 +150,9 @@ export class OpenAiAgent extends BaseAgent {
           {
             parent: this.manifest.agent_id,
             child: child.manifest.agent_id,
-            child_impl: child.manifest.implementation,
+            child_engine: child.manifest.engine,
           },
-          'Skipping handoff_agent: cross-implementation handoffs are not supported'
+          'Skipping handoff_agent: cross-engine handoffs are not supported'
         );
         continue;
       }

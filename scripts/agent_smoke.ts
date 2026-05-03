@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { MongooseConnectionManager } from '../src/db/mongo/mongoose_connection_manager.js';
 import { MongooseAgentRepository } from '../src/agent_svc/repositories/mongoose_agent_repository.js';
 import { AgentSvc } from '../src/agent_svc/agent_svc.js';
-import { AgentImplKind } from '../src/agent_svc/types/agent.types.js';
+import { AgentEngine } from '../src/agent_svc/types/agent.types.js';
 
 class AgentSmoke {
   static async main(): Promise<void> {
@@ -39,7 +39,7 @@ class AgentSmoke {
       name: 'Smoke Echo Agent',
       instructions:
         'You are a terse assistant for end-to-end testing. When asked, call the `ping` tool, then summarize its result in one sentence.',
-      implementation: AgentImplKind.OpenAiAgents,
+      engine: AgentEngine.OpenAi,
       tool_names: ['ping'],
       tool_agent_ids: [],
       handoff_agent_ids: [],

@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { AgentImplKind } from './agent.types.js';
+import { AgentEngine } from './agent.types.js';
 
 export const agent_manifest_schema = z.object({
   agent_id: z.string().min(1),
   name: z.string().min(1),
   instructions: z.string().min(1),
   model: z.string().optional(),
-  implementation: z.nativeEnum(AgentImplKind),
+  engine: z.nativeEnum(AgentEngine),
   tool_names: z.array(z.string()).default([]),
   tool_agent_ids: z.array(z.string()).default([]),
   handoff_agent_ids: z.array(z.string()).default([]),

@@ -2,8 +2,8 @@ import type { AnyZodObject } from 'zod';
 import type { Logger } from 'pino';
 import type { PromptMessage } from '../../ai_svc/types/ai_prompt.types.js';
 
-export enum AgentImplKind {
-  OpenAiAgents = 'openai_agents',
+export enum AgentEngine {
+  OpenAi = 'openai',
 }
 
 export type AgentManifest = {
@@ -11,7 +11,7 @@ export type AgentManifest = {
   name: string;
   instructions: string;
   model?: string;
-  implementation: AgentImplKind;
+  engine: AgentEngine;
   tool_names: string[];
   tool_agent_ids: string[];
   handoff_agent_ids: string[];
