@@ -6,6 +6,7 @@ import { BaseAgent } from '../agents/base_agent.js';
 import { AgentFactory } from '../factory/agent_factory.js';
 import { NotFoundError } from '../../common/errors.js';
 import { logger } from '../../common/logger.js';
+import { TraceContext } from '../../common/trace_context.js';
 import { Time } from '../../lib/time.js';
 
 const REFRESH_INTERVAL_MS = Time.minutesToMs(10);
@@ -23,16 +24,18 @@ export class AgentRegistry {
     if (AgentRegistry.instance) return AgentRegistry.instance;
     if (AgentRegistry.in_flight) return AgentRegistry.in_flight;
 
-    AgentRegistry.in_flight = AgentRegistry.bootstrap()
-      .then((inst) => {
-        AgentRegistry.instance = inst;
-        return inst;
-      })
-      .finally(() => {
-        AgentRegistry.in_flight = null;
-      });
-
+    AgentRegistry.in_flight = AgentRegistry.loadInstance();
     return AgentRegistry.in_flight;
+  }
+
+  private static async loadInstance(): Promise<AgentRegistry> {
+    try {
+      const inst = await AgentRegistry.bootstrap();
+      AgentRegistry.instance = inst;
+      return inst;
+    } finally {
+      AgentRegistry.in_flight = null;
+    }
   }
 
   static getExistingInstance(): AgentRegistry | null {
@@ -53,10 +56,13 @@ export class AgentRegistry {
 
   startPeriodicRefresh(): void {
     if (this.refresh_timer) return;
-    this.refresh_timer = setInterval(() => {
-      this.refresh().catch((err) => {
+    this.refresh_timer = setInterval(async () => {
+      TraceContext.enterBackground('agent-registry');
+      try {
+        await this.refresh();
+      } catch (err) {
         logger.warn({ err }, 'AgentRegistry periodic refresh failed');
-      });
+      }
     }, REFRESH_INTERVAL_MS);
     this.refresh_timer.unref?.();
     logger.info({ interval_ms: REFRESH_INTERVAL_MS }, 'AgentRegistry periodic refresh started');

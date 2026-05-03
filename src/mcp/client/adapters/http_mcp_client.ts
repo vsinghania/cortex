@@ -60,7 +60,12 @@ export class HttpMcpClient implements McpClientInterface {
     }
 
     this.state = 'connecting';
-    this.connectPromise = (async () => {
+    this.connectPromise = this.runConnect();
+    await this.connectPromise;
+  }
+
+  private async runConnect(): Promise<void> {
+    try {
       const transport = new StreamableHTTPClientTransport(
         new URL(this.cfg.http.base_url),
         {
@@ -81,11 +86,9 @@ export class HttpMcpClient implements McpClientInterface {
         try { await transport.close(); } catch {}
         throw err;
       }
-    })().finally(() => {
+    } finally {
       this.connectPromise = undefined;
-    });
-
-    await this.connectPromise;
+    }
   }
 
   async initialize(): Promise<void> {

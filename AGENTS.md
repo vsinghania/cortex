@@ -25,6 +25,7 @@ Project-specific guidelines for a TypeScript-based web application with AI servi
 - Allowed exceptions (narrow):
   - Decorators in lib/decorators/** are permitted to expose decorator factories as top-level functions if required by decorator syntax.
   - Scripts in scripts/** may use top-level functions for CLI/bootstrap convenience.
+- Wrap third-party utility packages behind a `lib/` class. Do not import packages like `nanoid`, date/uuid/crypto-style helpers, etc. directly from feature code. Add a thin static-class wrapper in `src/lib/` (examples: `Time` for duration math, `Id` for nanoid) and import the wrapper. This keeps the dependency in one place — easier to swap, mock, or add cross-cutting concerns. Framework SDKs (express, mongoose, pino, zod, openai, etc.) are exempt.
 
 ## TypeScript patterns
 - Encapsulate behavior in classes: all functions should be class methods (instance or static). Do not export free/global functions except in the allowed exceptions above.

@@ -19,17 +19,19 @@ export class ConversationStore {
     if (ConversationStore.instance) return ConversationStore.instance;
     if (ConversationStore.in_flight) return ConversationStore.in_flight;
 
-    ConversationStore.in_flight = MongooseConversationRepository.create()
-      .then((repo) => {
-        const inst = new ConversationStore(repo);
-        ConversationStore.instance = inst;
-        return inst;
-      })
-      .finally(() => {
-        ConversationStore.in_flight = null;
-      });
-
+    ConversationStore.in_flight = ConversationStore.loadInstance();
     return ConversationStore.in_flight;
+  }
+
+  private static async loadInstance(): Promise<ConversationStore> {
+    try {
+      const repo = await MongooseConversationRepository.create();
+      const inst = new ConversationStore(repo);
+      ConversationStore.instance = inst;
+      return inst;
+    } finally {
+      ConversationStore.in_flight = null;
+    }
   }
 
   async ensureConversation(params: {

@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import {pinoHttp} from 'pino-http';
 import { ErrorHandlerMiddleware } from '../common/middlewares/error_handler.js'
-import { nanoid } from 'nanoid';
+import { TraceContextMiddleware } from '../common/middlewares/trace_context_middleware.js';
 import { logger } from '../common/logger.js';
 import { AiController } from './ai/ai.controller.js';
 import { HealthController } from './health/health.controller.js';
@@ -21,19 +21,9 @@ export class App {
     this.app.use(express.json());
     this.app.use(cookieParser());
 
-    this.app.use((req, _res, next) => {
-      // upsert a request id (prefer existing header if provided by gateway)
-      (req as any).requestId = req.headers["x-request-id"] ?? nanoid();
-      next();
-    });
+    this.app.use(TraceContextMiddleware.establish);
 
-    this.app.use(
-      pinoHttp({
-        logger,
-        autoLogging: true,
-        customProps: (req) => ({ requestId: (req as any).requestId })
-      })
-    );
+    this.app.use(pinoHttp({ logger, autoLogging: true }));
 
     this.app.get('/healthz', (_req, res) => res.send('ok'));
 

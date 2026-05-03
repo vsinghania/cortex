@@ -4,6 +4,7 @@ import { McpServerMode } from '../types/mcp_server.types.js';
 import type { McpServerRepositoryInterface } from '../repositories/mcp_server_repository_interface.js';
 import { MongooseMcpServerRepository } from '../repositories/mongoose_mcp_server_repository.js';
 import { logger } from '../../common/logger.js';
+import { TraceContext } from '../../common/trace_context.js';
 import { Time } from '../../lib/time.js';
 
 export type SelfHostedHandle = {
@@ -35,16 +36,18 @@ export class McpServerRegistry {
     if (McpServerRegistry.instance) return McpServerRegistry.instance;
     if (McpServerRegistry.in_flight) return McpServerRegistry.in_flight;
 
-    McpServerRegistry.in_flight = McpServerRegistry.bootstrap()
-      .then((inst) => {
-        McpServerRegistry.instance = inst;
-        return inst;
-      })
-      .finally(() => {
-        McpServerRegistry.in_flight = null;
-      });
-
+    McpServerRegistry.in_flight = McpServerRegistry.loadInstance();
     return McpServerRegistry.in_flight;
+  }
+
+  private static async loadInstance(): Promise<McpServerRegistry> {
+    try {
+      const inst = await McpServerRegistry.bootstrap();
+      McpServerRegistry.instance = inst;
+      return inst;
+    } finally {
+      McpServerRegistry.in_flight = null;
+    }
   }
 
   static getExistingInstance(): McpServerRegistry | null {
@@ -98,10 +101,13 @@ export class McpServerRegistry {
 
   startPeriodicRefresh(): void {
     if (this.refresh_timer) return;
-    this.refresh_timer = setInterval(() => {
-      this.refresh().catch((err) => {
+    this.refresh_timer = setInterval(async () => {
+      TraceContext.enterBackground('mcp-server-registry');
+      try {
+        await this.refresh();
+      } catch (err) {
         logger.warn({ err }, 'McpServerRegistry periodic refresh failed');
-      });
+      }
     }, REFRESH_INTERVAL_MS);
     this.refresh_timer.unref?.();
     logger.info({ interval_ms: REFRESH_INTERVAL_MS }, 'McpServerRegistry periodic refresh started');

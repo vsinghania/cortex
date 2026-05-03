@@ -156,23 +156,28 @@ export class MongooseConnectionManager {
     logger.info({ msg: 'Creating Mongo root connection', host, port, ...connect_opts });
 
     const conn = mongoose.createConnection(uri, connect_opts);
-    const promise = conn
-      .asPromise()
-      .then((ready) => {
-        this.root_conns.set(key, ready);
-        this.attachConnEvents(ready, `root:${key}`);
-        // If base is set for same host/port but null conn, promote
-        if (this.base_host === host && this.base_port === port && !this.base_conn) {
-          this.base_conn = ready;
-        }
-        return ready;
-      })
-      .finally(() => {
-        this.in_flight.delete(key);
-      });
-
+    const promise = this.openRootConnection(conn, host, port, key);
     this.in_flight.set(key, promise);
     return promise;
+  }
+
+  private async openRootConnection(
+    conn: Connection,
+    host: string,
+    port: number,
+    key: string
+  ): Promise<Connection> {
+    try {
+      const ready = await conn.asPromise();
+      this.root_conns.set(key, ready);
+      this.attachConnEvents(ready, `root:${key}`);
+      if (this.base_host === host && this.base_port === port && !this.base_conn) {
+        this.base_conn = ready;
+      }
+      return ready;
+    } finally {
+      this.in_flight.delete(key);
+    }
   }
 
   async getDbConnection(params: { db: string; host?: string; port?: number }): Promise<Connection> {
@@ -209,14 +214,7 @@ export class MongooseConnectionManager {
 
     for (const [key, conn] of this.root_conns.entries()) {
       conn.removeAllListeners();
-      promises.push(
-        conn
-          .close()
-          .then(() => logger.info({ msg: 'Closed Mongo root connection', key }))
-          .catch((e) =>
-            logger.warn({ msg: 'Error closing Mongo root connection', key, error: (e as Error)?.message })
-          )
-      );
+      promises.push(this.closeRootConnection(conn, key));
     }
 
     this.root_conns.clear();
@@ -226,6 +224,15 @@ export class MongooseConnectionManager {
     this.in_flight.clear();
 
     await Promise.all(promises);
+  }
+
+  private async closeRootConnection(conn: Connection, key: string): Promise<void> {
+    try {
+      await conn.close();
+      logger.info({ msg: 'Closed Mongo root connection', key });
+    } catch (e) {
+      logger.warn({ msg: 'Error closing Mongo root connection', key, error: (e as Error)?.message });
+    }
   }
 
   private attachConnEvents(conn: Connection, name: string) {

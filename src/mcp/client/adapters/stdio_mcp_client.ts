@@ -59,7 +59,12 @@ export class StdioMcpClient implements McpClientInterface {
       return;
     }
     this.state = 'connecting';
-    this.connectPromise = (async () => {
+    this.connectPromise = this.runConnect();
+    await this.connectPromise;
+  }
+
+  private async runConnect(): Promise<void> {
+    try {
       // Build a strongly-typed env map (Record<string, string>) to satisfy StdioClientTransport
       const envVars: Record<string, string> =
         this.cfg.stdio.env
@@ -104,11 +109,9 @@ export class StdioMcpClient implements McpClientInterface {
         try { await transport.close(); } catch {}
         throw err;
       }
-    })().finally(() => {
+    } finally {
       this.connectPromise = undefined;
-    });
-
-    await this.connectPromise;
+    }
   }
 
   async initialize(): Promise<void> {
