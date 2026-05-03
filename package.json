@@ -47,6 +47,7 @@
     "typecheck": "tsc --noEmit",
     "mcp:smoke": "tsx scripts/mcp_http_smoke.ts",
     "agent:smoke": "tsx scripts/agent_smoke.ts",
+    "agent:smoke:notes-mcp": "tsx scripts/notes_mcp_agent_smoke.ts",
     "mcp:dev": "tsx src/mcp/server/notes/server.ts",
     "mcp:start": "node dist/mcp/server/notes/server.js",
     "mcp:notes:dev": "tsx src/mcp/server/notes/server.ts",

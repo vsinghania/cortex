@@ -1,11 +1,13 @@
 import type { AgentManifest, Tool } from '../types/agent.types.js';
 import { AgentImplKind } from '../types/agent.types.js';
+import type { McpServerHandle } from '../registry/mcp_server_registry.js';
 import { BaseAgent } from '../agents/base_agent.js';
 import { OpenAiAgent } from '../agents/openai/openai_agent.js';
 
 export type AgentFactoryDeps = {
   manifest: AgentManifest;
   tools: Tool[];
+  mcp_servers?: McpServerHandle[];
 };
 
 export class AgentFactory {
@@ -17,10 +19,10 @@ export class AgentFactory {
    * by AgentRegistry via BaseAgent.setSubAgents() before compile().
    */
   static forManifest(deps: AgentFactoryDeps): BaseAgent {
-    const { manifest, tools } = deps;
+    const { manifest, tools, mcp_servers } = deps;
     switch (manifest.implementation) {
       case AgentImplKind.OpenAiAgents:
-        return new OpenAiAgent({ manifest, tools });
+        return new OpenAiAgent({ manifest, tools, mcp_servers });
       default:
         throw new Error(`Unsupported agent implementation: ${manifest.implementation}`);
     }

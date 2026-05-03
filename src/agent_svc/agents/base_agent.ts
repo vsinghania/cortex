@@ -9,6 +9,7 @@ import type {
   Tool,
   ToolContext,
 } from '../types/agent.types.js';
+import type { McpServerHandle } from '../registry/mcp_server_registry.js';
 import { logger as base_logger } from '../../common/logger.js';
 
 /**
@@ -22,6 +23,7 @@ export type BaseAgentInit = {
   tools: Tool[];
   tool_agents?: BaseAgent[];
   handoff_agents?: BaseAgent[];
+  mcp_servers?: McpServerHandle[];
 };
 
 /**
@@ -34,6 +36,7 @@ export type BaseAgentInit = {
 export abstract class BaseAgent {
   readonly manifest: AgentManifest;
   readonly tools: Tool[];
+  readonly mcp_servers: McpServerHandle[];
 
   // Mutable only during registry wiring; treat as read-only after compile().
   private _tool_agents: BaseAgent[];
@@ -45,6 +48,7 @@ export abstract class BaseAgent {
     this.tools = init.tools;
     this._tool_agents = init.tool_agents ?? [];
     this._handoff_agents = init.handoff_agents ?? [];
+    this.mcp_servers = init.mcp_servers ?? [];
   }
 
   get tool_agents(): readonly BaseAgent[] {

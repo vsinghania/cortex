@@ -14,6 +14,7 @@ import type { PromptMessage } from '../../../ai_svc/types/ai_prompt.types.js';
 import { Role } from '../../../ai_svc/types/ai_prompt.types.js';
 import { OpenAiSdkUtils } from './openai_sdk_utils.js';
 import { logExecTime } from '../../../lib/decorators/logging_decorators.js';
+import { McpServerMode } from '../../types/mcp_server.types.js';
 
 const DEFAULT_MAX_TURNS = 10;
 
@@ -39,14 +40,28 @@ export class OpenAiAgent extends BaseAgent {
     const fn_tools = this.tools.map((t) => this.toSdkTool(t));
     const tool_agent_tools = this.buildToolAgentTools();
     const handoffs = this.buildHandoffs();
+    const { self_hosted_servers, hosted_tools } = this.partitionMcpHandles();
 
     this.sdk_agent = new Agent({
       name: this.manifest.name,
       instructions: this.manifest.instructions,
       model: this.manifest.model ?? this.default_model,
-      tools: [...fn_tools, ...tool_agent_tools],
+      tools: [...fn_tools, ...tool_agent_tools, ...hosted_tools],
+      mcpServers: self_hosted_servers,
       handoffs,
     });
+  }
+
+  private partitionMcpHandles() {
+    const self_hosted_servers = this.mcp_servers
+      .filter((h) => h.mode === McpServerMode.SelfHosted)
+      .map((h) => (h.mode === McpServerMode.SelfHosted ? h.sdk_server : null))
+      .filter((s): s is NonNullable<typeof s> => s !== null);
+    const hosted_tools = this.mcp_servers
+      .filter((h) => h.mode === McpServerMode.PublicHosted)
+      .map((h) => (h.mode === McpServerMode.PublicHosted ? h.sdk_tool : null))
+      .filter((t): t is NonNullable<typeof t> => t !== null);
+    return { self_hosted_servers, hosted_tools };
   }
 
   @logExecTime({ threshold_in_ms: 5000 })

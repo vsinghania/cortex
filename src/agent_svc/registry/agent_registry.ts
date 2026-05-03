@@ -2,6 +2,7 @@ import type { AgentManifest } from '../types/agent.types.js';
 import type { AgentRepositoryInterface } from '../repositories/agent_repository_interface.js';
 import { MongooseAgentRepository } from '../repositories/mongoose_agent_repository.js';
 import { ToolRegistry } from '../tools/tool_registry.js';
+import { McpServerRegistry } from './mcp_server_registry.js';
 import { BaseAgent } from '../agents/base_agent.js';
 import { AgentFactory } from '../factory/agent_factory.js';
 import { NotFoundError } from '../../common/errors.js';
@@ -15,7 +16,8 @@ export class AgentRegistry {
 
   private constructor(
     private readonly repo: AgentRepositoryInterface,
-    private readonly tool_registry: ToolRegistry
+    private readonly tool_registry: ToolRegistry,
+    private readonly mcp_server_registry: McpServerRegistry
   ) {}
 
   static async getInstance(): Promise<AgentRegistry> {
@@ -41,7 +43,8 @@ export class AgentRegistry {
   private static async bootstrap(): Promise<AgentRegistry> {
     const repo = await MongooseAgentRepository.create();
     const tool_registry = ToolRegistry.getInstance();
-    const registry = new AgentRegistry(repo, tool_registry);
+    const mcp_server_registry = await McpServerRegistry.getInstance();
+    const registry = new AgentRegistry(repo, tool_registry, mcp_server_registry);
     await registry.refresh();
     return registry;
   }
@@ -60,7 +63,8 @@ export class AgentRegistry {
     for (const manifest of manifests) {
       try {
         const tools = this.tool_registry.resolveAll(manifest.tool_names);
-        const agent = AgentFactory.forManifest({ manifest, tools });
+        const mcp_servers = this.mcp_server_registry.resolveAll(manifest.mcp_server_ids);
+        const agent = AgentFactory.forManifest({ manifest, tools, mcp_servers });
         next.set(manifest.agent_id, agent);
       } catch (err) {
         logger.warn(
