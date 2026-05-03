@@ -6,12 +6,16 @@ import { BaseAgent } from '../agents/base_agent.js';
 import { AgentFactory } from '../factory/agent_factory.js';
 import { NotFoundError } from '../../common/errors.js';
 import { logger } from '../../common/logger.js';
+import { Time } from '../../lib/time.js';
+
+const REFRESH_INTERVAL_MS = Time.minutesToMs(10);
 
 export class AgentRegistry {
   private static instance: AgentRegistry | null = null;
   private static in_flight: Promise<AgentRegistry> | null = null;
 
   private agents = new Map<string, BaseAgent>();
+  private refresh_timer: NodeJS.Timeout | null = null;
 
   private constructor() {}
 
@@ -39,10 +43,29 @@ export class AgentRegistry {
     // Eagerly initialize the registries so the first refresh() call below
     // sees them ready (McpServerRegistry.getInstance() is async).
     ToolRegistry.getInstance();
-    await McpServerRegistry.getInstance();
+    const mcp_server_registry = await McpServerRegistry.getInstance();
+    mcp_server_registry.startPeriodicRefresh();
     const registry = new AgentRegistry();
     await registry.refresh();
+    registry.startPeriodicRefresh();
     return registry;
+  }
+
+  startPeriodicRefresh(): void {
+    if (this.refresh_timer) return;
+    this.refresh_timer = setInterval(() => {
+      this.refresh().catch((err) => {
+        logger.warn({ err }, 'AgentRegistry periodic refresh failed');
+      });
+    }, REFRESH_INTERVAL_MS);
+    this.refresh_timer.unref?.();
+    logger.info({ interval_ms: REFRESH_INTERVAL_MS }, 'AgentRegistry periodic refresh started');
+  }
+
+  stopPeriodicRefresh(): void {
+    if (!this.refresh_timer) return;
+    clearInterval(this.refresh_timer);
+    this.refresh_timer = null;
   }
 
   /**

@@ -17,6 +17,8 @@ Project-specific guidelines for a TypeScript-based web application with AI servi
   - Type definitions: xyz.types.ts (e.g., user.types.ts, ai_prompt.types.ts)
   - Controllers: xyz.controller.ts (e.g., auth.controller.ts, agent.controller.ts)
 - Avoid excessive comments in code
+- Units in numeric constants: when a number represents a quantity with units (duration, size, distance), make the unit explicit — either in the variable/constant name (e.g. `REFRESH_INTERVAL_MS`) or via a conversion helper that names both sides (e.g. `Duration.minutesToMs(10)`). Avoid ambiguous helpers like `Duration.minutes(10)` where the return unit isn't obvious from the call site.
+- Extract complex logic into named functions: when a piece of logic is non-trivial — multi-step calculations, unit conversions, conditional chains, or any expression whose intent isn't obvious at a glance — pull it into a well-named method/function rather than leaving it inline. The function name should communicate intent so the call site reads clearly (e.g. prefer `Duration.minutesToMs(10)` over `10 * 60 * 1000`, prefer `isEligibleForRefresh(agent)` over an inline boolean expression). Applies to both shared helpers in `lib/` and private methods within a class.
 - Prefer small classes and small methods/functions that each have a single responsibility.
 - Keep method/function parameter lists short; group related inputs into typed objects when it improves readability.
 - No free/global functions: define all functions inside classes. Public or static methods are allowed; do not export standalone functions to avoid namespace pollution.

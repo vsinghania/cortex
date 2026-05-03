@@ -4,6 +4,7 @@ import { McpServerMode } from '../types/mcp_server.types.js';
 import type { McpServerRepositoryInterface } from '../repositories/mcp_server_repository_interface.js';
 import { MongooseMcpServerRepository } from '../repositories/mongoose_mcp_server_repository.js';
 import { logger } from '../../common/logger.js';
+import { Time } from '../../lib/time.js';
 
 export type SelfHostedHandle = {
   id: string;
@@ -19,11 +20,14 @@ export type PublicHostedHandle = {
 
 export type McpServerHandle = SelfHostedHandle | PublicHostedHandle;
 
+const REFRESH_INTERVAL_MS = Time.minutesToMs(10);
+
 export class McpServerRegistry {
   private static instance: McpServerRegistry | null = null;
   private static in_flight: Promise<McpServerRegistry> | null = null;
 
   private handles = new Map<string, McpServerHandle>();
+  private refresh_timer: NodeJS.Timeout | null = null;
 
   private constructor(private readonly repo: McpServerRepositoryInterface) {}
 
@@ -90,6 +94,23 @@ export class McpServerRegistry {
 
   list(): McpServerHandle[] {
     return Array.from(this.handles.values());
+  }
+
+  startPeriodicRefresh(): void {
+    if (this.refresh_timer) return;
+    this.refresh_timer = setInterval(() => {
+      this.refresh().catch((err) => {
+        logger.warn({ err }, 'McpServerRegistry periodic refresh failed');
+      });
+    }, REFRESH_INTERVAL_MS);
+    this.refresh_timer.unref?.();
+    logger.info({ interval_ms: REFRESH_INTERVAL_MS }, 'McpServerRegistry periodic refresh started');
+  }
+
+  stopPeriodicRefresh(): void {
+    if (!this.refresh_timer) return;
+    clearInterval(this.refresh_timer);
+    this.refresh_timer = null;
   }
 
   async closeAll(): Promise<void> {
