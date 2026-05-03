@@ -1,5 +1,4 @@
 import type { AgentManifest } from '../types/agent.types.js';
-import type { AgentRepositoryInterface } from '../repositories/agent_repository_interface.js';
 import { MongooseAgentRepository } from '../repositories/mongoose_agent_repository.js';
 import { ToolRegistry } from '../tools/tool_registry.js';
 import { McpServerRegistry } from './mcp_server_registry.js';
@@ -14,11 +13,7 @@ export class AgentRegistry {
 
   private agents = new Map<string, BaseAgent>();
 
-  private constructor(
-    private readonly repo: AgentRepositoryInterface,
-    private readonly tool_registry: ToolRegistry,
-    private readonly mcp_server_registry: McpServerRegistry
-  ) {}
+  private constructor() {}
 
   static async getInstance(): Promise<AgentRegistry> {
     if (AgentRegistry.instance) return AgentRegistry.instance;
@@ -41,10 +36,11 @@ export class AgentRegistry {
   }
 
   private static async bootstrap(): Promise<AgentRegistry> {
-    const repo = await MongooseAgentRepository.create();
-    const tool_registry = ToolRegistry.getInstance();
-    const mcp_server_registry = await McpServerRegistry.getInstance();
-    const registry = new AgentRegistry(repo, tool_registry, mcp_server_registry);
+    // Eagerly initialize the registries so the first refresh() call below
+    // sees them ready (McpServerRegistry.getInstance() is async).
+    ToolRegistry.getInstance();
+    await McpServerRegistry.getInstance();
+    const registry = new AgentRegistry();
     await registry.refresh();
     return registry;
   }
@@ -56,14 +52,17 @@ export class AgentRegistry {
    *   3) Compile each agent (adapters perform vendor-side setup).
    */
   async refresh(): Promise<void> {
-    const manifests = await this.repo.listEnabled();
+    const repo = await MongooseAgentRepository.create();
+    const manifests = await repo.listEnabled();
+    const tool_registry = ToolRegistry.getInstance();
+    const mcp_server_registry = await McpServerRegistry.getInstance();
 
     // Pass 1: build instances
     const next = new Map<string, BaseAgent>();
     for (const manifest of manifests) {
       try {
-        const tools = this.tool_registry.resolveAll(manifest.tool_names);
-        const mcp_servers = this.mcp_server_registry.resolveAll(manifest.mcp_server_ids);
+        const tools = tool_registry.resolveAll(manifest.tool_names);
+        const mcp_servers = mcp_server_registry.resolveAll(manifest.mcp_server_ids);
         const agent = AgentFactory.forManifest({ manifest, tools, mcp_servers });
         next.set(manifest.agent_id, agent);
       } catch (err) {
