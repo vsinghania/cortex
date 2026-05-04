@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { App } from './app.js';
 import { MongooseConnectionManager } from '../db/mongo/mongoose_connection_manager.js';
+import { AgentSvc } from '../agent_svc/agent_svc.js';
 import { logger } from '../common/logger.js';
 
 async function main() {
@@ -16,6 +17,13 @@ async function main() {
   } catch (e) {
     logger.error({ err: e, host, port: mongo_port }, 'Mongo bootstrap failed');
     // continue starting server; health endpoint will show "down"
+  }
+
+  try {
+    await AgentSvc.create();
+    logger.info('AgentSvc primed');
+  } catch (e) {
+    logger.error({ err: e }, 'AgentSvc priming failed; will retry on first request');
   }
 
   const server = app.getApp().listen(port, () => {
