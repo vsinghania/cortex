@@ -14,7 +14,7 @@ export class App {
 
   private app: express.Express = express();
 
-  async initApp() {
+  initApp() {
     // Enable CORS with credentials for refresh cookies
     const origins = process.env.CORS_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean);
     this.app.use(cors({ origin: origins && origins.length ? origins : true, credentials: true }));
