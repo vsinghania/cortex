@@ -47,8 +47,6 @@ export class App {
   }
 
   private registerV1Routers(v1_router: express.Router) {
-    // const user_controller = new UserController();
-    // v1_router.use('/users', user_controller.getRouter());
 
     const auth_controller = new AuthController();
     v1_router.use('/auth', auth_controller.getRouter());
