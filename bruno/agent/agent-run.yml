@@ -9,8 +9,6 @@ http:
   headers:
     - name: content-type
       value: application/json
-    - name: authorization
-      value: Bearer {{access_token}}
   body:
     type: json
     data: |-

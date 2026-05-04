@@ -17,10 +17,7 @@ config:
 request:
   headers:
     - name: Authorization
-      value: Basic {{access_token}}
-  auth:
-    type: bearer
-    token: ""
+      value: Bearer {{access_token}}
 bundled: false
 extensions:
   bruno:
