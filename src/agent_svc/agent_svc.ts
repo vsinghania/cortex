@@ -21,6 +21,7 @@ import { AgentFactory } from './factory/agent_factory.js';
 import type { BaseAgent } from './agents/base_agent.js';
 import { logger } from '../common/logger.js';
 import { logExecTime } from '../lib/decorators/logging_decorators.js';
+import { performance } from 'node:perf_hooks';
 
 export class AgentSvc implements AgentSvcInterface {
 
@@ -48,6 +49,15 @@ export class AgentSvc implements AgentSvcInterface {
 
     const agent = agent_registry.resolve(input.agent_id);
 
+    logger.info(
+      {
+        agent_id: input.agent_id,
+        agent_name: agent.manifest.name,
+        conversation_id: input.conversation_id,
+      },
+      'agent run started'
+    );
+
     const conversation = await conversation_store.ensureConversation({
       conversation_id: input.conversation_id,
       user_id: input.user_id,
@@ -55,6 +65,16 @@ export class AgentSvc implements AgentSvcInterface {
     });
 
     const message_history = await conversation_store.loadHistory(conversation.conversation_id);
+
+    logger.debug(
+      {
+        agent_id: input.agent_id,
+        conversation_id: conversation.conversation_id,
+        history_len: message_history.length,
+        previous_response_id: conversation.last_response_id,
+      },
+      'agent run context loaded'
+    );
 
     const req: AgentRunRequest = {
       input: input.input,
@@ -65,9 +85,24 @@ export class AgentSvc implements AgentSvcInterface {
       options: input.options,
     };
 
+    const start_ms = performance.now();
     const response = await agent.run(req);
+    const duration_ms = Number((performance.now() - start_ms).toFixed(1));
 
     await this.persistTurn(agent, req, response);
+
+    logger.info(
+      {
+        agent_id: input.agent_id,
+        conversation_id: response.conversation_id,
+        model: response.model,
+        tool_call_count: response.tool_calls?.length ?? 0,
+        usage: response.usage,
+        stop_reason: response.stop_reason,
+        duration_ms,
+      },
+      'agent run completed'
+    );
 
     return response;
   }
@@ -84,11 +119,16 @@ export class AgentSvc implements AgentSvcInterface {
 
   async listConversations(input: ListConversationsInput): Promise<Conversation[]> {
     const conversation_store = await ConversationStore.getInstance();
-    return conversation_store.listForUser({
+    const result = await conversation_store.listForUser({
       user_id: input.user_id,
       limit: input.limit,
       before_updated_at: input.before_updated_at,
     });
+    logger.info(
+      { user_id: input.user_id, count: result.length, limit: input.limit },
+      'listed conversations'
+    );
+    return result;
   }
 
   async getConversation(input: GetConversationInput): Promise<ConversationWithMessages> {
@@ -101,6 +141,14 @@ export class AgentSvc implements AgentSvcInterface {
       throw new NotFoundError(`Conversation not found: ${input.conversation_id}`);
     }
     const messages = await conversation_store.listMessages(conversation.conversation_id);
+    logger.info(
+      {
+        user_id: input.user_id,
+        conversation_id: conversation.conversation_id,
+        message_count: messages.length,
+      },
+      'fetched conversation'
+    );
     return { conversation, messages };
   }
 
@@ -130,6 +178,7 @@ export class AgentSvc implements AgentSvcInterface {
         model: response.model,
         response_id: response.response_id,
       });
+      logger.debug({ conversation_id: response.conversation_id }, 'Turn persisted');
     } catch (err) {
       logger.error(
         { err, conversation_id: response.conversation_id },

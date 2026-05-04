@@ -32,6 +32,7 @@ export class App {
     this.app.use(ErrorHandlerMiddleware.notFoundHandler);
     this.app.use(ErrorHandlerMiddleware.errorHandler);
 
+    logger.info({ cors_origins: origins ?? 'any' }, 'Express app initialized');
     return;
   }
 
@@ -60,5 +61,7 @@ export class App {
 
     const health_controller = new HealthController();
     v1_router.use('/health', health_controller.getRouter());
+
+    logger.info({ mounts: ['auth', 'ai', 'agent', 'health'] }, 'v1 routes mounted');
   }
 }

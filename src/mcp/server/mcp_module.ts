@@ -1,4 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { performance } from 'node:perf_hooks';
+import { logger } from '../../common/logger.js';
 
 export abstract class McpModule {
   public async register(server: McpServer): Promise<void> {
@@ -16,4 +18,47 @@ export abstract class McpModule {
   protected async registerResources(_server: McpServer): Promise<void> {}
 
   protected async registerPrompts(_server: McpServer): Promise<void> {}
+
+  /**
+   * Wraps server.registerTool so every invocation emits an info log with
+   * tool name, ok/err status, and duration. Subclasses should prefer this
+   * over calling server.registerTool directly.
+   */
+  protected registerTool(
+    server: McpServer,
+    name: string,
+    config: any,
+    handler: (...args: any[]) => any
+  ): void {
+    const module_name = this.constructor.name;
+    const wrapped = async (...args: any[]) => {
+      const start_ms = performance.now();
+      try {
+        const result = await handler(...args);
+        logger.info(
+          {
+            module: module_name,
+            tool: name,
+            ok: true,
+            duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+          },
+          'MCP tool invoked'
+        );
+        return result;
+      } catch (err) {
+        logger.error(
+          {
+            module: module_name,
+            tool: name,
+            ok: false,
+            err,
+            duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+          },
+          'MCP tool failed'
+        );
+        throw err;
+      }
+    };
+    (server.registerTool as any)(name, config, wrapped);
+  }
 }

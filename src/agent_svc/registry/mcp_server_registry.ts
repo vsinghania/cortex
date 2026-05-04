@@ -55,9 +55,11 @@ export class McpServerRegistry {
   }
 
   private static async bootstrap(): Promise<McpServerRegistry> {
+    logger.info('McpServerRegistry bootstrap started');
     const repo = await MongooseMcpServerRepository.create();
     const registry = new McpServerRegistry(repo);
     await registry.refresh();
+    logger.info({ server_count: registry.handles.size }, 'McpServerRegistry bootstrap complete');
     return registry;
   }
 

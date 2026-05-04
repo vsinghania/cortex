@@ -133,7 +133,8 @@ export class NotesMcpModule extends McpModule {
   }
 
   private registerListTool(server: McpServer): void {
-    server.registerTool(
+    this.registerTool(
+      server,
       'notes.list',
       {
         title: 'List Notes',
@@ -154,7 +155,8 @@ export class NotesMcpModule extends McpModule {
   }
 
   private registerGetTool(server: McpServer): void {
-    server.registerTool(
+    this.registerTool(
+      server,
       'notes.get',
       {
         title: 'Get Note by Key',
@@ -176,7 +178,8 @@ export class NotesMcpModule extends McpModule {
   }
 
   private registerUpsertTool(server: McpServer): void {
-    server.registerTool(
+    this.registerTool(
+      server,
       'notes.upsert',
       {
         title: 'Upsert Note',
@@ -194,7 +197,8 @@ export class NotesMcpModule extends McpModule {
   }
 
   private registerUpdateTool(server: McpServer): void {
-    server.registerTool(
+    this.registerTool(
+      server,
       'notes.update',
       {
         title: 'Update Note (partial)',
@@ -220,7 +224,8 @@ export class NotesMcpModule extends McpModule {
   }
 
   private registerDeleteTool(server: McpServer): void {
-    server.registerTool(
+    this.registerTool(
+      server,
       'notes.delete',
       {
         title: 'Delete Note',
@@ -238,7 +243,8 @@ export class NotesMcpModule extends McpModule {
   }
 
   private registerSearchTool(server: McpServer): void {
-    server.registerTool(
+    this.registerTool(
+      server,
       'notes.search',
       {
         title: 'Search Notes',

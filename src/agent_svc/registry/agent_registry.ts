@@ -43,6 +43,7 @@ export class AgentRegistry {
   }
 
   private static async bootstrap(): Promise<AgentRegistry> {
+    logger.info('AgentRegistry bootstrap started');
     // Eagerly initialize the registries so the first refresh() call below
     // sees them ready (McpServerRegistry.getInstance() is async).
     ToolRegistry.getInstance();
@@ -51,6 +52,7 @@ export class AgentRegistry {
     const registry = new AgentRegistry();
     await registry.refresh();
     registry.startPeriodicRefresh();
+    logger.info({ agent_count: registry.agents.size }, 'AgentRegistry bootstrap complete');
     return registry;
   }
 
@@ -94,6 +96,15 @@ export class AgentRegistry {
         const mcp_servers = mcp_server_registry.resolveAll(manifest.mcp_server_ids);
         const agent = AgentFactory.forManifest({ manifest, tools, mcp_servers });
         next.set(manifest.agent_id, agent);
+        logger.debug(
+          {
+            agent_id: manifest.agent_id,
+            engine: manifest.engine,
+            tool_count: tools.length,
+            mcp_count: mcp_servers.length,
+          },
+          'Agent built'
+        );
       } catch (err) {
         logger.warn(
           { agent_id: manifest.agent_id, err },
@@ -115,6 +126,7 @@ export class AgentRegistry {
     for (const agent of next.values()) {
       try {
         agent.compile();
+        logger.debug({ agent_id: agent.manifest.agent_id }, 'Agent compiled');
       } catch (err) {
         logger.warn(
           { agent_id: agent.manifest.agent_id, err },

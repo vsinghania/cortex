@@ -3,6 +3,7 @@ import type { PromptMessage } from '../../ai_svc/types/ai_prompt.types.js';
 import { Role } from '../../ai_svc/types/ai_prompt.types.js';
 import type { ConversationRepositoryInterface } from './conversation_repository_interface.js';
 import { MongooseConversationRepository } from './mongoose_conversation_repository.js';
+import { logger } from '../../common/logger.js';
 import type {
   AppendTurnInput,
   Conversation,
@@ -28,6 +29,7 @@ export class ConversationStore {
       const repo = await MongooseConversationRepository.create();
       const inst = new ConversationStore(repo);
       ConversationStore.instance = inst;
+      logger.info('ConversationStore initialized');
       return inst;
     } finally {
       ConversationStore.in_flight = null;
@@ -41,14 +43,26 @@ export class ConversationStore {
   }): Promise<Conversation> {
     if (params.conversation_id) {
       const existing = await this.repo.getConversation(params.conversation_id);
-      if (existing) return existing;
+      if (existing) {
+        logger.debug({ conversation_id: existing.conversation_id }, 'Conversation reused');
+        return existing;
+      }
     }
     const conversation_id = params.conversation_id ?? uuidv4();
-    return this.repo.createConversation({
+    const conversation = await this.repo.createConversation({
       conversation_id,
       user_id: params.user_id,
       agent_id: params.agent_id,
     });
+    logger.info(
+      {
+        conversation_id: conversation.conversation_id,
+        user_id: params.user_id,
+        agent_id: params.agent_id,
+      },
+      'Conversation created'
+    );
+    return conversation;
   }
 
   async loadHistory(conversation_id: string): Promise<PromptMessage[]> {
@@ -103,5 +117,14 @@ export class ConversationStore {
     if (input.response_id) {
       await this.repo.setLastResponseId(input.conversation_id, input.response_id);
     }
+    logger.info(
+      {
+        conversation_id: input.conversation_id,
+        turn_start: start_turn,
+        has_tool_calls: input.tool_calls.length > 0,
+        model: input.model,
+      },
+      'Conversation turn appended'
+    );
   }
 }

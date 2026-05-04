@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { zodTextFormat, } from "openai/helpers/zod";
 import { logger } from "../../common/logger.js";
 import { logExecTime } from '../../lib/decorators/logging_decorators.js';
+import { performance } from 'node:perf_hooks';
 
 export class OpenAiAdapter implements GenAiAdapter {
   private openai_client: OpenAI;
@@ -24,7 +25,6 @@ export class OpenAiAdapter implements GenAiAdapter {
     const model = opts?.model ?? this.default_model;
     const timeout = opts?.timeout ?? this.default_timeout;
     const retries = opts?.retries ?? this.default_retries;
-    logger.info({ method: 'generateText', model, timeout, retries }, 'Starting generateText');
 
     let input: PromptMessage[] = [prompt.latest_prompt];
     if (!prompt.last_response_id) {
@@ -33,7 +33,13 @@ export class OpenAiAdapter implements GenAiAdapter {
         : (prompt.message_history ?? []).concat(input);
     }
 
+    logger.debug(
+      { method: 'generateText', model, timeout, retries, message_count: input.length },
+      'OpenAI generateText starting'
+    );
+
     let attempt = 0;
+    const start_ms = performance.now();
     while (true) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
@@ -49,15 +55,28 @@ export class OpenAiAdapter implements GenAiAdapter {
           { signal: controller.signal }
         );
         clearTimeout(timer);
+        const duration_ms = Number((performance.now() - start_ms).toFixed(1));
+        logger.info(
+          {
+            method: 'generateText',
+            model: resp.model,
+            prompt_tokens: resp.usage?.input_tokens ?? 0,
+            completion_tokens: resp.usage?.output_tokens ?? 0,
+            total_tokens: (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0),
+            attempt: attempt + 1,
+            duration_ms,
+          },
+          'OpenAI generateText completed'
+        );
         return this.transformTextResponse(resp, input);
       } catch (err) {
         clearTimeout(timer);
         attempt++;
         if (attempt > retries) {
-          logger.error({ method: 'generateText', error: err, attempt }, 'generateText failed after retries');
+          logger.error({ method: 'generateText', err, attempt }, 'generateText failed after retries');
           throw err;
         }
-        logger.warn({ method: 'generateText', error: err, attempt }, 'generateText attempt failed, retrying');
+        logger.warn({ method: 'generateText', err, attempt }, 'generateText attempt failed, retrying');
       }
     }
   }
@@ -79,7 +98,13 @@ export class OpenAiAdapter implements GenAiAdapter {
         : (prompt.message_history ?? []).concat(input);
     }
 
+    logger.debug(
+      { method: 'generateJsonOutput', model, timeout, retries, message_count: input.length },
+      'OpenAI generateJsonOutput starting'
+    );
+
     let attempt = 0;
+    const start_ms = performance.now();
     while (true) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
@@ -98,11 +123,28 @@ export class OpenAiAdapter implements GenAiAdapter {
           { signal: controller.signal }
         );
         clearTimeout(timer);
+        const duration_ms = Number((performance.now() - start_ms).toFixed(1));
+        logger.info(
+          {
+            method: 'generateJsonOutput',
+            model: resp.model,
+            prompt_tokens: resp.usage?.input_tokens ?? 0,
+            completion_tokens: resp.usage?.output_tokens ?? 0,
+            total_tokens: (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0),
+            attempt: attempt + 1,
+            duration_ms,
+          },
+          'OpenAI generateJsonOutput completed'
+        );
         return this.transformJsonResponse(resp, input);
       } catch (err) {
         clearTimeout(timer);
         attempt++;
-        if (attempt > retries) throw err;
+        if (attempt > retries) {
+          logger.error({ method: 'generateJsonOutput', err, attempt }, 'generateJsonOutput failed after retries');
+          throw err;
+        }
+        logger.warn({ method: 'generateJsonOutput', err, attempt }, 'generateJsonOutput attempt failed, retrying');
       }
     }
   }

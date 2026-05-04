@@ -15,6 +15,7 @@ import { Role } from '../../../ai_svc/types/ai_prompt.types.js';
 import { OpenAiSdkUtils } from './openai_sdk_utils.js';
 import { logExecTime } from '../../../lib/decorators/logging_decorators.js';
 import { McpServerMode } from '../../types/mcp_server.types.js';
+import { performance } from 'node:perf_hooks';
 
 const DEFAULT_MAX_TURNS = 10;
 
@@ -77,23 +78,44 @@ export class OpenAiAgent extends BaseAgent {
         tool_count: this.tools.length,
         tool_agent_count: this.tool_agents.length,
         handoff_count: this.handoff_agents.length,
+        has_previous_response_id: !!req.previous_response_id,
       },
       'OpenAiAgent.run starting'
     );
 
+    const start_ms = performance.now();
     try {
       const result = await runAgent(this.sdk_agent, input, { maxTurns: max_turns });
-      return this.toAgentResponse(req, result);
+      const response = this.toAgentResponse(req, result);
+      this.logger().info(
+        {
+          agent_id: this.manifest.agent_id,
+          model: response.model,
+          tool_call_count: response.tool_calls?.length ?? 0,
+          stop_reason: response.stop_reason,
+          duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+        },
+        'OpenAiAgent.run completed'
+      );
+      return response;
     } catch (err) {
       if (err instanceof MaxTurnsExceededError) {
         this.logger().warn(
-          { agent_id: this.manifest.agent_id, err: err.message },
+          {
+            agent_id: this.manifest.agent_id,
+            err: err.message,
+            duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+          },
           'Agent run hit max turns'
         );
         return this.maxTurnsResponse(req);
       }
       this.logger().error(
-        { agent_id: this.manifest.agent_id, err },
+        {
+          agent_id: this.manifest.agent_id,
+          err,
+          duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+        },
         'Agent run failed'
       );
       throw err;
