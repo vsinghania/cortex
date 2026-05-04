@@ -1,6 +1,6 @@
 name: Local
 variables:
-  - name: app_host
-    value: localhost
-  - name: app_port
-    value: "3000"
+  - name: base_url
+    value: http://localhost:3000/api/v1
+  - secret: true
+    name: access_token

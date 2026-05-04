@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: http://{{app_host}}:{{app_port}}/api/v1/agent/run
+  url: "{{base_url}}/agent/run"
   headers:
     - name: content-type
       value: application/json
