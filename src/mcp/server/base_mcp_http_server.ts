@@ -5,6 +5,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { hostHeaderValidation, localhostHostValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { logger } from '../../common/logger.js';
+import { TraceContext } from '../../common/trace_context.js';
+import { Id } from '../../lib/id.js';
 import type { McpModule } from './mcp_module.js';
 import type { McpHttpConfig, McpHttpServerHandle, McpServerInfo } from './types/mcp_server.types.js';
 
@@ -81,6 +83,25 @@ export abstract class BaseMcpHttpServer {
   private configureMiddleware(app: express.Express, cfg: McpHttpConfig): void {
     app.use(express.json());
     this.configureHostValidation(app, cfg);
+    app.use(this.establishTraceContext.bind(this));
+  }
+
+  private establishTraceContext(req: Request, _res: Response, next: express.NextFunction): void {
+    const trace_header = req.headers['x-trace-id'];
+    const inbound_trace = Array.isArray(trace_header) ? trace_header[0] : trace_header;
+    const upstream_trace_id = inbound_trace && inbound_trace.length > 0 ? inbound_trace : undefined;
+
+    const user_header = req.headers['x-user-id'];
+    const inbound_user = Array.isArray(user_header) ? user_header[0] : user_header;
+    const user_id = inbound_user && inbound_user.length > 0 ? inbound_user : undefined;
+
+    TraceContext.enter({
+      trace_id: upstream_trace_id ?? Id.generate(),
+      kind: 'http',
+      upstream_trace_id,
+      user_id,
+    });
+    next();
   }
 
   private configureHostValidation(app: express.Express, cfg: McpHttpConfig): void {

@@ -11,6 +11,8 @@ import type {
 } from '../types/agent.types.js';
 import type { McpServerHandle } from '../registry/mcp_server_registry.js';
 import { logger as base_logger } from '../../common/logger.js';
+import { TraceContext } from '../../common/trace_context.js';
+import { Id } from '../../lib/id.js';
 
 /**
  * Construction params for a BaseAgent. The runtime references to
@@ -87,6 +89,13 @@ export abstract class BaseAgent {
    */
   async run(req: AgentRunRequest): Promise<AgentRunResponse> {
     this.compile();
+    const existing = TraceContext.get();
+    TraceContext.enter({
+      trace_id: existing?.trace_id ?? Id.generate(),
+      kind: existing?.kind ?? 'bg',
+      user_id: req.user_id ?? existing?.user_id,
+      upstream_trace_id: existing?.upstream_trace_id,
+    });
     return this.onRun(req);
   }
 

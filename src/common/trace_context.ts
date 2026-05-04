@@ -27,4 +27,8 @@ export class TraceContext {
   static getTraceId(): string | undefined {
     return TraceContext.als.getStore()?.trace_id;
   }
+
+  static getUserId(): string | undefined {
+    return TraceContext.als.getStore()?.user_id;
+  }
 }

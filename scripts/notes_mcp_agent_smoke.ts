@@ -52,8 +52,8 @@ class NotesMcpAgentSmoke {
       conversation_id,
       user_id: NotesMcpAgentSmoke.USER_ID,
       input:
-        `List up to 3 notes for user_id ${NotesMcpAgentSmoke.USER_ID} ` +
-        `using the notes.list tool, then briefly summarize what you got.`,
+        'List up to 3 of my notes using the notes.list tool, ' +
+        'then briefly summarize what you got.',
       options: { max_turns: 5 },
     });
 

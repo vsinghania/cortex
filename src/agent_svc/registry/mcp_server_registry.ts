@@ -144,6 +144,7 @@ export class McpServerRegistry {
         name: manifest.name,
         url: manifest.http.base_url,
         requestInit: headers ? { headers } : undefined,
+        fetch: this.contextAwareFetch.bind(this),
       });
       await server.connect();
       logger.info(
@@ -187,6 +188,22 @@ export class McpServerRegistry {
       );
     }
     return value;
+  }
+
+  private async contextAwareFetch(
+    url: string | URL,
+    init?: RequestInit
+  ): Promise<Response> {
+    const ctx = TraceContext.get();
+    if (!ctx) return fetch(url, init);
+    const merged = new Headers(init?.headers);
+    if (ctx.trace_id && !merged.has('x-trace-id')) {
+      merged.set('x-trace-id', ctx.trace_id);
+    }
+    if (ctx.user_id && !merged.has('x-user-id')) {
+      merged.set('x-user-id', ctx.user_id);
+    }
+    return fetch(url, { ...init, headers: merged });
   }
 
   private buildHeaders(

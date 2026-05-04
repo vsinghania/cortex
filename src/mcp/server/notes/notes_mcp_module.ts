@@ -6,8 +6,7 @@ import { NoteSource, Visibility, type NoteContainer, type NoteMetadata, type Not
 import { MongooseConnectionManager } from '../../../db/mongo/mongoose_connection_manager.js';
 import { DbNameResolver } from '../../../db/mongo/db_name_resolver.js';
 import { logger } from '../../../common/logger.js';
-
-const zUserId = z.string().min(1, 'user_id is required');
+import { TraceContext } from '../../../common/trace_context.js';
 
 const zNoteSource = z.nativeEnum(NoteSource);
 const zVisibility = z.nativeEnum(Visibility);
@@ -35,27 +34,23 @@ const zNoteVectorization = z.object({
 });
 
 const zNoteKey = z.object({
-  user_id: zUserId,
   source: zNoteSource,
   external_id: z.string().min(1)
 });
 
 const zListInput = z.object({
-  user_id: zUserId,
   query: z.string().optional(),
   limit: z.number().int().positive().max(100).optional().default(20),
   offset: z.number().int().min(0).optional().default(0)
 });
 
 const zSearchInput = z.object({
-  user_id: zUserId,
   query: z.string().min(1),
   limit: z.number().int().positive().max(100).optional().default(20),
   offset: z.number().int().min(0).optional().default(0)
 });
 
 const zUpsertInput = z.object({
-  user_id: zUserId,
   source: zNoteSource,
   external_id: z.string().min(1),
 
@@ -150,8 +145,9 @@ export class NotesMcpModule extends McpModule {
         }
       },
       async (raw: unknown) => {
+        const user_id = NotesMcpModule.requireUserId();
         const args = zListInput.parse(raw ?? {});
-        const result = await this.requireNotesSvc().listNotes(args);
+        const result = await this.requireNotesSvc().listNotes({ ...args, user_id });
         return NotesMcpModule.toStructuredTextResult(result);
       }
     );
@@ -162,7 +158,7 @@ export class NotesMcpModule extends McpModule {
       'notes.get',
       {
         title: 'Get Note by Key',
-        description: 'Get a note by composite key (user_id, source, external_id).',
+        description: 'Get a note by composite key (source, external_id) for the authenticated user.',
         inputSchema: zNoteKey.shape,
         outputSchema: {
           found: z.boolean(),
@@ -170,8 +166,9 @@ export class NotesMcpModule extends McpModule {
         }
       },
       async (raw: unknown) => {
+        const user_id = NotesMcpModule.requireUserId();
         const key = zNoteKey.parse(raw ?? {});
-        const note = await this.requireNotesSvc().getNoteByKey(key);
+        const note = await this.requireNotesSvc().getNoteByKey({ ...key, user_id });
         const out = { found: !!note, note: note ?? null };
         return NotesMcpModule.toStructuredTextResult(out);
       }
@@ -188,8 +185,9 @@ export class NotesMcpModule extends McpModule {
         outputSchema: { note: z.any() }
       },
       async (raw: unknown) => {
+        const user_id = NotesMcpModule.requireUserId();
         const input = zUpsertInput.parse(raw ?? {});
-        const note = await this.requireNotesSvc().upsertNote(input);
+        const note = await this.requireNotesSvc().upsertNote({ ...input, user_id });
         return NotesMcpModule.toStructuredTextResult({ note });
       }
     );
@@ -211,9 +209,10 @@ export class NotesMcpModule extends McpModule {
         }
       },
       async (raw: unknown) => {
+        const user_id = NotesMcpModule.requireUserId();
         const key = zNoteKey.parse(raw ?? {});
         const patch = zPatch.parse((raw as any)?.patch ?? {});
-        const updated = await this.requireNotesSvc().updateNoteByKey({ ...key, patch });
+        const updated = await this.requireNotesSvc().updateNoteByKey({ ...key, user_id, patch });
         const out = { found: !!updated, note: updated ?? null };
         return NotesMcpModule.toStructuredTextResult(out);
       }
@@ -230,8 +229,9 @@ export class NotesMcpModule extends McpModule {
         outputSchema: { success: z.boolean() }
       },
       async (raw: unknown) => {
+        const user_id = NotesMcpModule.requireUserId();
         const key = zNoteKey.parse(raw ?? {});
-        const success = await this.requireNotesSvc().deleteNoteByKey(key);
+        const success = await this.requireNotesSvc().deleteNoteByKey({ ...key, user_id });
         return NotesMcpModule.toStructuredTextResult({ success });
       }
     );
@@ -242,7 +242,7 @@ export class NotesMcpModule extends McpModule {
       'notes.search',
       {
         title: 'Search Notes',
-        description: 'Full-text search across title/body/tags for a user.',
+        description: 'Full-text search across title/body/tags for the authenticated user.',
         inputSchema: zSearchInput.shape,
         outputSchema: {
           total: z.number(),
@@ -250,8 +250,9 @@ export class NotesMcpModule extends McpModule {
         }
       },
       async (raw: unknown) => {
+        const user_id = NotesMcpModule.requireUserId();
         const args = zSearchInput.parse(raw ?? {});
-        const result = await this.requireNotesSvc().searchNotes(args);
+        const result = await this.requireNotesSvc().searchNotes({ ...args, user_id });
         return NotesMcpModule.toStructuredTextResult(result);
       }
     );
@@ -275,6 +276,14 @@ export class NotesMcpModule extends McpModule {
     }
 
     return this.notes_svc;
+  }
+
+  private static requireUserId(): string {
+    const user_id = TraceContext.getUserId();
+    if (!user_id || user_id.length === 0) {
+      throw new Error('Missing X-User-Id on MCP request; tool requires authenticated user.');
+    }
+    return user_id;
   }
 
   private static toStructuredTextResult<T>(result: T) {
