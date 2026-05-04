@@ -41,6 +41,20 @@ Project-specific guidelines for a TypeScript-based web application with AI servi
 - Implement logging decorators in lib/decorators/logging_decorators.ts
 - Use validation decorators in lib/decorators/validation_decorators.ts
 
+## Logging
+- Use the shared pino logger from `src/common/logger.ts`. Never use `console.*` in application code (`console.error` is acceptable only as a last-resort fallback before the logger is available).
+- The logger's `mixin()` injects `trace_id`, `user_id`, and `upstream_trace_id` from `TraceContext` into every line — do not pass these fields explicitly; just log normally and they appear automatically.
+- Prefer `pino-http` (`autoLogging: true`) for HTTP request envelopes. Application code should not duplicate request/response logging at the controller layer.
+- Log shape: `logger.info({ ...fields }, 'event message')` with snake_case keys and past-tense event messages (e.g. `'agent run completed'`, `'Conversation created'`).
+- Levels:
+  - `info` for lifecycle and one summary line per business operation (startup, registry bootstrap, agent run started/completed, conversation created, MCP tool invoked).
+  - `debug` for verbose per-call detail (history length, sub-steps, "reused"/"compiled"/"built" notices).
+  - `warn` for recoverable anomalies; `error` for failures (always include `err`).
+- Never log full prompts, full LLM responses, or tool argument/result payloads at any level by default. Log counts, ids, model names, token usage, and durations only. If full payloads are needed, gate behind a dedicated env flag (e.g. `LOG_PROMPTS=1`), not the log level.
+- For per-method timing, prefer the `@logExecTime({ threshold_in_ms })` decorator from `src/lib/decorators/logging_decorators.ts` to flag slow calls. Pair it with a regular `info` completion log when a structured per-call summary is also useful.
+- Capture durations with `performance.now()` and log them as `duration_ms` (number, one decimal place).
+- MCP tool handlers should be registered via `McpModule.registerTool()` so each invocation gets a uniform `MCP tool invoked` / `MCP tool failed` log line.
+
 ## Project organization
 - Group related functionality by domain/feature (agent/, ai_svc/, user/)
 - Keep infrastructure code (logger, validator, decorators) in lib/ directory

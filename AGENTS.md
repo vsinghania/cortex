@@ -16,7 +16,7 @@ Project-specific guidelines for a TypeScript-based web application with AI servi
   - Base names: snake_case for TypeScript files
   - Type definitions: xyz.types.ts (e.g., user.types.ts, ai_prompt.types.ts)
   - Controllers: xyz.controller.ts (e.g., auth.controller.ts, agent.controller.ts)
-- Avoid excessive comments in code
+- Avoid excessive comments in code. Comments should be reserved for explaining why something is done a certain way if it's not obvious, rather than what the code is doing. Strive for self-explanatory code through clear naming and structure, and use comments sparingly to clarify intent or rationale when necessary.
 - Units in numeric constants: when a number represents a quantity with units (duration, size, distance), make the unit explicit — either in the variable/constant name (e.g. `REFRESH_INTERVAL_MS`) or via a conversion helper that names both sides (e.g. `Duration.minutesToMs(10)`). Avoid ambiguous helpers like `Duration.minutes(10)` where the return unit isn't obvious from the call site.
 - Extract complex logic into named functions: when a piece of logic is non-trivial — multi-step calculations, unit conversions, conditional chains, or any expression whose intent isn't obvious at a glance — pull it into a well-named method/function rather than leaving it inline. The function name should communicate intent so the call site reads clearly (e.g. prefer `Duration.minutesToMs(10)` over `10 * 60 * 1000`, prefer `isEligibleForRefresh(agent)` over an inline boolean expression). Applies to both shared helpers in `lib/` and private methods within a class.
 - Prefer small classes and small methods/functions that each have a single responsibility.
@@ -40,6 +40,20 @@ Project-specific guidelines for a TypeScript-based web application with AI servi
 - Centralize error handling in common/middlewares/error_handler.ts
 - Implement logging decorators in lib/decorators/logging_decorators.ts
 - Use validation decorators in lib/decorators/validation_decorators.ts
+
+## Logging
+- Use the shared pino logger from `src/common/logger.ts`. Never use `console.*` in application code (`console.error` is acceptable only as a last-resort fallback before the logger is available).
+- The logger's `mixin()` injects `trace_id`, `user_id`, and `upstream_trace_id` from `TraceContext` into every line — do not pass these fields explicitly; just log normally and they appear automatically.
+- Prefer `pino-http` (`autoLogging: true`) for HTTP request envelopes. Application code should not duplicate request/response logging at the controller layer.
+- Log shape: `logger.info({ ...fields }, 'event message')` with snake_case keys and past-tense event messages (e.g. `'agent run completed'`, `'Conversation created'`).
+- Levels:
+  - `info` for lifecycle and one summary line per business operation (startup, registry bootstrap, agent run started/completed, conversation created, MCP tool invoked).
+  - `debug` for verbose per-call detail (history length, sub-steps, "reused"/"compiled"/"built" notices).
+  - `warn` for recoverable anomalies; `error` for failures (always include `err`).
+- Never log full prompts, full LLM responses, or tool argument/result payloads at any level by default. Log counts, ids, model names, token usage, and durations only. If full payloads are needed, gate behind a dedicated env flag (e.g. `LOG_PROMPTS=1`), not the log level.
+- For per-method timing, prefer the `@logExecTime({ threshold_in_ms })` decorator from `src/lib/decorators/logging_decorators.ts` to flag slow calls. Pair it with a regular `info` completion log when a structured per-call summary is also useful.
+- Capture durations with `performance.now()` and log them as `duration_ms` (number, one decimal place).
+- MCP tool handlers should be registered via `McpModule.registerTool()` so each invocation gets a uniform `MCP tool invoked` / `MCP tool failed` log line.
 
 ## Project organization
 - Group related functionality by domain/feature (agent/, ai_svc/, user/)
