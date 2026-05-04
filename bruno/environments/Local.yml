@@ -1,0 +1,6 @@
+name: Local
+variables:
+  - name: app_host
+    value: localhost
+  - name: app_port
+    value: "3000"
