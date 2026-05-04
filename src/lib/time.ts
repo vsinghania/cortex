@@ -14,4 +14,16 @@ export class Time {
   static daysToMs(n: number): number {
     return n * 24 * 60 * 60 * 1000;
   }
+
+  static minutesToSec(n: number): number {
+    return n * 60;
+  }
+
+  static daysToSec(n: number): number {
+    return n * 24 * 60 * 60;
+  }
+
+  static msToSec(n: number): number {
+    return Math.floor(n / 1000);
+  }
 }

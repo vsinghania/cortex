@@ -5,6 +5,7 @@ import { RateLimitMiddleware } from '../../common/middlewares/rate_limit.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
 import { AuthSvc } from '../../auth_svc/auth_svc.js';
 import { REFRESH_COOKIE_NAME, TokenUtils } from '../../auth_svc/utils/token_utils.js';
+import { Time } from '../../lib/time.js';
 
 const EmailSchema = z.string().email();
 const PasswordSchema = z.string().min(8);
@@ -23,7 +24,7 @@ export class AuthController {
       sameSite,
       domain,
       path: '/',
-      maxAge: TokenUtils.refreshTokenTtlSec() * 1000
+      maxAge: Time.secondsToMs(TokenUtils.refreshTokenTtlSec())
     } as const;
   }
 
