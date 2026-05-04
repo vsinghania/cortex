@@ -92,7 +92,6 @@ export abstract class BaseAgent {
     const existing = TraceContext.get();
     TraceContext.enter({
       trace_id: existing?.trace_id ?? Id.generate(),
-      kind: existing?.kind ?? 'bg',
       user_id: req.user_id ?? existing?.user_id,
       upstream_trace_id: existing?.upstream_trace_id,
     });

@@ -10,7 +10,6 @@ export const logger = pino({
     const out: Record<string, unknown> = { trace_id: store.trace_id };
     if (store.user_id) out.user_id = store.user_id;
     if (store.upstream_trace_id) out.upstream_trace_id = store.upstream_trace_id;
-    if (store.kind) out.ctx = store.kind;
     return out;
   },
   transport: process.env.NODE_ENV === "production" ? undefined : {

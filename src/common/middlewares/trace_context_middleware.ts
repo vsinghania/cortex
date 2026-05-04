@@ -19,7 +19,7 @@ export class TraceContextMiddleware {
     const trace_id = inbound && inbound.length > 0 ? inbound : Id.generate();
     req.trace_id = trace_id;
 
-    TraceContext.enter({ trace_id, kind: 'http' });
+    TraceContext.enter({ trace_id });
     next();
   }
 }
