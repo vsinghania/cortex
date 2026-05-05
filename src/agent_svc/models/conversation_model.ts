@@ -1,5 +1,5 @@
 import { Schema } from 'mongoose';
-import { Role } from '../../ai_svc/types/ai_prompt.types.js';
+import { Role } from '../types/message.types.js';
 import type { Conversation, ConversationMessage } from '../types/conversation.types.js';
 import { BaseModelFactory } from '../../db/mongo/base_model_factory.js';
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
@@ -37,13 +37,11 @@ export class ConversationModelFactory extends BaseModelFactory<Conversation> {
 
 export class ConversationMessageModelFactory extends BaseModelFactory<ConversationMessage> {
   protected buildSchema(): Schema<ConversationMessage> {
-    const ToolInvocationSchema = new Schema(
+    const ToolCallSchema = new Schema(
       {
+        tool_call_id: { type: String, required: true },
         tool_name: { type: String, required: true },
         arguments: { type: Schema.Types.Mixed, default: undefined },
-        result: { type: Schema.Types.Mixed, required: true },
-        duration_ms: { type: Number, required: true },
-        turn: { type: Number, required: true },
       },
       { _id: false, id: false }
     );
@@ -62,8 +60,9 @@ export class ConversationMessageModelFactory extends BaseModelFactory<Conversati
         conversation_id: { type: String, required: true, index: true },
         turn: { type: Number, required: true },
         role: { type: String, enum: Object.values(Role), required: true },
-        content: { type: String, required: true, default: '' },
-        tool_calls: { type: [ToolInvocationSchema], default: undefined },
+        content: { type: Schema.Types.Mixed, required: true, default: '' },
+        tool_call_id: { type: String, default: undefined },
+        tool_calls: { type: [ToolCallSchema], default: undefined },
         usage: { type: UsageSchema, default: undefined },
         model: { type: String, default: undefined },
         response_id: { type: String, default: undefined },

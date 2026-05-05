@@ -3,12 +3,7 @@ import { z } from 'zod';
 import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
 import { AgentSvc } from '../../agent_svc/agent_svc.js';
-import { Role } from '../../ai_svc/types/ai_prompt.types.js';
-
-const PromptMessageSchema = z.object({
-  role: z.nativeEnum(Role),
-  content: z.string(),
-});
+import { MessageSchema } from '../../agent_svc/types/message.types.js';
 
 const AgentRunOptionsSchema = z.object({
   max_turns: z.number().int().positive().optional(),
@@ -20,7 +15,7 @@ const AgentRunOptionsSchema = z.object({
 
 const RunRequestSchema = z.object({
   agent_id: z.string().min(1),
-  input: z.union([z.string().min(1), z.array(PromptMessageSchema).min(1)]),
+  input: z.union([z.string().min(1), z.array(MessageSchema).min(1)]),
   conversation_id: z.string().min(1).optional(),
   options: AgentRunOptionsSchema.optional(),
 });

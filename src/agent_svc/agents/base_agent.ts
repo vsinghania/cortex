@@ -1,6 +1,4 @@
 import type { Logger } from 'pino';
-import type { PromptMessage } from '../../ai_svc/types/ai_prompt.types.js';
-import { Role } from '../../ai_svc/types/ai_prompt.types.js';
 import type {
   AgentManifest,
   AgentRunRequest,
@@ -9,6 +7,7 @@ import type {
   Tool,
   ToolContext,
 } from '../types/agent.types.js';
+import { Role, MessageContent, type Message } from '../types/message.types.js';
 import type { McpServerHandle } from '../registry/mcp_server_registry.js';
 import { logger as base_logger } from '../../common/logger.js';
 import { TraceContext } from '../../common/trace_context.js';
@@ -121,19 +120,20 @@ export abstract class BaseAgent {
   }
 
   protected extractLastUserText(req: AgentRunRequest): string {
-    if (typeof req.input === 'string') return req.input;
-    return req.input[req.input.length - 1]?.content ?? '';
+    const messages = this.userMessageFromInput(req);
+    const last = messages[messages.length - 1];
+    if (!last) return '';
+    return MessageContent.toText(last.content);
   }
 
-  protected appendUserAssistant(
-    req: AgentRunRequest,
-    user_text: string,
-    assistant_text: string
-  ): PromptMessage[] {
-    return [
-      ...(req.message_history ?? []),
-      { role: Role.USER, content: user_text },
-      { role: Role.ASSISTANT, content: assistant_text },
-    ];
+  protected appendMessages(req: AgentRunRequest, new_messages: Message[]): Message[] {
+    return [...(req.message_history ?? []), ...new_messages];
+  }
+
+  protected userMessageFromInput(req: AgentRunRequest): Message[] {
+    if (typeof req.input === 'string') {
+      return [{ role: Role.User, content: MessageContent.text(req.input) }];
+    }
+    return req.input;
   }
 }

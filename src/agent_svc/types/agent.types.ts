@@ -1,6 +1,6 @@
 import type { AnyZodObject } from 'zod';
 import type { Logger } from 'pino';
-import type { PromptMessage } from '../../ai_svc/types/ai_prompt.types.js';
+import type { Message } from './message.types.js';
 
 export enum AgentEngine {
   OpenAi = 'openai',
@@ -50,21 +50,13 @@ export type AgentRunOptions = {
 };
 
 export type AgentRunRequest = {
-  input: string | PromptMessage[];
-  message_history?: PromptMessage[];
+  input: string | Message[];
+  message_history?: Message[];
   conversation_id?: string;
   user_id?: string;
   previous_response_id?: string;
   context?: Record<string, unknown>;
   options?: AgentRunOptions;
-};
-
-export type ToolInvocation = {
-  tool_name: string;
-  arguments: unknown;
-  result: ToolResult;
-  duration_ms: number;
-  turn: number;
 };
 
 export type AgentUsage = {
@@ -78,8 +70,7 @@ export type AgentStopReason = 'final' | 'max_turns' | 'error';
 export type AgentRunResponse = {
   final_output_text?: string;
   final_output_json?: unknown;
-  message_history: PromptMessage[];
-  tool_calls: ToolInvocation[];
+  message_history: Message[];
   usage: AgentUsage;
   model?: string;
   response_id?: string;

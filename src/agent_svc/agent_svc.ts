@@ -2,8 +2,7 @@ import type {
   AgentRunRequest,
   AgentRunResponse,
 } from './types/agent.types.js';
-import type { PromptMessage } from '../ai_svc/types/ai_prompt.types.js';
-import { Role } from '../ai_svc/types/ai_prompt.types.js';
+import type { Message } from './types/message.types.js';
 import type {
   AgentSvcInterface,
   ConversationWithMessages,
@@ -96,7 +95,7 @@ export class AgentSvc implements AgentSvcInterface {
         agent_id: input.agent_id,
         conversation_id: response.conversation_id,
         model: response.model,
-        tool_call_count: response.tool_calls?.length ?? 0,
+        message_count: response.message_history.length,
         usage: response.usage,
         stop_reason: response.stop_reason,
         duration_ms,
@@ -159,11 +158,8 @@ export class AgentSvc implements AgentSvcInterface {
   ): Promise<void> {
     if (!response.conversation_id) return;
 
-    const user_message = AgentSvc.extractUserMessage(req);
-    const assistant_message: PromptMessage = {
-      role: Role.ASSISTANT,
-      content: response.final_output_text ?? '',
-    };
+    const new_messages = AgentSvc.diffNewMessages(req, response);
+    if (!new_messages.length) return;
 
     try {
       const conversation_store = await ConversationStore.getInstance();
@@ -171,9 +167,7 @@ export class AgentSvc implements AgentSvcInterface {
         conversation_id: response.conversation_id,
         user_id: req.user_id,
         agent_id: agent.manifest.agent_id,
-        user_message,
-        assistant_message,
-        tool_calls: response.tool_calls,
+        messages: new_messages,
         usage: response.usage,
         model: response.model,
         response_id: response.response_id,
@@ -187,11 +181,17 @@ export class AgentSvc implements AgentSvcInterface {
     }
   }
 
-  private static extractUserMessage(req: AgentRunRequest): PromptMessage {
-    if (typeof req.input === 'string') {
-      return { role: Role.USER, content: req.input };
-    }
-    const last_user = [...req.input].reverse().find((m) => m.role === Role.USER);
-    return last_user ?? { role: Role.USER, content: '' };
+  /**
+   * Returns messages produced by this run that aren't already in history.
+   * The agent returns the full transcript; persistence only writes the new
+   * tail to avoid duplicating prior turns.
+   */
+  private static diffNewMessages(
+    req: AgentRunRequest,
+    response: AgentRunResponse
+  ): Message[] {
+    const prior_count = req.message_history?.length ?? 0;
+    return response.message_history.slice(prior_count);
   }
+
 }

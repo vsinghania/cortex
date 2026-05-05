@@ -1,41 +1,101 @@
 import {
-  user as userMessage,
-  assistant as assistantMessage,
-  system as systemMessage,
   RunToolCallItem,
   RunToolCallOutputItem,
+  RunMessageOutputItem,
   type AgentInputItem,
 } from '@openai/agents';
-import { performance } from 'node:perf_hooks';
-import type { PromptMessage } from '../../../ai_svc/types/ai_prompt.types.js';
-import { Role } from '../../../ai_svc/types/ai_prompt.types.js';
 import type {
   AgentUsage,
-  ToolInvocation,
   ToolResult,
 } from '../../types/agent.types.js';
+import {
+  Role,
+  MessageContent,
+  type Content,
+  type ContentPart,
+  type Message,
+  type ToolCall,
+} from '../../types/message.types.js';
 
 export class OpenAiSdkUtils {
   private constructor() {}
 
-  static toSdkInputItem(m: PromptMessage): AgentInputItem {
+  static toSdkInput(messages: Message[]): AgentInputItem[] {
+    const items: AgentInputItem[] = [];
+    for (const m of messages) {
+      OpenAiSdkUtils.appendMessageItems(m, items);
+    }
+    return items;
+  }
+
+  private static appendMessageItems(m: Message, out: AgentInputItem[]): void {
     switch (m.role) {
-      case Role.USER:
-        return userMessage(m.content);
-      case Role.ASSISTANT:
-        return assistantMessage(m.content);
-      case Role.SYSTEM:
-        return systemMessage(m.content);
+      case Role.System:
+        out.push({
+          type: 'message',
+          role: 'system',
+          content: OpenAiSdkUtils.contentToText(m.content),
+        } as AgentInputItem);
+        return;
+      case Role.User:
+        out.push({
+          type: 'message',
+          role: 'user',
+          content: OpenAiSdkUtils.toUserContent(m.content),
+        } as AgentInputItem);
+        return;
+      case Role.Assistant: {
+        const text = OpenAiSdkUtils.contentToText(m.content);
+        if (text.length > 0) {
+          out.push({
+            type: 'message',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text }],
+          } as AgentInputItem);
+        }
+        for (const call of m.tool_calls ?? []) {
+          out.push({
+            type: 'function_call',
+            callId: call.tool_call_id,
+            name: call.tool_name,
+            arguments: OpenAiSdkUtils.stringifyArgs(call.arguments),
+          } as AgentInputItem);
+        }
+        return;
+      }
+      case Role.Tool:
+        out.push({
+          type: 'function_call_result',
+          callId: m.tool_call_id,
+          name: '',
+          status: 'completed',
+          output: {
+            type: 'text',
+            text: OpenAiSdkUtils.contentToText(m.content),
+          },
+        } as AgentInputItem);
+        return;
     }
   }
 
-  static toSdkInput(messages: PromptMessage[]): AgentInputItem[] {
-    return messages.map(OpenAiSdkUtils.toSdkInputItem);
+  private static toUserContent(content: Content): unknown[] {
+    return content.map((part) => OpenAiSdkUtils.toUserContentPart(part));
+  }
+
+  private static toUserContentPart(part: ContentPart): unknown {
+    if (part.type === 'text') return { type: 'input_text', text: part.text };
+    if (part.type === 'image') return { type: 'input_image', image: part.url };
+    return { type: 'input_text', text: OpenAiSdkUtils.stringifyJson(part.data) };
+  }
+
+  static contentToText(content: Content): string {
+    return MessageContent.toText(content);
   }
 
   static serializeToolResult(result: ToolResult): string {
     if (result.kind === 'text') return result.text;
-    if (result.kind === 'json') return JSON.stringify(result.data);
+    if (result.kind === 'json') return OpenAiSdkUtils.stringifyJson(result.data);
     return JSON.stringify({ error: result.message });
   }
 
@@ -48,20 +108,46 @@ export class OpenAiSdkUtils {
     }
   }
 
-  static coerceToolResult(output: unknown): ToolResult {
-    if (typeof output === 'string') return { kind: 'text', text: output };
-    if (output && typeof output === 'object') return { kind: 'json', data: output };
-    return { kind: 'text', text: String(output ?? '') };
+  static extractMessages(result: any): Message[] {
+    const items: any[] = Array.isArray(result?.newItems) ? result.newItems : [];
+    const messages: Message[] = [];
+
+    for (const item of items) {
+      if (item instanceof RunMessageOutputItem) {
+        messages.push({
+          role: Role.Assistant,
+          content: MessageContent.text(OpenAiSdkUtils.assistantTextFromRawItem(item.rawItem)),
+        });
+      } else if (item instanceof RunToolCallItem) {
+        const raw = item.rawItem as any;
+        const tool_call: ToolCall = {
+          tool_call_id: raw?.callId ?? raw?.id ?? '',
+          tool_name: raw?.name ?? 'unknown_tool',
+          arguments: OpenAiSdkUtils.parseToolArgs(raw?.arguments),
+        };
+        messages.push({
+          role: Role.Assistant,
+          content: MessageContent.empty(),
+          tool_calls: [tool_call],
+        });
+      } else if (item instanceof RunToolCallOutputItem) {
+        const raw = item.rawItem as any;
+        const call_id: string = raw?.callId ?? raw?.id ?? '';
+        const output_text = OpenAiSdkUtils.outputToText((item as any).output ?? raw?.output);
+        messages.push({
+          role: Role.Tool,
+          tool_call_id: call_id,
+          content: MessageContent.text(output_text),
+        });
+      }
+    }
+    return messages;
   }
 
   static extractFinalText(result: any): string {
     if (typeof result?.finalOutput === 'string') return result.finalOutput;
     if (result?.finalOutput != null) {
-      try {
-        return JSON.stringify(result.finalOutput);
-      } catch {
-        return String(result.finalOutput);
-      }
+      return OpenAiSdkUtils.stringifyJson(result.finalOutput);
     }
     return '';
   }
@@ -91,39 +177,37 @@ export class OpenAiSdkUtils {
     return undefined;
   }
 
-  static extractToolInvocations(result: any): ToolInvocation[] {
-    const items: any[] = Array.isArray(result?.newItems) ? result.newItems : [];
-    const calls_by_id = new Map<
-      string,
-      { name: string; args: unknown; turn: number; ts: number }
-    >();
-    const invocations: ToolInvocation[] = [];
+  private static assistantTextFromRawItem(raw: any): string {
+    const parts: any[] = Array.isArray(raw?.content) ? raw.content : [];
+    return parts
+      .map((p) => {
+        if (p?.type === 'output_text') return typeof p.text === 'string' ? p.text : '';
+        if (p?.type === 'refusal') return typeof p.refusal === 'string' ? p.refusal : '';
+        return '';
+      })
+      .join('');
+  }
 
-    let turn = 0;
-    for (const item of items) {
-      if (item instanceof RunToolCallItem) {
-        turn += 1;
-        const raw = item.rawItem as any;
-        const call_id: string | undefined = raw?.callId ?? raw?.id;
-        const name: string = raw?.name ?? 'unknown_tool';
-        const args = OpenAiSdkUtils.parseToolArgs(raw?.arguments);
-        if (call_id) {
-          calls_by_id.set(call_id, { name, args, turn, ts: performance.now() });
-        }
-      } else if (item instanceof RunToolCallOutputItem) {
-        const raw = item.rawItem as any;
-        const call_id: string | undefined = raw?.callId ?? raw?.id;
-        const matched = call_id ? calls_by_id.get(call_id) : undefined;
-        const output = (item as any).output ?? raw?.output;
-        invocations.push({
-          tool_name: matched?.name ?? 'unknown_tool',
-          arguments: matched?.args ?? null,
-          result: OpenAiSdkUtils.coerceToolResult(output),
-          duration_ms: matched ? Math.max(0, performance.now() - matched.ts) : 0,
-          turn: matched?.turn ?? turn,
-        });
-      }
+  private static outputToText(output: unknown): string {
+    if (output == null) return '';
+    if (typeof output === 'string') return output;
+    if (typeof output === 'object' && 'type' in (output as any)) {
+      const o = output as any;
+      if (o.type === 'text' && typeof o.text === 'string') return o.text;
     }
-    return invocations;
+    return OpenAiSdkUtils.stringifyJson(output);
+  }
+
+  private static stringifyArgs(args: unknown): string {
+    if (typeof args === 'string') return args;
+    return OpenAiSdkUtils.stringifyJson(args);
+  }
+
+  private static stringifyJson(value: unknown): string {
+    try {
+      return JSON.stringify(value ?? null);
+    } catch {
+      return String(value);
+    }
   }
 }

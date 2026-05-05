@@ -10,8 +10,7 @@ import type {
   AgentRunResponse,
   Tool as DomainTool,
 } from '../../types/agent.types.js';
-import type { PromptMessage } from '../../../ai_svc/types/ai_prompt.types.js';
-import { Role } from '../../../ai_svc/types/ai_prompt.types.js';
+import type { Message } from '../../types/message.types.js';
 import { OpenAiSdkUtils } from './openai_sdk_utils.js';
 import { logExecTime } from '../../../lib/decorators/logging_decorators.js';
 import { McpServerMode } from '../../types/mcp_server.types.js';
@@ -91,7 +90,7 @@ export class OpenAiAgent extends BaseAgent {
         {
           agent_id: this.manifest.agent_id,
           model: response.model,
-          tool_call_count: response.tool_calls?.length ?? 0,
+          message_count: response.message_history.length,
           stop_reason: response.stop_reason,
           duration_ms: Number((performance.now() - start_ms).toFixed(1)),
         },
@@ -187,18 +186,15 @@ export class OpenAiAgent extends BaseAgent {
     if (typeof req.input === 'string' && (!req.message_history || req.message_history.length === 0)) {
       return req.input;
     }
-
-    const history = req.message_history ?? [];
-    const latest_messages: PromptMessage[] =
-      typeof req.input === 'string'
-        ? [{ role: Role.USER, content: req.input }]
-        : req.input;
-
-    return OpenAiSdkUtils.toSdkInput([...history, ...latest_messages]);
+    const all_messages: Message[] = [
+      ...(req.message_history ?? []),
+      ...this.userMessageFromInput(req),
+    ];
+    return OpenAiSdkUtils.toSdkInput(all_messages);
   }
 
   private toAgentResponse(req: AgentRunRequest, result: any): AgentRunResponse {
-    const tool_calls = OpenAiSdkUtils.extractToolInvocations(result);
+    const new_messages = OpenAiSdkUtils.extractMessages(result);
     const final_text = OpenAiSdkUtils.extractFinalText(result);
     const usage = OpenAiSdkUtils.extractUsage(result);
     const model_name =
@@ -206,14 +202,16 @@ export class OpenAiAgent extends BaseAgent {
       this.manifest.model ??
       this.default_model;
 
-    const user_text = this.extractLastUserText(req);
-    const message_history = this.appendUserAssistant(req, user_text, final_text);
+    const message_history: Message[] = [
+      ...(req.message_history ?? []),
+      ...this.userMessageFromInput(req),
+      ...new_messages,
+    ];
 
     return {
       final_output_text: final_text,
       final_output_json: undefined,
       message_history,
-      tool_calls,
       usage,
       model: model_name,
       response_id: result?.lastResponseId,
@@ -223,16 +221,14 @@ export class OpenAiAgent extends BaseAgent {
   }
 
   private maxTurnsResponse(req: AgentRunRequest): AgentRunResponse {
-    const user_text = this.extractLastUserText(req);
-    const message_history = [
+    const message_history: Message[] = [
       ...(req.message_history ?? []),
-      { role: Role.USER, content: user_text },
+      ...this.userMessageFromInput(req),
     ];
     return {
       final_output_text: undefined,
       final_output_json: undefined,
       message_history,
-      tool_calls: [],
       usage: this.emptyUsage(),
       model: this.manifest.model ?? this.default_model,
       response_id: undefined,

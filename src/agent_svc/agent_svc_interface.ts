@@ -5,7 +5,7 @@ import type {
   AgentRunResponse,
   Tool,
 } from './types/agent.types.js';
-import type { PromptMessage } from '../ai_svc/types/ai_prompt.types.js';
+import type { Message } from './types/message.types.js';
 import type {
   Conversation,
   ConversationMessage,
@@ -13,7 +13,7 @@ import type {
 
 export type RunByAgentIdInput = {
   agent_id: string;
-  input: string | PromptMessage[];
+  input: string | Message[];
   conversation_id?: string;
   user_id?: string;
   options?: AgentRunOptions;

@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { PromptMessage } from '../../ai_svc/types/ai_prompt.types.js';
-import { Role } from '../../ai_svc/types/ai_prompt.types.js';
+import { Role, type Message } from '../types/message.types.js';
 import type { ConversationRepositoryInterface } from './conversation_repository_interface.js';
 import { MongooseConversationRepository } from './mongoose_conversation_repository.js';
 import { logger } from '../../common/logger.js';
@@ -65,11 +64,11 @@ export class ConversationStore {
     return conversation;
   }
 
-  async loadHistory(conversation_id: string): Promise<PromptMessage[]> {
+  async loadHistory(conversation_id: string): Promise<Message[]> {
     const messages = await this.repo.listMessages(conversation_id);
     return messages
-      .filter((m) => m.role !== Role.SYSTEM)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .filter((m) => m.role !== Role.System)
+      .map((m) => ConversationStore.toMessage(m));
   }
 
   async listForUser(params: {
@@ -95,25 +94,26 @@ export class ConversationStore {
   }
 
   async appendTurn(input: AppendTurnInput): Promise<void> {
+    if (!input.messages.length) return;
     const start_turn = await this.repo.nextTurn(input.conversation_id);
-    await this.repo.appendMessages([
-      {
+    const last_index = input.messages.length - 1;
+
+    const docs = input.messages.map((msg, i) => {
+      const base: Omit<ConversationMessage, 'created_at'> = {
+        ...msg,
         conversation_id: input.conversation_id,
-        turn: start_turn,
-        role: input.user_message.role,
-        content: input.user_message.content,
-      },
-      {
-        conversation_id: input.conversation_id,
-        turn: start_turn + 1,
-        role: input.assistant_message.role,
-        content: input.assistant_message.content,
-        tool_calls: input.tool_calls.length ? input.tool_calls : undefined,
-        usage: input.usage,
-        model: input.model,
-        response_id: input.response_id,
-      },
-    ]);
+        turn: start_turn + i,
+      };
+      if (i === last_index) {
+        base.usage = input.usage;
+        base.model = input.model;
+        base.response_id = input.response_id;
+      }
+      return base;
+    });
+
+    await this.repo.appendMessages(docs);
+
     if (input.response_id) {
       await this.repo.setLastResponseId(input.conversation_id, input.response_id);
     }
@@ -121,10 +121,31 @@ export class ConversationStore {
       {
         conversation_id: input.conversation_id,
         turn_start: start_turn,
-        has_tool_calls: input.tool_calls.length > 0,
+        message_count: input.messages.length,
         model: input.model,
       },
       'Conversation turn appended'
     );
+  }
+
+  private static toMessage(m: ConversationMessage): Message {
+    switch (m.role) {
+      case Role.System:
+        return { role: Role.System, content: m.content };
+      case Role.User:
+        return { role: Role.User, content: m.content };
+      case Role.Assistant:
+        return {
+          role: Role.Assistant,
+          content: m.content,
+          tool_calls: m.tool_calls,
+        };
+      case Role.Tool:
+        return {
+          role: Role.Tool,
+          tool_call_id: m.tool_call_id,
+          content: m.content,
+        };
+    }
   }
 }

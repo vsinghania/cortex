@@ -1,5 +1,5 @@
-import type { PromptMessage } from '../../ai_svc/types/ai_prompt.types.js';
-import type { AgentUsage, ToolInvocation } from './agent.types.js';
+import type { AgentUsage } from './agent.types.js';
+import type { Message } from './message.types.js';
 
 export type Conversation = {
   conversation_id: string;
@@ -11,25 +11,22 @@ export type Conversation = {
   updated_at: Date;
 };
 
-export type ConversationMessage = {
+export type ConversationMessageMeta = {
   conversation_id: string;
   turn: number;
-  role: PromptMessage['role'];
-  content: string;
-  tool_calls?: ToolInvocation[];
+  created_at: Date;
   usage?: AgentUsage;
   model?: string;
   response_id?: string;
-  created_at: Date;
 };
+
+export type ConversationMessage = Message & ConversationMessageMeta;
 
 export type AppendTurnInput = {
   conversation_id: string;
   user_id?: string;
   agent_id: string;
-  user_message: PromptMessage;
-  assistant_message: PromptMessage;
-  tool_calls: ToolInvocation[];
+  messages: Message[];
   usage: AgentUsage;
   model?: string;
   response_id?: string;
