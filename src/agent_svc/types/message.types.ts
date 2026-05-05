@@ -50,6 +50,7 @@ export const AssistantMessageSchema = z.object({
   role: z.literal(Role.Assistant),
   content: ContentSchema,
   tool_calls: z.array(ToolCallSchema).optional(),
+  provider_response_id: z.string().optional(),
 });
 
 export const ToolMessageSchema = z.object({

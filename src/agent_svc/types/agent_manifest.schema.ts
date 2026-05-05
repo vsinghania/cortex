@@ -18,7 +18,33 @@ export const agent_manifest_schema = z.object({
 });
 
 export const agent_manifest_create_input_schema = agent_manifest_schema
-  .omit({ created_at: true, updated_at: true, version: true })
+  .omit({ created_at: true, updated_at: true, version: true, agent_id: true, engine: true })
   .extend({
-    version: z.number().int().min(1).default(1),
+    agent_id: z.string().trim().min(1).optional(),
+    name: z.string().trim().min(1),
+    instructions: z.string().trim().min(1),
+    engine: z.nativeEnum(AgentEngine).default(AgentEngine.OpenAi),
+  })
+  .strict();
+
+export const agent_manifest_update_input_schema = agent_manifest_schema
+  .pick({
+    name: true,
+    instructions: true,
+    model: true,
+    engine: true,
+    tool_names: true,
+    tool_agent_ids: true,
+    handoff_agent_ids: true,
+    mcp_server_ids: true,
+    enabled: true,
+  })
+  .partial()
+  .extend({
+    name: z.string().trim().min(1).optional(),
+    instructions: z.string().trim().min(1).optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one field is required',
   });

@@ -214,7 +214,6 @@ export class OpenAiAgent extends BaseAgent {
       message_history,
       usage,
       model: model_name,
-      response_id: result?.lastResponseId,
       conversation_id: req.conversation_id,
       stop_reason: 'final',
     };
@@ -231,7 +230,6 @@ export class OpenAiAgent extends BaseAgent {
       message_history,
       usage: this.emptyUsage(),
       model: this.manifest.model ?? this.default_model,
-      response_id: undefined,
       conversation_id: req.conversation_id,
       stop_reason: 'max_turns',
     };

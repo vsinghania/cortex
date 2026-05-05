@@ -12,7 +12,7 @@ export class ConversationModelFactory extends BaseModelFactory<Conversation> {
         user_id: { type: String, default: undefined, index: true },
         agent_id: { type: String, required: true, index: true },
         title: { type: String, default: undefined },
-        last_response_id: { type: String, default: undefined },
+        last_provider_response_id: { type: String, default: undefined },
       },
       {
         collection: 'conversations',
@@ -60,12 +60,12 @@ export class ConversationMessageModelFactory extends BaseModelFactory<Conversati
         conversation_id: { type: String, required: true, index: true },
         turn: { type: Number, required: true },
         role: { type: String, enum: Object.values(Role), required: true },
-        content: { type: Schema.Types.Mixed, required: true, default: '' },
+        content: { type: Schema.Types.Mixed, required: true, default: [] },
         tool_call_id: { type: String, default: undefined },
         tool_calls: { type: [ToolCallSchema], default: undefined },
+        provider_response_id: { type: String, default: undefined },
         usage: { type: UsageSchema, default: undefined },
         model: { type: String, default: undefined },
-        response_id: { type: String, default: undefined },
       },
       {
         collection: 'conversation_messages',

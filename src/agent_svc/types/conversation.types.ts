@@ -6,7 +6,7 @@ export type Conversation = {
   user_id?: string;
   agent_id: string;
   title?: string;
-  last_response_id?: string;
+  last_provider_response_id?: string;
   created_at: Date;
   updated_at: Date;
 };
@@ -17,7 +17,6 @@ export type ConversationMessageMeta = {
   created_at: Date;
   usage?: AgentUsage;
   model?: string;
-  response_id?: string;
 };
 
 export type ConversationMessage = Message & ConversationMessageMeta;
@@ -29,5 +28,4 @@ export type AppendTurnInput = {
   messages: Message[];
   usage: AgentUsage;
   model?: string;
-  response_id?: string;
 };

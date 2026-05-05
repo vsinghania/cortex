@@ -1,5 +1,5 @@
 import type { Connection, Model } from 'mongoose';
-import type { AgentManifest } from '../types/agent.types.js';
+import type { AgentManifest, AgentUpdatePatch } from '../types/agent.types.js';
 import type { AgentRepositoryInterface } from './agent_repository_interface.js';
 import { AgentModelFactory } from '../models/agent_model.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
@@ -31,6 +31,25 @@ export class MongooseAgentRepository implements AgentRepositoryInterface {
 
   async getById(agent_id: string): Promise<AgentManifest | null> {
     const doc = await this.model.findOne({ agent_id }).lean();
+    return doc ? MongooseAgentRepository.toDomain(doc) : null;
+  }
+
+  async create(
+    manifest: Omit<AgentManifest, 'created_at' | 'updated_at'>
+  ): Promise<AgentManifest> {
+    const created = await this.model.create(manifest);
+    return MongooseAgentRepository.toDomain(created);
+  }
+
+  async updateByAgentId(
+    agent_id: string,
+    patch: AgentUpdatePatch
+  ): Promise<AgentManifest | null> {
+    const doc = await this.model.findOneAndUpdate(
+      { agent_id },
+      { $set: patch },
+      { new: true }
+    ).lean();
     return doc ? MongooseAgentRepository.toDomain(doc) : null;
   }
 

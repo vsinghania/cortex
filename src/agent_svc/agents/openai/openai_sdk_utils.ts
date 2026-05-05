@@ -141,7 +141,26 @@ export class OpenAiSdkUtils {
         });
       }
     }
+
+    OpenAiSdkUtils.stampLastAssistantResponseId(messages, result?.lastResponseId);
     return messages;
+  }
+
+  /**
+   * Attaches the provider's response id to the last assistant message in the
+   * extracted batch. Approximates per-message attribution using the run's
+   * lastResponseId; finer-grained mapping would require walking rawResponses
+   * and is deferred until needed.
+   */
+  private static stampLastAssistantResponseId(messages: Message[], response_id: unknown): void {
+    if (typeof response_id !== 'string' || !response_id) return;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === Role.Assistant) {
+        m.provider_response_id = response_id;
+        return;
+      }
+    }
   }
 
   static extractFinalText(result: any): string {

@@ -22,6 +22,21 @@ export type AgentManifest = {
   updated_at: Date;
 };
 
+export type AgentUpdatePatch = Partial<
+  Pick<
+    AgentManifest,
+    | 'name'
+    | 'instructions'
+    | 'model'
+    | 'engine'
+    | 'tool_names'
+    | 'tool_agent_ids'
+    | 'handoff_agent_ids'
+    | 'mcp_server_ids'
+    | 'enabled'
+  >
+>;
+
 export type ToolResult =
   | { kind: 'text'; text: string }
   | { kind: 'json'; data: unknown }
@@ -73,7 +88,6 @@ export type AgentRunResponse = {
   message_history: Message[];
   usage: AgentUsage;
   model?: string;
-  response_id?: string;
   conversation_id?: string;
   stop_reason: AgentStopReason;
 };

@@ -1,5 +1,6 @@
 import type {
   AgentManifest,
+  AgentUpdatePatch,
   AgentRunOptions,
   AgentRunRequest,
   AgentRunResponse,
@@ -25,6 +26,24 @@ export type RunAdHocInput = {
   request: AgentRunRequest;
 };
 
+export type CreateAgentInput = {
+  agent_id?: string;
+  name: string;
+  instructions: string;
+  model?: string;
+  engine?: AgentManifest['engine'];
+  tool_names?: string[];
+  tool_agent_ids?: string[];
+  handoff_agent_ids?: string[];
+  mcp_server_ids?: string[];
+  enabled?: boolean;
+};
+
+export type UpdateAgentInput = {
+  agent_id: string;
+  patch: AgentUpdatePatch;
+};
+
 export type ListConversationsInput = {
   user_id: string;
   limit?: number;
@@ -42,6 +61,8 @@ export type ConversationWithMessages = {
 };
 
 export interface AgentSvcInterface {
+  createAgent(input: CreateAgentInput): Promise<AgentManifest>;
+  updateAgent(input: UpdateAgentInput): Promise<AgentManifest>;
   runByAgentId(input: RunByAgentIdInput): Promise<AgentRunResponse>;
   runAdHoc(input: RunAdHocInput): Promise<AgentRunResponse>;
   listConversations(input: ListConversationsInput): Promise<Conversation[]>;

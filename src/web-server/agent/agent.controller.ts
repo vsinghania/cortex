@@ -2,8 +2,13 @@ import express from 'express';
 import { z } from 'zod';
 import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
+import { AuthorizeMiddleware } from '../../common/middlewares/authorize.js';
 import { AgentSvc } from '../../agent_svc/agent_svc.js';
 import { MessageSchema } from '../../agent_svc/types/message.types.js';
+import {
+  agent_manifest_create_input_schema,
+  agent_manifest_update_input_schema,
+} from '../../agent_svc/types/agent_manifest.schema.js';
 
 const AgentRunOptionsSchema = z.object({
   max_turns: z.number().int().positive().optional(),
@@ -21,6 +26,8 @@ const RunRequestSchema = z.object({
 });
 
 type RunRequest = z.infer<typeof RunRequestSchema>;
+type CreateAgentRequest = z.infer<typeof agent_manifest_create_input_schema>;
+type UpdateAgentRequest = z.infer<typeof agent_manifest_update_input_schema>;
 
 const ListConversationsQuerySchema = z.object({
   limit: z
@@ -39,6 +46,10 @@ const ConversationParamsSchema = z.object({
   conversation_id: z.string().min(1),
 });
 
+const AgentParamsSchema = z.object({
+  agent_id: z.string().min(1),
+});
+
 export class AgentController {
 
   private readonly router: express.Router;
@@ -53,6 +64,18 @@ export class AgentController {
   }
 
   private registerRoutes() {
+    this.router.post(
+      '/',
+      RequireAuthMiddleware.requireAuth,
+      AuthorizeMiddleware.authorizeRoles('admin'),
+      this.createAgent.bind(this)
+    );
+    this.router.patch(
+      '/:agent_id',
+      RequireAuthMiddleware.requireAuth,
+      AuthorizeMiddleware.authorizeRoles('admin'),
+      this.updateAgent.bind(this)
+    );
     this.router.post('/run', RequireAuthMiddleware.requireAuth, this.run.bind(this));
     this.router.get(
       '/conversations',
@@ -64,6 +87,39 @@ export class AgentController {
       RequireAuthMiddleware.requireAuth,
       this.getConversation.bind(this)
     );
+  }
+
+  @validateRequest({ body: agent_manifest_create_input_schema })
+  private async createAgent(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
+    try {
+      const body = agent_manifest_create_input_schema.parse(req.body) as CreateAgentRequest;
+      const agent_svc = await AgentSvc.create();
+      const result = await agent_svc.createAgent(body);
+      res.status(201).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ params: AgentParamsSchema, body: agent_manifest_update_input_schema })
+  private async updateAgent(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
+    try {
+      const { agent_id } = req.params as { agent_id: string };
+      const body = agent_manifest_update_input_schema.parse(req.body) as UpdateAgentRequest;
+      const agent_svc = await AgentSvc.create();
+      const result = await agent_svc.updateAgent({ agent_id, patch: body });
+      res.status(200).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
   }
 
   @validateRequest({ body: RunRequestSchema })

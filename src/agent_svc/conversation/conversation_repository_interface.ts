@@ -18,7 +18,7 @@ export interface ConversationRepositoryInterface {
 
   listConversationsForUser(params: ListConversationsForUserParams): Promise<Conversation[]>;
 
-  setLastResponseId(conversation_id: string, last_response_id: string): Promise<void>;
+  setLastProviderResponseId(conversation_id: string, last_provider_response_id: string): Promise<void>;
 
   appendMessages(messages: Omit<ConversationMessage, 'created_at'>[]): Promise<void>;
 

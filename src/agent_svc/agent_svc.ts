@@ -1,22 +1,29 @@
 import type {
+  AgentManifest,
   AgentRunRequest,
   AgentRunResponse,
+  AgentUpdatePatch,
 } from './types/agent.types.js';
+import { AgentEngine } from './types/agent.types.js';
 import type { Message } from './types/message.types.js';
 import type {
   AgentSvcInterface,
   ConversationWithMessages,
+  CreateAgentInput,
   GetConversationInput,
   ListConversationsInput,
   RunAdHocInput,
   RunByAgentIdInput,
+  UpdateAgentInput,
 } from './agent_svc_interface.js';
 import type { Conversation } from './types/conversation.types.js';
-import { NotFoundError } from '../common/errors.js';
+import { BadRequestError, ConflictError, NotFoundError } from '../common/errors.js';
 import { AgentRegistry } from './registry/agent_registry.js';
 import { ToolRegistry } from './tools/tool_registry.js';
 import { ConversationStore } from './conversation/conversation_store.js';
 import { AgentFactory } from './factory/agent_factory.js';
+import { MongooseAgentRepository } from './repositories/mongoose_agent_repository.js';
+import { AgentIdGenerator } from './agent_id_generator.js';
 import type { BaseAgent } from './agents/base_agent.js';
 import { logger } from '../common/logger.js';
 import { logExecTime } from '../lib/decorators/logging_decorators.js';
@@ -39,6 +46,54 @@ export class AgentSvc implements AgentSvcInterface {
     await AgentRegistry.getInstance();
     await ConversationStore.getInstance();
     return new AgentSvc();
+  }
+
+  async createAgent(input: CreateAgentInput): Promise<AgentManifest> {
+    const repo = await MongooseAgentRepository.create();
+    const agent_id = await AgentSvc.resolveCreateAgentId(input, repo);
+    const manifest = AgentSvc.buildCreateManifest(agent_id, input);
+    const created = await repo.create(manifest);
+    await this.refreshAgentRegistry();
+
+    logger.info(
+      {
+        agent_id: created.agent_id,
+        enabled: created.enabled,
+        tool_count: created.tool_names.length,
+        tool_agent_count: created.tool_agent_ids.length,
+        handoff_agent_count: created.handoff_agent_ids.length,
+        mcp_server_count: created.mcp_server_ids.length,
+      },
+      'agent created'
+    );
+
+    return created;
+  }
+
+  async updateAgent(input: UpdateAgentInput): Promise<AgentManifest> {
+    const patch = AgentSvc.compactUpdatePatch(input.patch);
+    if (Object.keys(patch).length === 0) {
+      throw new BadRequestError('At least one agent field is required');
+    }
+
+    const repo = await MongooseAgentRepository.create();
+    const updated = await repo.updateByAgentId(input.agent_id, patch);
+    if (!updated) {
+      throw new NotFoundError(`Agent not found: ${input.agent_id}`);
+    }
+
+    await this.refreshAgentRegistry();
+
+    logger.info(
+      {
+        agent_id: updated.agent_id,
+        enabled: updated.enabled,
+        updated_field_count: Object.keys(patch).length,
+      },
+      'agent updated'
+    );
+
+    return updated;
   }
 
   @logExecTime({ threshold_in_ms: 5000 })
@@ -70,7 +125,7 @@ export class AgentSvc implements AgentSvcInterface {
         agent_id: input.agent_id,
         conversation_id: conversation.conversation_id,
         history_len: message_history.length,
-        previous_response_id: conversation.last_response_id,
+        previous_response_id: conversation.last_provider_response_id,
       },
       'agent run context loaded'
     );
@@ -80,7 +135,7 @@ export class AgentSvc implements AgentSvcInterface {
       message_history,
       conversation_id: conversation.conversation_id,
       user_id: input.user_id,
-      previous_response_id: conversation.last_response_id,
+      previous_response_id: conversation.last_provider_response_id,
       options: input.options,
     };
 
@@ -170,7 +225,6 @@ export class AgentSvc implements AgentSvcInterface {
         messages: new_messages,
         usage: response.usage,
         model: response.model,
-        response_id: response.response_id,
       });
       logger.debug({ conversation_id: response.conversation_id }, 'Turn persisted');
     } catch (err) {
@@ -192,6 +246,59 @@ export class AgentSvc implements AgentSvcInterface {
   ): Message[] {
     const prior_count = req.message_history?.length ?? 0;
     return response.message_history.slice(prior_count);
+  }
+
+  private static async resolveCreateAgentId(
+    input: CreateAgentInput,
+    repo: MongooseAgentRepository
+  ): Promise<string> {
+    if (input.agent_id) {
+      const existing = await repo.getById(input.agent_id);
+      if (existing) {
+        throw new ConflictError(`Agent already exists: ${input.agent_id}`, {
+          details: { agent_id: input.agent_id },
+        });
+      }
+      return input.agent_id;
+    }
+
+    return AgentIdGenerator.generateAvailable(input.name, async (agent_id) => {
+      const existing = await repo.getById(agent_id);
+      return existing !== null;
+    });
+  }
+
+  private static buildCreateManifest(
+    agent_id: string,
+    input: CreateAgentInput
+  ): Omit<AgentManifest, 'created_at' | 'updated_at'> {
+    return {
+      agent_id,
+      name: input.name,
+      instructions: input.instructions,
+      model: input.model,
+      engine: input.engine ?? AgentEngine.OpenAi,
+      tool_names: input.tool_names ?? [],
+      tool_agent_ids: input.tool_agent_ids ?? [],
+      handoff_agent_ids: input.handoff_agent_ids ?? [],
+      mcp_server_ids: input.mcp_server_ids ?? [],
+      enabled: input.enabled ?? true,
+      version: 1,
+    };
+  }
+
+  private static compactUpdatePatch(patch: AgentUpdatePatch): AgentUpdatePatch {
+    const out: AgentUpdatePatch = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) continue;
+      Object.assign(out, { [key]: value });
+    }
+    return out;
+  }
+
+  private async refreshAgentRegistry(): Promise<void> {
+    const agent_registry = await AgentRegistry.getInstance();
+    await agent_registry.refresh();
   }
 
 }

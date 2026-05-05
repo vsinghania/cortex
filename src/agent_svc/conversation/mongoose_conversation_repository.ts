@@ -60,8 +60,14 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     return docs.map((d) => MongooseUtils.toDomain<Conversation>(d));
   }
 
-  async setLastResponseId(conversation_id: string, last_response_id: string): Promise<void> {
-    await this.conv_model.updateOne({ conversation_id }, { $set: { last_response_id } });
+  async setLastProviderResponseId(
+    conversation_id: string,
+    last_provider_response_id: string
+  ): Promise<void> {
+    await this.conv_model.updateOne(
+      { conversation_id },
+      { $set: { last_provider_response_id } }
+    );
   }
 
   async appendMessages(messages: Omit<ConversationMessage, 'created_at'>[]): Promise<void> {

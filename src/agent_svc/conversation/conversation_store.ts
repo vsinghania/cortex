@@ -107,15 +107,15 @@ export class ConversationStore {
       if (i === last_index) {
         base.usage = input.usage;
         base.model = input.model;
-        base.response_id = input.response_id;
       }
       return base;
     });
 
     await this.repo.appendMessages(docs);
 
-    if (input.response_id) {
-      await this.repo.setLastResponseId(input.conversation_id, input.response_id);
+    const last_provider_response_id = ConversationStore.findLastProviderResponseId(input.messages);
+    if (last_provider_response_id) {
+      await this.repo.setLastProviderResponseId(input.conversation_id, last_provider_response_id);
     }
     logger.info(
       {
@@ -126,6 +126,16 @@ export class ConversationStore {
       },
       'Conversation turn appended'
     );
+  }
+
+  private static findLastProviderResponseId(messages: Message[]): string | undefined {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === Role.Assistant && m.provider_response_id) {
+        return m.provider_response_id;
+      }
+    }
+    return undefined;
   }
 
   private static toMessage(m: ConversationMessage): Message {
@@ -139,6 +149,7 @@ export class ConversationStore {
           role: Role.Assistant,
           content: m.content,
           tool_calls: m.tool_calls,
+          provider_response_id: m.provider_response_id,
         };
       case Role.Tool:
         return {
