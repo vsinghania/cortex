@@ -17,7 +17,7 @@ export class MongooseUtils {
   public static toDomain<T>(doc: unknown): T {
     const obj =
       MongooseUtils.hasToJson(doc) ? doc.toJSON() : doc;
-    return obj as T;
+    return MongooseUtils.stripMongoFields(obj) as T;
   }
 
   private static hasToJson(doc: unknown): doc is { toJSON: () => unknown } {
