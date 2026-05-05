@@ -13,8 +13,9 @@ http:
     type: json
     data: |-
       {
-        "agent_id": "smoke-notes-agent",
-        "input": "Hey! Can you fetch my latest notes?"
+        "agent_id": "{{agent_id}}",
+        "conversation_id": "{{conversation_id}}",
+        "input": "Can you update the most recent note to `This is 5 out of 5`"
       }
   auth: inherit
 
