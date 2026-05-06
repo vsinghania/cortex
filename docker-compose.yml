@@ -1,0 +1,77 @@
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  cortex-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cortex:dev
+    command: ["node", "dist/web-server/server.js"]
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      mcp-notes:
+        condition: service_started
+    environment:
+      PORT: "3000"
+      LOG_LEVEL: info
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_DB_APP: cortex
+      CORS_ORIGINS: http://localhost:3000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_jwt_secret_change_me}
+      ACCESS_TOKEN_TTL_SEC: "900"
+      REFRESH_TOKEN_TTL_SEC: "604800"
+      REFRESH_COOKIE_NAME: rt
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: lax
+      AUTH_RATE_LIMIT_WINDOW_MS: "900000"
+      AUTH_RATE_LIMIT_MAX: "60"
+      BCRYPT_SALT_ROUNDS: "12"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_DEFAULT_MODEL: gpt-4o-mini
+      MCP_NOTES_HOST: mcp-notes
+      MCP_NOTES_PORT: "3010"
+      MCP_NOTES_PATH: /mcp
+      MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:-dev_mcp_notes_token_change_me}
+    ports:
+      - "3000:3000"
+
+  mcp-notes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cortex:dev
+    command: ["node", "dist/mcp/server/notes/server.js"]
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      PORT: "3010"
+      LOG_LEVEL: info
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_DB_APP: cortex
+      MCP_NOTES_HOST: 0.0.0.0
+      MCP_NOTES_PORT: "3010"
+      MCP_NOTES_PATH: /mcp
+      MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:-dev_mcp_notes_token_change_me}
+    ports:
+      - "3010:3010"
+
+volumes:
+  mongodb_data:
