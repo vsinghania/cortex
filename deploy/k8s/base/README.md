@@ -1,47 +1,60 @@
-# Phase 1 — local kind cluster manifests
+# Local kind cluster — Phase 1
 
-These manifests bring up cortex-app, mcp-notes, and mongodb in a local `kind` cluster. Mirrors the docker-compose stack at the repo root, one k8s primitive at a time.
+These manifests bring up cortex-app, mcp-notes, and mongodb in a local `kind` cluster. Mirrors the docker-compose stack at the repo root, one k8s primitive at a time. External reachability is via `kubectl port-forward`; ingress + DNS + TLS land in Phase 3 against real cloud infra.
+
+> **Use kind on demand, not as your dev environment.** Daily app iteration is fastest via `npm run dev` (native, ~1s reload) or `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` (containerized hot-reload, also ~1s). Bring kind up only when you want to exercise k8s-specific behavior (rollouts, probes, manifest changes).
 
 ## Prerequisites
 
 - OrbStack (or Docker Desktop) running
-- `kind` and `kubectl` on PATH:
+- CLIs on PATH:
   ```
   brew install kind kubectl
   ```
 
-## One-time bootstrap
+## Quick start (scripted)
 
 ```sh
-# 1. Create the cluster (1 control-plane + 2 workers, with 80/443 mapped to host).
+./scripts/kind-up.sh
+```
+
+Idempotent: creates the cluster if missing, builds + loads the image, syncs secrets from `.env`, applies manifests, waits for rollouts. Re-run after any manifest change to re-apply.
+
+## One-time bootstrap (manual, for understanding)
+
+```sh
+# 1. Create the cluster.
+#    Config: 1 control-plane + 2 workers.
 kind create cluster --config deploy/kind/kind-config.yaml
 
 # 2. Build the image and load it into the kind cluster's nodes.
-#    kind nodes can't pull from local docker; this command copies the local
-#    image into each node's containerd store.
+#    kind nodes can't pull from local docker; this command copies the
+#    local image into each node's containerd store.
 docker build -t cortex:dev .
 kind load docker-image cortex:dev --name cortex
 
-# 3. Create the cortex namespace explicitly (so the secret can be created before apply).
+# 3. Create the cortex namespace explicitly (so the secret can be
+#    created before apply).
 kubectl apply -f deploy/k8s/base/namespace.yaml
 
 # 4. Create the application Secret from your local .env (gitignored).
-#    Important: only load the actual secret keys. Loading the whole .env would
-#    also include non-secret keys like MONGO_HOST=localhost, which would
-#    override the ConfigMap (Secret values win in envFrom) and break in-cluster
-#    DNS resolution for mongo.
+#    Important: only load the actual secret keys. Loading the whole
+#    .env would also include non-secret keys like MONGO_HOST=localhost,
+#    which would override the ConfigMap (Secret values win in envFrom)
+#    and break in-cluster DNS resolution for mongo.
 grep -E '^(OPENAI_API_KEY|JWT_ACCESS_SECRET|MCP_NOTES_AUTH_TOKEN)=' .env > /tmp/cortex-secrets.env
 kubectl -n cortex create secret generic cortex-secrets --from-env-file=/tmp/cortex-secrets.env
 rm /tmp/cortex-secrets.env
 
-# To update the Secret later (e.g. after rotating a token), re-run idempotently:
+# To update the Secret later (e.g. after rotating a token), re-run
+# idempotently:
 #   grep -E '^(OPENAI_API_KEY|JWT_ACCESS_SECRET|MCP_NOTES_AUTH_TOKEN)=' .env > /tmp/cortex-secrets.env
 #   kubectl -n cortex create secret generic cortex-secrets \
 #     --from-env-file=/tmp/cortex-secrets.env --dry-run=client -o yaml | kubectl apply -f -
 #   rm /tmp/cortex-secrets.env
 #   kubectl -n cortex rollout restart deploy/cortex-app deploy/mcp-notes
 
-# 5. Apply everything else.
+# 5. Apply the app objects.
 kubectl apply -f deploy/k8s/base/
 
 # 6. Watch pods come up.
@@ -51,7 +64,7 @@ kubectl -n cortex get pods -w
 ## Smoke test
 
 ```sh
-# Cortex web app, via port-forward.
+# Port-forward the cortex-app Service to your laptop.
 kubectl -n cortex port-forward svc/cortex-app 3000:80
 # In another terminal:
 curl localhost:3000/healthz
@@ -85,9 +98,10 @@ kubectl delete -f deploy/k8s/base/      # remove app objects (namespace + everyt
 kind delete cluster --name cortex       # nuke the whole cluster
 ```
 
-## Notes on the secret
+## Notes
 
-We deliberately keep `cortex-secrets` out of git. It's created via `kubectl create secret` (above). Phase 3 (EKS) will continue with the same approach for the first cut; later phases swap in External Secrets Operator pulling from AWS Secrets Manager.
+- **Secret hygiene.** `cortex-secrets` is never committed; it is created from your local `.env` via `kubectl create secret generic`. Phase 3 (EKS) keeps the same approach for the first cut; later phases swap in External Secrets Operator pulling from AWS Secrets Manager.
+- **No ingress on local.** Kept the kind setup focused on core primitives (Deployments, Services, ConfigMap, Secret, StatefulSet, PVC). Ingress + cert-manager + Let's Encrypt land together in Phase 3 against real cloud infra where each piece has an obvious job.
 
 ## Migrating data from the docker-compose stack
 

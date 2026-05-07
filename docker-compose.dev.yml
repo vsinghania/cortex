@@ -1,0 +1,45 @@
+# Hot-reload overlay for local dev. Runs tsx watch inside the container with
+# source mounted from the host. ~1s reload on file save, no image rebuild.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Or set COMPOSE_FILE once:
+#   export COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+#   docker compose up
+#
+# Notes:
+# - Targets the `builder` Dockerfile stage so dev deps (tsx, typescript) are
+#   present. The default compose/build path still produces the lean runtime
+#   image as cortex:dev.
+# - The anonymous `/app/node_modules` volume keeps the container's
+#   node_modules from being shadowed by the host bind mount of `.`.
+
+services:
+  cortex-app:
+    build:
+      context: .
+      target: builder
+    image: cortex:dev-builder
+    command: ["npx", "tsx", "watch", "src/web-server/server.ts"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./src:/app/src
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./package.json:/app/package.json
+      - /app/node_modules
+
+  mcp-notes:
+    build:
+      context: .
+      target: builder
+    image: cortex:dev-builder
+    command: ["npx", "tsx", "watch", "src/mcp/server/notes/server.ts"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./src:/app/src
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./package.json:/app/package.json
+      - /app/node_modules
