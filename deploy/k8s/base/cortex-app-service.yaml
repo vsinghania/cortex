@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cortex-app
+  namespace: cortex
+  labels:
+    app: cortex-app
+spec:
+  type: ClusterIP
+  selector:
+    app: cortex-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
