@@ -50,7 +50,7 @@ class Server {
       logger.info({ host, port: mongo_port }, 'Mongo connected');
     } catch (e) {
       logger.error({ err: e, host, port: mongo_port }, 'Mongo bootstrap failed');
-      // continue starting server; health endpoint will show "down"
+      throw e;
     }
   }
 
@@ -64,4 +64,7 @@ class Server {
   }
 }
 
-Server.start();
+Server.start().catch((err: unknown) => {
+  logger.error({ err }, 'Server start failed');
+  process.exit(1);
+});
