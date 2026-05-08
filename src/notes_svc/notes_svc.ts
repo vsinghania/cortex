@@ -1,30 +1,30 @@
-import type { Note, NoteContainer, NoteMetadata, NoteVectorization } from './types/note.types.js';
-import { NoteSource, SyncStatus, Visibility } from './types/note.types.js';
+import type { Note, NoteContainer, NoteLocator, NoteMetadata, NoteVectorization } from './types/note.types.js';
+import { NoteSource, SyncStatus } from './types/note.types.js';
 import type { NoteRepository, NoteListParams as RepoListParams, NoteListResult as RepoListResult } from './repositories/note_repository_interface.js';
 import { MongooseNoteRepository } from './repositories/mongoose_note_repository.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
+import { Id } from '../lib/id.js';
 
 export type NoteListParams = RepoListParams;
 export type NoteListResult = RepoListResult;
 
-export type NoteKey = {
+export type NoteCreateInput = {
   user_id: string;
-  source: NoteSource;
-  external_id: string;
-};
 
-export type NoteUpsertInput = NoteKey & {
+  // Source-keyed path: pass both for an upsert-by-(source, external_id) create-or-update.
+  // Native path: omit both; service generates an id and sets source = Native.
+  source?: NoteSource;
+  external_id?: string;
+
   title: string;
-  body_plain: string;
-  body_markdown?: string;
+  body: string;
+  body_raw?: string;
   tags?: string[];
   container?: NoteContainer;
 
-  created_at_provider?: Date;
-  updated_at_provider?: Date;
+  provider_created_at?: Date;
+  provider_updated_at?: Date;
 
-  // Optional overrides
-  visibility?: Visibility;
   is_archived?: boolean;
   is_deleted?: boolean;
 
@@ -32,17 +32,14 @@ export type NoteUpsertInput = NoteKey & {
   vectorization?: NoteVectorization;
 };
 
-export type NotePatch = Partial<Omit<Note, 'user_id' | 'source' | 'external_id' | 'created_at' | 'updated_at'>>;
+export type NotePatch = Partial<Omit<Note, 'id' | 'user_id' | 'source' | 'external_id' | 'created_at' | 'updated_at'>>;
 
 /**
- * NotesSvc - domain service for CRUD/search on notes using a repository.
- * Defaults:
- *  - sync_status: idle
- *  - visibility: private
- *  - tags: []
- *  - is_archived: false
- *  - is_deleted: false
- *  - created_at/updated_at: now
+ * NotesSvc - domain service for CRUD/search on notes.
+ *
+ * One verb per operation; mutating ops accept a NoteLocator that is either
+ * `{ id }` (works for any note) or `{ source, external_id }` (only valid for
+ * source-keyed notes). Native notes have no external_id and must be located by id.
  */
 export class NotesSvc {
   constructor(private readonly notes_repo: NoteRepository) {}
@@ -57,26 +54,72 @@ export class NotesSvc {
     return this.notes_repo.listNotes(params);
   }
 
-  async getNoteByKey(key: NoteKey): Promise<Note | null> {
-    return this.notes_repo.getNoteByKey(key);
+  async getNote(user_id: string, locator: NoteLocator): Promise<Note | null> {
+    if ('id' in locator) {
+      return this.notes_repo.getNoteById({ user_id, id: locator.id });
+    }
+    return this.notes_repo.getNoteByKey({ user_id, source: locator.source, external_id: locator.external_id });
   }
 
-  async upsertNote(input: NoteUpsertInput): Promise<Note> {
-    const existing = await this.notes_repo.getNoteByKey(input);
+  async createNote(input: NoteCreateInput): Promise<Note> {
+    if (NotesSvc.isSourceKeyedInput(input)) {
+      return this.upsertSourceKeyed(input);
+    }
+    return this.createNative(input);
+  }
+
+  async updateNote(user_id: string, locator: NoteLocator, patch: NotePatch): Promise<Note | null> {
+    if ('id' in locator) {
+      return this.notes_repo.updateNoteById({ user_id, id: locator.id, patch });
+    }
+    return this.notes_repo.updateNoteByKey({
+      user_id,
+      source: locator.source,
+      external_id: locator.external_id,
+      patch
+    });
+  }
+
+  async deleteNote(user_id: string, locator: NoteLocator): Promise<boolean> {
+    if ('id' in locator) {
+      return this.notes_repo.deleteNoteById({ user_id, id: locator.id });
+    }
+    return this.notes_repo.deleteNoteByKey({
+      user_id,
+      source: locator.source,
+      external_id: locator.external_id
+    });
+  }
+
+  async searchNotes(params: { user_id: string; query: string; limit?: number; offset?: number }): Promise<NoteListResult> {
+    return this.notes_repo.searchNotes(params);
+  }
+
+  private static isSourceKeyedInput(input: NoteCreateInput): input is NoteCreateInput & { source: NoteSource; external_id: string } {
+    return !!input.source && input.source !== NoteSource.Native && !!input.external_id;
+  }
+
+  private async upsertSourceKeyed(
+    input: NoteCreateInput & { source: NoteSource; external_id: string }
+  ): Promise<Note> {
+    const existing = await this.notes_repo.getNoteByKey({
+      user_id: input.user_id,
+      source: input.source,
+      external_id: input.external_id
+    });
     const now = new Date();
 
     if (existing) {
       const patch: NotePatch = {
         title: input.title ?? existing.title,
-        body_plain: input.body_plain ?? existing.body_plain,
-        body_markdown: input.body_markdown ?? existing.body_markdown,
+        body: input.body ?? existing.body,
+        body_raw: input.body_raw ?? existing.body_raw,
         tags: input.tags ?? existing.tags,
         container: input.container ?? existing.container,
 
-        created_at_provider: input.created_at_provider ?? existing.created_at_provider,
-        updated_at_provider: input.updated_at_provider ?? now,
+        provider_created_at: input.provider_created_at ?? existing.provider_created_at,
+        provider_updated_at: input.provider_updated_at ?? now,
 
-        visibility: input.visibility ?? existing.visibility,
         is_archived: input.is_archived ?? existing.is_archived,
         is_deleted: input.is_deleted ?? existing.is_deleted,
 
@@ -85,35 +128,34 @@ export class NotesSvc {
       };
 
       const updated = await this.notes_repo.updateNoteByKey({
-        ...input,
+        user_id: input.user_id,
+        source: input.source,
+        external_id: input.external_id,
         patch
       });
-      // notes_repo returns null if not found; but we already checked
       return updated ?? existing;
     }
 
     const note: Note = {
+      id: Id.generate(),
       user_id: input.user_id,
       source: input.source,
       external_id: input.external_id,
 
       title: input.title,
-      body_plain: input.body_plain,
-      body_markdown: input.body_markdown,
+      body: input.body,
+      body_raw: input.body_raw,
 
       tags: input.tags ?? [],
-
       container: input.container,
 
-      created_at_provider: input.created_at_provider,
-      updated_at_provider: input.updated_at_provider,
+      provider_created_at: input.provider_created_at,
+      provider_updated_at: input.provider_updated_at,
       last_synced_at: undefined,
-
       sync_status: SyncStatus.Idle,
 
       is_archived: input.is_archived ?? false,
       is_deleted: input.is_deleted ?? false,
-      visibility: input.visibility ?? Visibility.Private,
 
       metadata: input.metadata,
       vectorization: input.vectorization,
@@ -125,15 +167,36 @@ export class NotesSvc {
     return this.notes_repo.createNote(note);
   }
 
-  async updateNoteByKey(params: NoteKey & { patch: NotePatch }): Promise<Note | null> {
-    return this.notes_repo.updateNoteByKey(params);
-  }
+  private async createNative(input: NoteCreateInput): Promise<Note> {
+    const now = new Date();
+    const note: Note = {
+      id: Id.generate(),
+      user_id: input.user_id,
+      source: NoteSource.Native,
+      external_id: undefined,
 
-  async deleteNoteByKey(key: NoteKey): Promise<boolean> {
-    return this.notes_repo.deleteNoteByKey(key);
-  }
+      title: input.title,
+      body: input.body,
+      body_raw: input.body_raw,
 
-  async searchNotes(params: { user_id: string; query: string; limit?: number; offset?: number }): Promise<NoteListResult> {
-    return this.notes_repo.searchNotes(params);
+      tags: input.tags ?? [],
+      container: input.container,
+
+      provider_created_at: undefined,
+      provider_updated_at: undefined,
+      last_synced_at: undefined,
+      sync_status: SyncStatus.Idle,
+
+      is_archived: input.is_archived ?? false,
+      is_deleted: input.is_deleted ?? false,
+
+      metadata: input.metadata,
+      vectorization: input.vectorization,
+
+      created_at: now,
+      updated_at: now
+    };
+
+    return this.notes_repo.createNote(note);
   }
 }

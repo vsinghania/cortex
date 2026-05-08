@@ -9,6 +9,7 @@ import { HealthController } from './health/health.controller.js';
 import cookieParser from 'cookie-parser';
 import { AuthController } from './auth/auth.controller.js';
 import { AgentController } from './agent/agent.controller.js';
+import { NotesController } from './notes/notes.controller.js';
 
 export class App {
 
@@ -57,9 +58,12 @@ export class App {
     const agent_controller = new AgentController();
     v1_router.use('/agent', agent_controller.getRouter());
 
+    const notes_controller = new NotesController();
+    v1_router.use('/notes', notes_controller.getRouter());
+
     const health_controller = new HealthController();
     v1_router.use('/health', health_controller.getRouter());
 
-    logger.info({ mounts: ['auth', 'ai', 'agent', 'health'] }, 'v1 routes mounted');
+    logger.info({ mounts: ['auth', 'ai', 'agent', 'notes', 'health'] }, 'v1 routes mounted');
   }
 }

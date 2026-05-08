@@ -2,14 +2,13 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { McpModule } from '../mcp_module.js';
 import { NotesSvc } from '../../../notes_svc/notes_svc.js';
-import { NoteSource, Visibility, type NoteContainer, type NoteMetadata, type NoteVectorization } from '../../../notes_svc/types/note.types.js';
+import { NoteSource, type NoteContainer, type NoteLocator } from '../../../notes_svc/types/note.types.js';
 import { MongooseConnectionManager } from '../../../db/mongo/mongoose_connection_manager.js';
 import { DbNameResolver } from '../../../db/mongo/db_name_resolver.js';
 import { logger } from '../../../common/logger.js';
 import { TraceContext } from '../../../common/trace_context.js';
 
 const zNoteSource = z.nativeEnum(NoteSource);
-const zVisibility = z.nativeEnum(Visibility);
 
 const zContainerType = z.enum(['notebook', 'database', 'folder', 'page', 'section', 'collection', 'other']);
 const zNoteContainer: z.ZodType<NoteContainer> = z.object({
@@ -21,7 +20,6 @@ const zNoteContainer: z.ZodType<NoteContainer> = z.object({
 const zNoteMetadata = z.object({
   provider_url: z.string().url().optional(),
   provider_etag: z.string().optional(),
-  provider_last_modified: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
   extra: z.record(z.unknown()).optional()
 });
 
@@ -33,10 +31,10 @@ const zNoteVectorization = z.object({
   chunk_count: z.number().int().positive().optional()
 });
 
-const zNoteKey = z.object({
-  source: zNoteSource,
-  external_id: z.string().min(1)
-});
+const zNoteLocator: z.ZodType<NoteLocator> = z.union([
+  z.object({ id: z.string().min(1) }).strict(),
+  z.object({ source: zNoteSource, external_id: z.string().min(1) }).strict()
+]);
 
 const zListInput = z.object({
   query: z.string().optional(),
@@ -50,20 +48,19 @@ const zSearchInput = z.object({
   offset: z.number().int().min(0).optional().default(0)
 });
 
-const zUpsertInput = z.object({
-  source: zNoteSource,
-  external_id: z.string().min(1),
+const zCreateInputBase = z.object({
+  source: zNoteSource.optional(),
+  external_id: z.string().min(1).optional(),
 
   title: z.string().min(1),
-  body_plain: z.string().default(''),
-  body_markdown: z.string().optional(),
+  body: z.string().default(''),
+  body_raw: z.string().optional(),
   tags: z.array(z.string()).optional(),
   container: zNoteContainer.optional(),
 
-  created_at_provider: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
-  updated_at_provider: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
+  provider_created_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
+  provider_updated_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
 
-  visibility: zVisibility.optional(),
   is_archived: z.boolean().optional(),
   is_deleted: z.boolean().optional(),
 
@@ -71,24 +68,47 @@ const zUpsertInput = z.object({
   vectorization: zNoteVectorization.optional()
 });
 
+const zCreateInput = zCreateInputBase.superRefine((value, ctx) => {
+  const has_source = value.source !== undefined && value.source !== NoteSource.Native;
+  const has_ext = value.external_id !== undefined;
+  if (has_source !== has_ext) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'source and external_id must be provided together for source-keyed notes; omit both for native notes.'
+    });
+  }
+});
+
 const zPatch = z.object({
   title: z.string().optional(),
-  body_plain: z.string().optional(),
-  body_markdown: z.string().optional(),
+  body: z.string().optional(),
+  body_raw: z.string().optional(),
   tags: z.array(z.string()).optional(),
   container: zNoteContainer.optional(),
 
-  created_at_provider: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
-  updated_at_provider: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
+  provider_created_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
+  provider_updated_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
   last_synced_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
 
-  visibility: zVisibility.optional(),
   is_archived: z.boolean().optional(),
   is_deleted: z.boolean().optional(),
 
   metadata: zNoteMetadata.optional(),
   vectorization: zNoteVectorization.optional()
 }).strict();
+
+const zUpdateInput = z.object({
+  locator: zNoteLocator,
+  patch: zPatch
+});
+
+const zDeleteInput = z.object({
+  locator: zNoteLocator
+});
+
+const zGetInput = z.object({
+  locator: zNoteLocator
+});
 
 export class NotesMcpModule extends McpModule {
   private notes_svc?: NotesSvc;
@@ -126,7 +146,7 @@ export class NotesMcpModule extends McpModule {
   protected override async registerTools(server: McpServer): Promise<void> {
     this.registerListTool(server);
     this.registerGetTool(server);
-    this.registerUpsertTool(server);
+    this.registerCreateTool(server);
     this.registerUpdateTool(server);
     this.registerDeleteTool(server);
     this.registerSearchTool(server);
@@ -159,9 +179,9 @@ export class NotesMcpModule extends McpModule {
       server,
       'notes.get',
       {
-        title: 'Get Note by Key',
-        description: 'Get a note by composite key (source, external_id) for the authenticated user.',
-        inputSchema: zNoteKey.shape,
+        title: 'Get Note',
+        description: 'Get a note by locator: { id } or { source, external_id }, scoped to the authenticated user.',
+        inputSchema: zGetInput.shape,
         outputSchema: {
           found: z.boolean(),
           note: z.any().nullable()
@@ -169,28 +189,29 @@ export class NotesMcpModule extends McpModule {
       },
       async (raw: unknown) => {
         const user_id = NotesMcpModule.requireUserId();
-        const key = zNoteKey.parse(raw ?? {});
-        const note = await this.requireNotesSvc().getNoteByKey({ ...key, user_id });
-        const out = { found: !!note, note: note ?? null };
-        return NotesMcpModule.toStructuredTextResult(out);
+        const { locator } = zGetInput.parse(raw ?? {});
+        const note = await this.requireNotesSvc().getNote(user_id, locator);
+        return NotesMcpModule.toStructuredTextResult({ found: !!note, note: note ?? null });
       }
     );
   }
 
-  private registerUpsertTool(server: McpServer): void {
+  private registerCreateTool(server: McpServer): void {
     this.registerTool(
       server,
-      'notes.upsert',
+      'notes.create',
       {
-        title: 'Upsert Note',
-        description: 'Create or update a note by composite key.',
-        inputSchema: zUpsertInput.shape,
+        title: 'Create Note',
+        description:
+          'Create a note. Omit source and external_id for a native (in-app) note; ' +
+          'pass both to create-or-update by composite key for a source-keyed note.',
+        inputSchema: zCreateInputBase.shape,
         outputSchema: { note: z.any() }
       },
       async (raw: unknown) => {
         const user_id = NotesMcpModule.requireUserId();
-        const input = zUpsertInput.parse(raw ?? {});
-        const note = await this.requireNotesSvc().upsertNote({ ...input, user_id });
+        const input = zCreateInput.parse(raw ?? {});
+        const note = await this.requireNotesSvc().createNote({ ...input, user_id });
         return NotesMcpModule.toStructuredTextResult({ note });
       }
     );
@@ -202,11 +223,8 @@ export class NotesMcpModule extends McpModule {
       'notes.update',
       {
         title: 'Update Note (partial)',
-        description: 'Update a note by composite key (partial patch).',
-        inputSchema: {
-          ...zNoteKey.shape,
-          patch: zPatch
-        },
+        description: 'Update a note by locator with a partial patch.',
+        inputSchema: zUpdateInput.shape,
         outputSchema: {
           found: z.boolean(),
           note: z.any().nullable()
@@ -214,11 +232,9 @@ export class NotesMcpModule extends McpModule {
       },
       async (raw: unknown) => {
         const user_id = NotesMcpModule.requireUserId();
-        const key = zNoteKey.parse(raw ?? {});
-        const patch = zPatch.parse((raw as any)?.patch ?? {});
-        const updated = await this.requireNotesSvc().updateNoteByKey({ ...key, user_id, patch });
-        const out = { found: !!updated, note: updated ?? null };
-        return NotesMcpModule.toStructuredTextResult(out);
+        const { locator, patch } = zUpdateInput.parse(raw ?? {});
+        const updated = await this.requireNotesSvc().updateNote(user_id, locator, patch);
+        return NotesMcpModule.toStructuredTextResult({ found: !!updated, note: updated ?? null });
       }
     );
   }
@@ -229,14 +245,14 @@ export class NotesMcpModule extends McpModule {
       'notes.delete',
       {
         title: 'Delete Note',
-        description: 'Delete a note by composite key.',
-        inputSchema: zNoteKey.shape,
+        description: 'Delete a note by locator.',
+        inputSchema: zDeleteInput.shape,
         outputSchema: { success: z.boolean() }
       },
       async (raw: unknown) => {
         const user_id = NotesMcpModule.requireUserId();
-        const key = zNoteKey.parse(raw ?? {});
-        const success = await this.requireNotesSvc().deleteNoteByKey({ ...key, user_id });
+        const { locator } = zDeleteInput.parse(raw ?? {});
+        const success = await this.requireNotesSvc().deleteNote(user_id, locator);
         return NotesMcpModule.toStructuredTextResult({ success });
       }
     );
@@ -248,7 +264,7 @@ export class NotesMcpModule extends McpModule {
       'notes.search',
       {
         title: 'Search Notes',
-        description: 'Full-text search across title/body/tags for the authenticated user.',
+        description: 'Full-text search across title/body for the authenticated user.',
         inputSchema: zSearchInput.shape,
         outputSchema: {
           total: z.number(),

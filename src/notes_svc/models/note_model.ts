@@ -1,6 +1,6 @@
 import { Schema } from 'mongoose';
 import type { Note } from '../types/note.types.js';
-import { NoteSource, SyncStatus, Visibility } from '../types/note.types.js';
+import { NoteSource, SyncStatus } from '../types/note.types.js';
 import { BaseModelFactory } from '../../db/mongo/base_model_factory.js';
 
 // Encapsulated Mongoose model factory for the Note collection.
@@ -26,7 +26,6 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
       {
         provider_url: { type: String, default: undefined },
         provider_etag: { type: String, default: undefined },
-        provider_last_modified: { type: Date, default: undefined },
         // Adapter-specific payload; keep unstructured
         extra: { type: Schema.Types.Mixed, default: undefined }
       },
@@ -49,27 +48,27 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
 
     const NoteSchemaMongoose = new Schema<Note>(
       {
+        id: { type: String, required: true, unique: true, index: true }, // domain ID (nanoid)
         user_id: { type: String, required: true, index: true }, // UUID (domain ID)
         source: { type: String, enum: Object.values(NoteSource), required: true, index: true },
-        external_id: { type: String, required: true, index: true },
+        external_id: { type: String, default: undefined, index: true },
 
         title: { type: String, required: true, default: '' },
-        body_plain: { type: String, required: true, default: '' },
-        body_markdown: { type: String, default: undefined },
+        body: { type: String, required: true, default: '' },
+        body_raw: { type: String, default: undefined },
 
         tags: { type: [String], default: [] },
 
         container: { type: ContainerSchema, default: undefined },
 
-        created_at_provider: { type: Date, default: undefined },
-        updated_at_provider: { type: Date, default: undefined },
+        provider_created_at: { type: Date, default: undefined },
+        provider_updated_at: { type: Date, default: undefined },
         last_synced_at: { type: Date, default: undefined },
 
         sync_status: { type: String, enum: Object.values(SyncStatus), default: SyncStatus.Idle },
 
         is_archived: { type: Boolean, default: false },
         is_deleted: { type: Boolean, default: false },
-        visibility: { type: String, enum: Object.values(Visibility), default: Visibility.Private },
 
         metadata: { type: MetadataSchema, default: undefined },
         vectorization: { type: VectorizationSchema, default: undefined }
@@ -82,19 +81,24 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
     );
 
     // Indexes
+    // Partial unique on the source-keyed identity; only enforced when external_id is present.
     NoteSchemaMongoose.index(
       { user_id: 1, source: 1, external_id: 1 },
-      { unique: true, name: 'uniq_user_source_external' }
+      {
+        unique: true,
+        name: 'uniq_user_source_external',
+        partialFilterExpression: { external_id: { $exists: true, $type: 'string' } }
+      }
     );
     NoteSchemaMongoose.index(
-      { user_id: 1, updated_at_provider: -1 },
-      { name: 'by_user_updated_provider' }
+      { user_id: 1, provider_updated_at: -1 },
+      { name: 'by_user_provider_updated' }
     );
     NoteSchemaMongoose.index({ user_id: 1, last_synced_at: -1 }, { name: 'by_user_last_synced' });
     // Optional text index for basic search/fallbacks
-    NoteSchemaMongoose.index({ title: 'text', body_plain: 'text' }, { name: 'note_text_index' });
+    NoteSchemaMongoose.index({ title: 'text', body: 'text' }, { name: 'note_text_index' });
 
-    // Output shaping
+    // Output shaping: hide Mongo internals; keep domain `id`.
     NoteSchemaMongoose.set('toJSON', {
       transform(_doc, ret) {
         Reflect.deleteProperty(ret as any, '_id');

@@ -12,29 +12,30 @@ export type NoteListResult = {
   total: number;
 };
 
+export type NoteByIdKey = {
+  user_id: string;
+  id: string;
+};
+
+export type NoteBySourceKey = {
+  user_id: string;
+  source: NoteSource;
+  external_id: string;
+};
+
 export interface NoteRepository {
   createNote(note: Note): Promise<Note>;
 
-  getNoteByKey(params: {
-    user_id: string;
-    source: NoteSource;
-    external_id: string;
-  }): Promise<Note | null>;
+  getNoteById(params: NoteByIdKey): Promise<Note | null>;
+  getNoteByKey(params: NoteBySourceKey): Promise<Note | null>;
 
   listNotes(params: NoteListParams): Promise<NoteListResult>;
 
-  updateNoteByKey(params: {
-    user_id: string;
-    source: NoteSource;
-    external_id: string;
-    patch: Partial<Note>;
-  }): Promise<Note | null>;
+  updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null>;
+  updateNoteByKey(params: NoteBySourceKey & { patch: Partial<Note> }): Promise<Note | null>;
 
-  deleteNoteByKey(params: {
-    user_id: string;
-    source: NoteSource;
-    external_id: string;
-  }): Promise<boolean>;
+  deleteNoteById(params: NoteByIdKey): Promise<boolean>;
+  deleteNoteByKey(params: NoteBySourceKey): Promise<boolean>;
 
   searchNotes(params: {
     user_id: string;

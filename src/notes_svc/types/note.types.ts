@@ -1,10 +1,8 @@
 export enum NoteSource {
+  Native = 'native',
   Notion = 'notion',
   OneNote = 'onenote',
   Evernote = 'evernote',
-  AppleNotes = 'apple_notes',
-  GoogleDocs = 'google_docs',
-  Markdown = 'markdown',
   Other = 'other'
 }
 
@@ -13,12 +11,6 @@ export enum SyncStatus {
   Syncing = 'syncing',
   Ok = 'ok',
   Error = 'error'
-}
-
-export enum Visibility {
-  Private = 'private',
-  Shared = 'shared',
-  Public = 'public'
 }
 
 export type NoteContainer = {
@@ -30,7 +22,6 @@ export type NoteContainer = {
 export type NoteMetadata = {
   provider_url?: string;
   provider_etag?: string;
-  provider_last_modified?: Date;
   extra?: Record<string, unknown>;
 };
 
@@ -44,23 +35,25 @@ export type NoteVectorization = {
 };
 
 export interface Note {
+  id: string; // domain ID (nanoid for native, may also be set for source-keyed notes)
   user_id: string; // domain ID (UUID)
   source: NoteSource;
-  external_id: string; // provider's unique id for the note/page
+  external_id?: string; // provider's unique id; absent for native notes
+
   title: string;
-  body_plain: string;
-  body_markdown?: string;
+  body: string; // canonical markdown
+  body_raw?: string; // original artifact (raw HTML, voice transcript, serialized chat turns)
+
   tags: string[];
   container?: NoteContainer;
 
-  created_at_provider?: Date;
-  updated_at_provider?: Date;
+  provider_created_at?: Date;
+  provider_updated_at?: Date;
   last_synced_at?: Date;
   sync_status: SyncStatus;
 
   is_archived: boolean;
   is_deleted: boolean;
-  visibility: Visibility;
 
   metadata?: NoteMetadata;
   vectorization?: NoteVectorization;
@@ -68,3 +61,7 @@ export interface Note {
   created_at: Date;
   updated_at: Date;
 }
+
+export type NoteLocator =
+  | { id: string }
+  | { source: NoteSource; external_id: string };
