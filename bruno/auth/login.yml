@@ -13,8 +13,8 @@ http:
     type: json
     data: |-
       {
-        "email": "vs@cortex.com",
-        "password": "password123"
+        "email": "{{login_email}}",
+        "password": "{{login_password}}"
       }
   auth: inherit
 

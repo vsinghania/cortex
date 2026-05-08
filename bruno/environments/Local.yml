@@ -10,3 +10,7 @@ variables:
     value: smoke-notes-agent
   - name: note_id
     value: ""
+  - name: login_email
+    value: vishal+s1@cortex.com
+  - secret: true
+    name: login_password
