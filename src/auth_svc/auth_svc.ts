@@ -57,6 +57,7 @@ export class AuthSvc implements AuthSvcInterface {
     const created = await user_repo.createUser({
       user_id,
       email: input.email.toLowerCase().trim(),
+      name: input.name.trim(),
       password_hash,
       roles: input.roles ?? ['user']
     });

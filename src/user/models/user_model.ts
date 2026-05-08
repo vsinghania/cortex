@@ -11,6 +11,7 @@ export class UserModelFactory extends BaseModelFactory<User> {
       {
         user_id: { type: String, required: true, unique: true, index: true }, // UUID
         email: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
+        name: { type: String, required: true, trim: true },
         password_hash: { type: String, required: true },
         roles: { type: [String], default: ['user'] },
         last_login_at: { type: Date, default: undefined }

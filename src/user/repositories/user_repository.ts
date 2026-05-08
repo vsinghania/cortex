@@ -25,6 +25,7 @@ export class MongooseUserRepository implements IUserRepository {
     const created = await this.model.create({
       user_id: input.user_id,
       email: input.email,
+      name: input.name,
       password_hash: input.password_hash,
       roles: input.roles ?? ['user']
     });

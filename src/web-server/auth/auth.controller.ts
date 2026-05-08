@@ -9,6 +9,7 @@ import { Time } from '../../lib/time.js';
 
 const EmailSchema = z.string().email();
 const PasswordSchema = z.string().min(8);
+const NameSchema = z.string().trim().min(1).max(100);
 
 
 
@@ -53,13 +54,13 @@ export class AuthController {
     this.router.get('/me', RequireAuthMiddleware.requireAuth, this.me.bind(this));
   }
 
-  @validateRequest({ body: z.object({ email: EmailSchema, password: PasswordSchema }) })
+  @validateRequest({ body: z.object({ email: EmailSchema, name: NameSchema, password: PasswordSchema }) })
   private async register(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const { email, password } = req.body as { email: string; password: string };
+      const { email, name, password } = req.body as { email: string; name: string; password: string };
       const auth_svc = await AuthSvc.create();
       const result = await auth_svc.register(
-        { email, password },
+        { email, name, password },
         { ip: req.ip, user_agent: AuthController.userAgent(req) }
       );
 

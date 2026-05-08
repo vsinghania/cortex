@@ -2,6 +2,7 @@ import type { Role, User } from '../../user/types/user.types.js';
 
 export type RegisterInput = {
   email: string;
+  name: string;
   password: string;
   roles?: Role[];
 };

@@ -3,6 +3,7 @@ export type Role = 'user' | 'admin';
 export type User = {
   user_id: string; // UUID v4
   email: string;
+  name: string;
   password_hash: string;
   roles: Role[];
   created_at: Date;
@@ -15,6 +16,7 @@ export type user_id = string;
 
 export type CreateUserInput = {
   email: string;
+  name: string;
   password_hash: string;
   roles?: Role[];
 };
