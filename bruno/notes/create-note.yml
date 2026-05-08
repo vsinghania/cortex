@@ -1,0 +1,26 @@
+info:
+  name: create-note
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{base_url}}/notes"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "title": "First native note",
+        "body": "# Hello\n\nThis is a native note created via REST.",
+        "tags": ["intro", "scratch"]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

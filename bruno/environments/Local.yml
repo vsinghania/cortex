@@ -8,3 +8,5 @@ variables:
     value: c3578a90-ce39-4dfb-9fc6-80c510205b43
   - name: agent_id
     value: smoke-notes-agent
+  - name: note_id
+    value: ""

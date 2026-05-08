@@ -1,0 +1,26 @@
+info:
+  name: update-note
+  type: http
+  seq: 4
+
+http:
+  method: PATCH
+  url: "{{base_url}}/notes/{{note_id}}"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "title": "First native note (edited)",
+        "body": "# Hello\n\nUpdated body via PATCH.",
+        "tags": ["intro", "edited"]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
