@@ -9,12 +9,12 @@
  *        npx tsx scripts/notes_mcp_agent_smoke.ts
  */
 import 'dotenv/config';
-import { v4 as uuidv4 } from 'uuid';
 import { MongooseConnectionManager } from '../src/db/mongo/mongoose_connection_manager.js';
 import { MongooseAgentRepository } from '../src/agent_svc/repositories/mongoose_agent_repository.js';
 import { MongooseMcpServerRepository } from '../src/agent_svc/repositories/mongoose_mcp_server_repository.js';
 import { AgentSvc } from '../src/agent_svc/agent_svc.js';
 import { AgentEngine } from '../src/agent_svc/types/agent.types.js';
+import { Id } from '../src/lib/id.js';
 import {
   McpServerMode,
   McpTransport,
@@ -39,7 +39,7 @@ class NotesMcpAgentSmoke {
     await NotesMcpAgentSmoke.upsertAgent();
 
     const agent_svc = await AgentSvc.create();
-    const conversation_id = uuidv4();
+    const conversation_id = Id.generateUuidV7();
     console.log('▶ running notes-mcp agent', {
       agent_id: NotesMcpAgentSmoke.AGENT_ID,
       mcp_server_id: NotesMcpAgentSmoke.MCP_SERVER_ID,

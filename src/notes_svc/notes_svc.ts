@@ -137,7 +137,7 @@ export class NotesSvc {
     }
 
     const note: Note = {
-      id: Id.generate(),
+      id: Id.generateUuidV7(),
       user_id: input.user_id,
       source: input.source,
       external_id: input.external_id,
@@ -170,7 +170,7 @@ export class NotesSvc {
   private async createNative(input: NoteCreateInput): Promise<Note> {
     const now = new Date();
     const note: Note = {
-      id: Id.generate(),
+      id: Id.generateUuidV7(),
       user_id: input.user_id,
       source: NoteSource.Native,
       external_id: undefined,

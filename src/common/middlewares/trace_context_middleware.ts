@@ -16,7 +16,7 @@ export class TraceContextMiddleware {
   public static establish(req: Request, _res: Response, next: NextFunction) {
     const header = req.headers['x-request-id'];
     const inbound = Array.isArray(header) ? header[0] : header;
-    const trace_id = inbound && inbound.length > 0 ? inbound : Id.generate();
+    const trace_id = inbound && inbound.length > 0 ? inbound : Id.generateRandom();
     req.trace_id = trace_id;
 
     TraceContext.enter({ trace_id });

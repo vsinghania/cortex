@@ -12,17 +12,17 @@
  *   npx tsx scripts/notes_schema_smoke.ts
  */
 import 'dotenv/config';
-import { v4 as uuidv4 } from 'uuid';
 import { MongooseConnectionManager } from '../src/db/mongo/mongoose_connection_manager.js';
 import { NotesSvc } from '../src/notes_svc/notes_svc.js';
 import { NoteSource } from '../src/notes_svc/types/note.types.js';
 import { NoteTrashModelFactory } from '../src/notes_svc/models/note_trash_model.js';
 import { DbNameResolver } from '../src/db/mongo/db_name_resolver.js';
+import { Id } from '../src/lib/id.js';
 import type { TrashedNote } from '../src/notes_svc/types/note_trash.types.js';
 
 class NotesSchemaSmoke {
   private static readonly USER_ID =
-    process.env.SMOKE_NOTES_USER_ID ?? `smoke-${uuidv4()}`;
+    process.env.SMOKE_NOTES_USER_ID ?? `smoke-${Id.generateUuidV7()}`;
   private static trash_model: any;
 
   static async main(): Promise<void> {

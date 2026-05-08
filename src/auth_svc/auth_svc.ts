@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import type { AuthSvcInterface } from './auth_svc_interface.js';
 import type {
   AuthContext,
@@ -18,6 +17,7 @@ import { PasswordUtils } from './utils/password_utils.js';
 import { TokenUtils } from './utils/token_utils.js';
 import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from '../common/errors.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
+import { Id } from '../lib/id.js';
 
 const USER_DB = DbNameResolver.resolve('user');
 const AUTH_DB = DbNameResolver.resolve('auth');
@@ -52,7 +52,7 @@ export class AuthSvc implements AuthSvcInterface {
     }
 
     const password_hash = await PasswordUtils.hashPassword(input.password);
-    const user_id = uuidv4();
+    const user_id = Id.generateUuidV7();
 
     const created = await user_repo.createUser({
       user_id,

@@ -1,8 +1,8 @@
-import { v4 as uuidv4 } from 'uuid';
 import { Role, type Message } from '../types/message.types.js';
 import type { ConversationRepositoryInterface } from './conversation_repository_interface.js';
 import { MongooseConversationRepository } from './mongoose_conversation_repository.js';
 import { logger } from '../../common/logger.js';
+import { Id } from '../../lib/id.js';
 import type {
   AppendTurnInput,
   Conversation,
@@ -47,7 +47,7 @@ export class ConversationStore {
         return existing;
       }
     }
-    const conversation_id = params.conversation_id ?? uuidv4();
+    const conversation_id = params.conversation_id ?? Id.generateUuidV7();
     const conversation = await this.repo.createConversation({
       conversation_id,
       user_id: params.user_id,

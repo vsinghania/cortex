@@ -1,9 +1,9 @@
 import 'dotenv/config';
-import { v4 as uuidv4 } from 'uuid';
 import { MongooseConnectionManager } from '../src/db/mongo/mongoose_connection_manager.js';
 import { MongooseAgentRepository } from '../src/agent_svc/repositories/mongoose_agent_repository.js';
 import { AgentSvc } from '../src/agent_svc/agent_svc.js';
 import { AgentEngine } from '../src/agent_svc/types/agent.types.js';
+import { Id } from '../src/lib/id.js';
 
 class AgentSmoke {
   static async main(): Promise<void> {
@@ -14,7 +14,7 @@ class AgentSmoke {
     const agent_id = await AgentSmoke.upsertSmokeAgent();
     const agent_svc = await AgentSvc.create();
 
-    const conversation_id = uuidv4();
+    const conversation_id = Id.generateUuidV7();
     console.log('▶ running agent', { agent_id, conversation_id });
 
     const response = await agent_svc.runByAgentId({

@@ -15,7 +15,7 @@ export class TraceContext {
 
   static enterBackground(task: string): void {
     TraceContext.als.enterWith({
-      trace_id: `bg:${task}:${Id.generate(BG_TRACE_ID_LEN)}`,
+      trace_id: `bg:${task}:${Id.generateRandom(BG_TRACE_ID_LEN)}`,
     });
   }
 

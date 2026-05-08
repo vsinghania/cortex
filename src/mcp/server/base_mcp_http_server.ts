@@ -98,7 +98,7 @@ export abstract class BaseMcpHttpServer {
     const user_id = inbound_user && inbound_user.length > 0 ? inbound_user : undefined;
 
     TraceContext.enter({
-      trace_id: Id.generate(),
+      trace_id: Id.generateRandom(),
       upstream_trace_id,
       user_id,
     });
