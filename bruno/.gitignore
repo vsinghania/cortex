@@ -7,3 +7,9 @@ node_modules
 # OS files
 .DS_Store
 Thumbs.db
+
+# Environment config for testing.
+environments/Testing.yml
+
+# Playground folder for testing.
+playground/

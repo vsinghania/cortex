@@ -1,5 +1,5 @@
 info:
-  name: agent-run
+  name: agent-run-with-conversation-id
   type: http
   seq: 6
 
@@ -15,9 +15,16 @@ http:
       {
         "agent_id": "{{agent_id}}",
         "conversation_id": "{{conversation_id}}",
-        "input": "Can you update the most recent note to `This is 5 out of 5`"
+        "input": "How many notes do I have?"
       }
   auth: inherit
+
+runtime:
+  variables:
+    - name: agent_id
+      value: smoke-notes-agent
+    - name: conversation_id
+      value: 019e06d2-68b5-737e-9a48-31dd838c316c
 
 settings:
   encodeUrl: true

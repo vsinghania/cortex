@@ -5,7 +5,7 @@ info:
 
 http:
   method: PATCH
-  url: "{{base_url}}/agent/support-agent"
+  url: "{{base_url}}/agent/{{agent_id}}"
   headers:
     - name: content-type
       value: application/json
@@ -13,10 +13,15 @@ http:
     type: json
     data: |-
       {
-        "instructions": "You are a helpful support agent for Cortex. Keep answers concise and actionable.",
+        "instructions": "{{instructions}}",
         "enabled": true
       }
   auth: inherit
+
+runtime:
+  variables:
+    - name: instructions
+      value: You are a helpful support agent for Cortex. Keep answers concise and actionable.
 
 settings:
   encodeUrl: true

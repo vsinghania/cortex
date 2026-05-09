@@ -4,13 +4,11 @@ variables:
     value: http://localhost:3000/api/v1
   - secret: true
     name: access_token
+  - name: note_id
+    value: ""
   - name: conversation_id
-    value: c3578a90-ce39-4dfb-9fc6-80c510205b43
+    value: 019e06d2-68b5-737e-9a48-31dd838c316c
   - name: agent_id
     value: smoke-notes-agent
   - name: note_id
     value: ""
-  - name: login_email
-    value: vishal+s1@cortex.com
-  - secret: true
-    name: login_password

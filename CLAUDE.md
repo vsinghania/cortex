@@ -67,6 +67,9 @@ Project-specific guidelines for a TypeScript-based web application with AI servi
   - Env/config at startup
 - Use plain TS types for internal domain/services after validation.
 
+## Bruno
+- When adding a new Bruno env variable, add it to both local and testing Bruno environment configs.
+
 ## Git and commit conventions
 - Single-line commit messages only. Do not include a body or additional lines.
 - Keep the subject concise (ideally ≤ 72 characters), present-tense, imperative mood.

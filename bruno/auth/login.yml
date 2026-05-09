@@ -19,11 +19,16 @@ http:
   auth: inherit
 
 runtime:
+  variables:
+    - name: login_email
+      value: vishals+1@cortex.com
+    - name: login_password
+      value: Password@123
   scripts:
     - type: after-response
       code: |-
         const body = res.getBody();
-        bru.setEnvVar('access_token', body.response.access_token, { persist: true });
+        bru.setEnvVar('access_token', body.response && body.response.access_token, { persist: true });
 
 settings:
   encodeUrl: true

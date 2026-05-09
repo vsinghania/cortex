@@ -13,11 +13,20 @@ http:
     type: json
     data: |-
       {
-        "name": "",
-        "email": "",
-        "password": ""
+        "name": "{{name}}",
+        "email": "{{email}}",
+        "password": "{{password}}"
       }
   auth: inherit
+
+runtime:
+  variables:
+    - name: name
+      value: Vishal S1
+    - name: email
+      value: vishals+1@cortex.com
+    - name: password
+      value: Password@123
 
 settings:
   encodeUrl: true

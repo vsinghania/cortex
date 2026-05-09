@@ -1,0 +1,32 @@
+info:
+  name: agent-run-without-conversation-id
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: "{{base_url}}/agent/run"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "agent_id": "{{agent_id}}",
+        "input": "How many notes do I have?"
+      }
+  auth: inherit
+
+runtime:
+  variables:
+    - name: agent_id
+      value: smoke-notes-agent
+    - name: ""
+      value: ""
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
