@@ -48,6 +48,7 @@ blob-report/
 .env
 .env.*
 !.env.example
+.envrc
 
 # OS-specific files
 .DS_Store
