@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import type { Role } from '../../user/types/user.types.js';
 import { UnauthorizedError } from '../errors.js';
 import { TokenUtils } from '../../auth_svc/utils/token_utils.js';
+import { TraceContext } from '../trace_context.js';
 
 declare global {
   namespace Express {
@@ -38,6 +39,7 @@ export class RequireAuthMiddleware {
         throw new UnauthorizedError('Invalid or expired token', { headers: { 'WWW-Authenticate': 'Bearer error="invalid_token"' } });
       }
       req.auth = { user_id: claims.sub, roles: claims.roles as Role[] };
+      TraceContext.setUserId(claims.sub);
       next();
     } catch (e) {
       next(e);
@@ -51,6 +53,7 @@ export class RequireAuthMiddleware {
       const claims = TokenUtils.verifyAccessToken(token);
       if (!claims) return next();
       req.auth = { user_id: claims.sub, roles: claims.roles as Role[] };
+      TraceContext.setUserId(claims.sub);
       next();
     } catch {
       // Do not fail the request on optional auth

@@ -2,8 +2,13 @@ import type { Note, NoteContainer, NoteLocator, NoteMetadata, NoteVectorization 
 import { NoteSource, SyncStatus } from './types/note.types.js';
 import type { NoteRepository, NoteListParams as RepoListParams, NoteListResult as RepoListResult } from './repositories/note_repository_interface.js';
 import { MongooseNoteRepository } from './repositories/mongoose_note_repository.js';
+import { NotesVectorizationSvc } from './notes_vectorization_svc.js';
+import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
+import type { RawRetrievedChunk, RetrievedChunk, RetrieveParams } from '../retrieval_svc/types/retrieval.types.js';
+import { Corpus } from '../retrieval_svc/types/retrieval.types.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 import { Id } from '../lib/id.js';
+import { logger } from '../common/logger.js';
 
 export type NoteListParams = RepoListParams;
 export type NoteListResult = RepoListResult;
@@ -42,6 +47,9 @@ export type NotePatch = Partial<Omit<Note, 'id' | 'user_id' | 'source' | 'extern
  * source-keyed notes). Native notes have no external_id and must be located by id.
  */
 export class NotesSvc {
+
+  private vectorization_svc?: NotesVectorizationSvc;
+
   constructor(private readonly notes_repo: NoteRepository) {}
 
   static async create(params?: { db?: string; host?: string; port?: number }): Promise<NotesSvc> {
@@ -62,37 +70,99 @@ export class NotesSvc {
   }
 
   async createNote(input: NoteCreateInput): Promise<Note> {
-    if (NotesSvc.isSourceKeyedInput(input)) {
-      return this.upsertSourceKeyed(input);
-    }
-    return this.createNative(input);
+    const note = NotesSvc.isSourceKeyedInput(input)
+      ? await this.upsertSourceKeyed(input)
+      : await this.createNative(input);
+    await this.vectorizeSafely(note);
+    return note;
   }
 
   async updateNote(user_id: string, locator: NoteLocator, patch: NotePatch): Promise<Note | null> {
-    if ('id' in locator) {
-      return this.notes_repo.updateNoteById({ user_id, id: locator.id, patch });
+    const updated = 'id' in locator
+      ? await this.notes_repo.updateNoteById({ user_id, id: locator.id, patch })
+      : await this.notes_repo.updateNoteByKey({
+          user_id,
+          source: locator.source,
+          external_id: locator.external_id,
+          patch
+        });
+    if (updated && NotesSvc.patchTouchesBody(patch)) {
+      await this.vectorizeSafely(updated);
     }
-    return this.notes_repo.updateNoteByKey({
-      user_id,
-      source: locator.source,
-      external_id: locator.external_id,
-      patch
-    });
+    return updated;
   }
 
   async deleteNote(user_id: string, locator: NoteLocator): Promise<boolean> {
-    if ('id' in locator) {
-      return this.notes_repo.deleteNoteById({ user_id, id: locator.id });
+    const target = await this.getNote(user_id, locator);
+    const deleted = 'id' in locator
+      ? await this.notes_repo.deleteNoteById({ user_id, id: locator.id })
+      : await this.notes_repo.deleteNoteByKey({
+          user_id,
+          source: locator.source,
+          external_id: locator.external_id
+        });
+    if (deleted && target) {
+      await this.removeVectorsSafely(user_id, target.id);
     }
-    return this.notes_repo.deleteNoteByKey({
-      user_id,
-      source: locator.source,
-      external_id: locator.external_id
-    });
+    return deleted;
   }
 
   async searchNotes(params: { user_id: string; query: string; limit?: number; offset?: number }): Promise<NoteListResult> {
     return this.notes_repo.searchNotes(params);
+  }
+
+  async retrieveChunks(params: RetrieveParams): Promise<RetrievedChunk[]> {
+    const retrieval = await RetrievalSvc.getInstance();
+    const raw = await retrieval.retrieve(Corpus.Notes, params);
+    if (raw.length === 0) return [];
+    return this.decorateWithNoteTitles(params.user_id, raw);
+  }
+
+  async revectorizeNote(params: { user_id: string; note_id: string }): Promise<NoteVectorization | null> {
+    const svc = await this.vectorizationSvc();
+    return svc.revectorizeNote(params);
+  }
+
+  private async vectorizeSafely(note: Note): Promise<void> {
+    try {
+      const svc = await this.vectorizationSvc();
+      await svc.vectorizeNote(note);
+    } catch (err) {
+      logger.warn({ err, note_id: note.id }, 'note vectorization failed');
+    }
+  }
+
+  private async removeVectorsSafely(user_id: string, note_id: string): Promise<void> {
+    try {
+      const svc = await this.vectorizationSvc();
+      await svc.removeNoteVectors({ user_id, note_id });
+    } catch (err) {
+      logger.warn({ err, note_id }, 'note vector cleanup failed');
+    }
+  }
+
+  private async vectorizationSvc(): Promise<NotesVectorizationSvc> {
+    if (!this.vectorization_svc) {
+      this.vectorization_svc = await NotesVectorizationSvc.create();
+    }
+    return this.vectorization_svc;
+  }
+
+  private async decorateWithNoteTitles(
+    user_id: string,
+    raw: RawRetrievedChunk[]
+  ): Promise<RetrievedChunk[]> {
+    const unique_ids = Array.from(new Set(raw.map((r) => r.document_id)));
+    const notes = await this.notes_repo.getNotesByIds({ user_id, ids: unique_ids });
+    const title_by_id = new Map(notes.map((n) => [n.id, n.title]));
+    return raw.map((chunk) => ({
+      ...chunk,
+      document_title: title_by_id.get(chunk.document_id) ?? '(untitled)'
+    }));
+  }
+
+  private static patchTouchesBody(patch: NotePatch): boolean {
+    return patch.body !== undefined || patch.title !== undefined;
   }
 
   private static isSourceKeyedInput(input: NoteCreateInput): input is NoteCreateInput & { source: NoteSource; external_id: string } {

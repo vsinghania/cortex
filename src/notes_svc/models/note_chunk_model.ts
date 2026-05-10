@@ -2,8 +2,6 @@ import { Schema } from 'mongoose';
 import type { NoteChunk } from '../types/note_chunk.types.js';
 import { BaseModelFactory } from '../../db/mongo/base_model_factory.js';
 
-// Encapsulated Mongoose model factory for Note chunks (phase 2 ready).
-// The model is created per-Connection and cached; callers should use repositories to obtain it.
 export class NoteChunkModelFactory extends BaseModelFactory<NoteChunk> {
 
   protected buildSchema(): Schema<NoteChunk> {
@@ -12,7 +10,7 @@ export class NoteChunkModelFactory extends BaseModelFactory<NoteChunk> {
         status: {
           type: String,
           enum: ['none', 'pending', 'embedded', 'error'],
-          default: 'none'
+          default: 'pending'
         },
         last_embedded_at: { type: Date, default: undefined },
         embedding_model: { type: String, default: undefined }
@@ -22,12 +20,14 @@ export class NoteChunkModelFactory extends BaseModelFactory<NoteChunk> {
 
     const NoteChunkSchemaMongoose = new Schema<NoteChunk>(
       {
-        user_id: { type: String, required: true, index: true }, // UUID (domain ID)
-        note_id: { type: String, required: true, index: true }, // Domain Note ID (string)
-        chunk_index: { type: Number, required: true, index: true }, // 0-based
+        id: { type: String, required: true, unique: true },
+        user_id: { type: String, required: true, index: true },
+        note_id: { type: String, required: true, index: true },
+        chunk_index: { type: Number, required: true },
         content: { type: String, required: true },
-        token_count: { type: Number, default: undefined },
-        hash: { type: String, default: undefined, index: true },
+        token_count: { type: Number, required: true },
+        hash: { type: String, required: true, index: true },
+        heading_path: { type: [String], default: undefined },
 
         vectorization: { type: VectorizationSchema, default: undefined }
       },
@@ -38,7 +38,6 @@ export class NoteChunkModelFactory extends BaseModelFactory<NoteChunk> {
       }
     );
 
-    // Indexes
     NoteChunkSchemaMongoose.index(
       { note_id: 1, chunk_index: 1 },
       { unique: true, name: 'uniq_note_chunk_index' }
@@ -47,10 +46,8 @@ export class NoteChunkModelFactory extends BaseModelFactory<NoteChunk> {
       { user_id: 1, note_id: 1 },
       { name: 'by_user_note' }
     );
-    // Optional text index for simple fallback search
     NoteChunkSchemaMongoose.index({ content: 'text' }, { name: 'note_chunk_text_index' });
 
-    // Output shaping
     NoteChunkSchemaMongoose.set('toJSON', {
       transform(_doc, ret) {
         Reflect.deleteProperty(ret as any, '_id');

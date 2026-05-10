@@ -30,4 +30,14 @@ export class TraceContext {
   static getUserId(): string | undefined {
     return TraceContext.als.getStore()?.user_id;
   }
+
+  static setUserId(user_id: string): void {
+    const current = TraceContext.als.getStore();
+    if (!current) {
+      TraceContext.als.enterWith({ trace_id: `bg:auth:${Id.generateRandom(BG_TRACE_ID_LEN)}`, user_id });
+      return;
+    }
+    if (current.user_id === user_id) return;
+    TraceContext.als.enterWith({ ...current, user_id });
+  }
 }

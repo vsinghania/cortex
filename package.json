@@ -10,12 +10,14 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.0",
     "@openai/agents": "^0.1.11",
+    "@qdrant/js-client-rest": "^1.17.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
+    "js-tiktoken": "^1.0.21",
     "jsonwebtoken": "^9.0.2",
     "lru-cache": "^10.4.3",
     "mongoose": "^8.19.0",
@@ -52,6 +54,8 @@
     "mcp:dev": "tsx src/mcp/server/notes/server.ts",
     "mcp:start": "node dist/mcp/server/notes/server.js",
     "mcp:notes:dev": "tsx src/mcp/server/notes/server.ts",
-    "mcp:notes:start": "node dist/mcp/server/notes/server.js"
+    "mcp:notes:start": "node dist/mcp/server/notes/server.js",
+    "qdrant:up": "docker compose up -d qdrant",
+    "qdrant:down": "docker compose down"
   }
 }

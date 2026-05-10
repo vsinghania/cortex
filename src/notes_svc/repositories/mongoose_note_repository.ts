@@ -54,6 +54,14 @@ export class MongooseNoteRepository implements NoteRepository {
     return found ? (MongooseUtils.toDomain<Note>(found) as Note) : null;
   }
 
+  async getNotesByIds(params: { user_id: string; ids: string[] }): Promise<Note[]> {
+    if (params.ids.length === 0) return [];
+    const docs = await this.model
+      .find({ user_id: params.user_id, id: { $in: params.ids } })
+      .lean();
+    return docs.map((d: any) => MongooseUtils.toDomain<Note>(d));
+  }
+
   async listNotes(params: NoteListParams): Promise<NoteListResult> {
     const { limit, offset } = MongooseNoteRepository.normalizePagination(params);
 

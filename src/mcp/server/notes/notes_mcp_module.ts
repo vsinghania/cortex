@@ -5,6 +5,8 @@ import { NotesSvc } from '../../../notes_svc/notes_svc.js';
 import { NoteSource, type NoteContainer, type NoteLocator } from '../../../notes_svc/types/note.types.js';
 import { MongooseConnectionManager } from '../../../db/mongo/mongoose_connection_manager.js';
 import { DbNameResolver } from '../../../db/mongo/db_name_resolver.js';
+import { QdrantCollectionBootstrap } from '../../../db/qdrant/qdrant_collection_bootstrap.js';
+import { EmbeddingsSvc } from '../../../embeddings_svc/embeddings_svc.js';
 import { logger } from '../../../common/logger.js';
 import { TraceContext } from '../../../common/trace_context.js';
 
@@ -46,6 +48,12 @@ const zSearchInput = z.object({
   query: z.string().min(1),
   limit: z.number().int().positive().max(100).optional().default(20),
   offset: z.number().int().min(0).optional().default(0)
+});
+
+const zSearchSemanticInput = z.object({
+  query: z.string().min(1),
+  top_k: z.number().int().positive().max(20).optional().default(8),
+  source_filter: z.array(zNoteSource).optional()
 });
 
 const zCreateInputBase = z.object({
@@ -129,11 +137,24 @@ export class NotesMcpModule extends McpModule {
     const db = DbNameResolver.resolve('notes');
 
     await this.bootstrapMongo(mongo_host, mongo_port);
+    await NotesMcpModule.bootstrapQdrantCollection();
     this.notes_svc = await NotesSvc.create({
       db,
       host: mongo_host,
       port: mongo_port
     });
+  }
+
+  private static async bootstrapQdrantCollection(): Promise<void> {
+    try {
+      const dim = EmbeddingsSvc.getInstance().dimensions;
+      await QdrantCollectionBootstrap.ensureCollection({ name: 'note_chunks_vec', dim });
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error)?.message },
+        'Qdrant collection bootstrap failed in MCP server; semantic search will error until Qdrant is reachable'
+      );
+    }
   }
 
   public override async cleanup(): Promise<void> {
@@ -150,6 +171,35 @@ export class NotesMcpModule extends McpModule {
     this.registerUpdateTool(server);
     this.registerDeleteTool(server);
     this.registerSearchTool(server);
+    this.registerSearchSemanticTool(server);
+  }
+
+  private registerSearchSemanticTool(server: McpServer): void {
+    this.registerTool(
+      server,
+      'notes.search_semantic',
+      {
+        title: 'Semantic Search Notes',
+        description:
+          'Vector-search the user\'s notes for chunks relevant to a natural-language question. ' +
+          'Returns ranked chunks with stable chunk_id, parent note title/source, and snippet so callers can ground answers and cite chunks inline as [c:<chunk_id>].',
+        inputSchema: zSearchSemanticInput.shape,
+        outputSchema: {
+          chunks: z.array(z.any())
+        }
+      },
+      async (raw: unknown) => {
+        const user_id = NotesMcpModule.requireUserId();
+        const args = zSearchSemanticInput.parse(raw ?? {});
+        const chunks = await this.requireNotesSvc().retrieveChunks({
+          user_id,
+          question: args.query,
+          top_k: args.top_k,
+          source_filter: args.source_filter
+        });
+        return NotesMcpModule.toStructuredTextResult({ chunks });
+      }
+    );
   }
 
   private registerListTool(server: McpServer): void {

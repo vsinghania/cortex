@@ -28,6 +28,7 @@ export interface NoteRepository {
 
   getNoteById(params: NoteByIdKey): Promise<Note | null>;
   getNoteByKey(params: NoteBySourceKey): Promise<Note | null>;
+  getNotesByIds(params: { user_id: string; ids: string[] }): Promise<Note[]>;
 
   listNotes(params: NoteListParams): Promise<NoteListResult>;
 

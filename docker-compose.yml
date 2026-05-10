@@ -13,6 +13,21 @@ services:
       retries: 5
       start_period: 10s
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   cortex-app:
     build:
       context: .
@@ -23,6 +38,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      qdrant:
+        condition: service_started
       mcp-notes:
         condition: service_started
     environment:
@@ -43,6 +60,12 @@ services:
       BCRYPT_SALT_ROUNDS: "12"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_DEFAULT_MODEL: gpt-4o-mini
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      QDRANT_URL: http://qdrant:6333
+      RAG_TOP_K: "8"
+      RAG_ANSWER_MODEL: gpt-4o-mini
+      CHUNK_TARGET_TOKENS: "512"
+      CHUNK_OVERLAP_TOKENS: "64"
       MCP_NOTES_HOST: mcp-notes
       MCP_NOTES_PORT: "3010"
       MCP_NOTES_PATH: /mcp
@@ -60,6 +83,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     environment:
       PORT: "3010"
       LOG_LEVEL: info
@@ -70,8 +95,12 @@ services:
       MCP_NOTES_PORT: "3010"
       MCP_NOTES_PATH: /mcp
       MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:-dev_mcp_notes_token_change_me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      QDRANT_URL: http://qdrant:6333
     ports:
       - "3010:3010"
 
 volumes:
   mongodb_data:
+  qdrant_data:
