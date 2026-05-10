@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cortex-app
+  name: web-server
   namespace: cortex
   labels:
-    app: cortex-app
+    app: web-server
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: cortex-app
+      app: web-server
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -18,11 +18,11 @@ spec:
   template:
     metadata:
       labels:
-        app: cortex-app
+        app: web-server
     spec:
       terminationGracePeriodSeconds: 30
       containers:
-        - name: cortex-app
+        - name: web-server
           image: cortex:dev
           imagePullPolicy: IfNotPresent
           command: ["node", "dist/web-server/server.js"]

@@ -80,20 +80,20 @@ kubectl apply -f deploy/k8s/base/ >/dev/null
 echo "→ waiting for rollouts to stabilize (up to 3 min each)"
 kubectl -n "$NAMESPACE" rollout status statefulset/mongodb  --timeout=180s
 kubectl -n "$NAMESPACE" rollout status deploy/mcp-notes     --timeout=180s
-kubectl -n "$NAMESPACE" rollout status deploy/cortex-app    --timeout=180s
+kubectl -n "$NAMESPACE" rollout status deploy/web-server    --timeout=180s
 
 cat <<EOF
 
 ✓ kind cluster '$CLUSTER_NAME' is up and ready
 
   smoke test:
-    kubectl -n $NAMESPACE port-forward svc/cortex-app 3000:80
+    kubectl -n $NAMESPACE port-forward svc/web-server 3000:80
     curl localhost:3000/healthz
 
   iterate after a code change:
     docker build -t cortex:dev . && \\
     kind load docker-image cortex:dev --name $CLUSTER_NAME && \\
-    kubectl -n $NAMESPACE rollout restart deploy/cortex-app deploy/mcp-notes
+    kubectl -n $NAMESPACE rollout restart deploy/web-server deploy/mcp-notes
 
   tear down:
     kind delete cluster --name $CLUSTER_NAME
