@@ -2,6 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { AiSvc } from '../../ai_svc/ai_svc.js';
 import { GenAiProviderSchema, GenerateOptionsSchema, MessageSchema } from '../../ai_svc/types/ai_prompt.types.js';
+import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
 import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 
 const GenerateRequestSchema = z.object({
@@ -34,6 +35,7 @@ export class AiController {
   }
 
   private registerRoutes(): void {
+    this.router.use(RequireAuthMiddleware.requireAuth);
     this.router.post('/generate', this.generate.bind(this));
     this.router.post('/generate-structured', this.generateStructured.bind(this));
   }

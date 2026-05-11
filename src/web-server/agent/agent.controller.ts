@@ -64,29 +64,20 @@ export class AgentController {
   }
 
   private registerRoutes() {
+    this.router.use(RequireAuthMiddleware.requireAuth);
     this.router.post(
       '/',
-      RequireAuthMiddleware.requireAuth,
       AuthorizeMiddleware.authorizeRoles('admin'),
       this.createAgent.bind(this)
     );
     this.router.patch(
       '/:agent_id',
-      RequireAuthMiddleware.requireAuth,
       AuthorizeMiddleware.authorizeRoles('admin'),
       this.updateAgent.bind(this)
     );
-    this.router.post('/run', RequireAuthMiddleware.requireAuth, this.run.bind(this));
-    this.router.get(
-      '/conversations',
-      RequireAuthMiddleware.requireAuth,
-      this.listConversations.bind(this)
-    );
-    this.router.get(
-      '/conversations/:conversation_id',
-      RequireAuthMiddleware.requireAuth,
-      this.getConversation.bind(this)
-    );
+    this.router.post('/run', this.run.bind(this));
+    this.router.get('/conversations', this.listConversations.bind(this));
+    this.router.get('/conversations/:conversation_id', this.getConversation.bind(this));
   }
 
   @validateRequest({ body: agent_manifest_create_input_schema })

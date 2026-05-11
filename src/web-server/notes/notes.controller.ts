@@ -66,11 +66,12 @@ export class NotesController {
   }
 
   private registerRoutes() {
-    this.router.post('/', RequireAuthMiddleware.requireAuth, this.createNote.bind(this));
-    this.router.get('/', RequireAuthMiddleware.requireAuth, this.listNotes.bind(this));
-    this.router.get('/:id', RequireAuthMiddleware.requireAuth, this.getNote.bind(this));
-    this.router.patch('/:id', RequireAuthMiddleware.requireAuth, this.updateNote.bind(this));
-    this.router.delete('/:id', RequireAuthMiddleware.requireAuth, this.deleteNote.bind(this));
+    this.router.use(RequireAuthMiddleware.requireAuth);
+    this.router.post('/', this.createNote.bind(this));
+    this.router.get('/', this.listNotes.bind(this));
+    this.router.get('/:id', this.getNote.bind(this));
+    this.router.patch('/:id', this.updateNote.bind(this));
+    this.router.delete('/:id', this.deleteNote.bind(this));
   }
 
   @validateRequest({ body: NoteCreateBodySchema })
