@@ -21,6 +21,7 @@ import { BadRequestError, ConflictError, NotFoundError } from '../common/errors.
 import { AgentRegistry } from './registry/agent_registry.js';
 import { ToolRegistry } from './tools/tool_registry.js';
 import { ConversationStore } from './conversation/conversation_store.js';
+import { ConversationTitleGenerator } from './conversation/conversation_title_generator.js';
 import { AgentFactory } from './factory/agent_factory.js';
 import { MongooseAgentRepository } from './repositories/mongoose_agent_repository.js';
 import { AgentIdGenerator } from './agent_id_generator.js';
@@ -112,11 +113,15 @@ export class AgentSvc implements AgentSvcInterface {
       'agent run started'
     );
 
-    const conversation = await conversation_store.ensureConversation({
+    const { conversation, created } = await conversation_store.ensureConversation({
       conversation_id: input.conversation_id,
       user_id: input.user_id,
       agent_id: agent.manifest.agent_id,
     });
+
+    const title_promise = created
+      ? this.generateAndPersistTitle(conversation.conversation_id, input.input)
+      : Promise.resolve();
 
     const message_history = await conversation_store.loadHistory(conversation.conversation_id);
 
@@ -144,6 +149,7 @@ export class AgentSvc implements AgentSvcInterface {
     const duration_ms = Number((performance.now() - start_ms).toFixed(1));
 
     await this.persistTurn(agent, req, response);
+    await title_promise;
 
     logger.info(
       {
@@ -204,6 +210,22 @@ export class AgentSvc implements AgentSvcInterface {
       'fetched conversation'
     );
     return { conversation, messages };
+  }
+
+  private async generateAndPersistTitle(
+    conversation_id: string,
+    input: string | Message[]
+  ): Promise<void> {
+    try {
+      const query = ConversationTitleGenerator.extractQuery(input);
+      if (!query) return;
+      const title = await ConversationTitleGenerator.generate(query);
+      const conversation_store = await ConversationStore.getInstance();
+      await conversation_store.setTitle(conversation_id, title);
+      logger.info({ conversation_id, title }, 'conversation title generated');
+    } catch (err) {
+      logger.warn({ err, conversation_id }, 'conversation title generation failed');
+    }
   }
 
   private async persistTurn(

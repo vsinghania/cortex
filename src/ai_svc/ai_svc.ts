@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { NotFoundError } from '../common/errors.js';
+import { logger } from '../common/logger.js';
 import { logExecTime } from '../lib/decorators/logging_decorators.js';
 import { AdapterRegistry, DEFAULT_PROVIDER } from './adapters/adapter_registry.js';
 import { AdapterStructuredFormat, GenAiAdapter } from './adapters/genai_adapter.js';
@@ -19,6 +20,9 @@ const SLOW_CALL_THRESHOLD_MS = 10000;
 
 export class AiSvc implements AiSvcInterface {
 
+  private static instance: AiSvc | null = null;
+  private static in_flight: Promise<AiSvc> | null = null;
+
   private readonly adapter_registry: AdapterRegistry;
   private readonly schema_registry: StructuredSchemaRegistry;
 
@@ -27,8 +31,23 @@ export class AiSvc implements AiSvcInterface {
     this.schema_registry = schema_registry;
   }
 
-  static async create(): Promise<AiSvc> {
-    return new AiSvc(AdapterRegistry.getInstance(), StructuredSchemaRegistry.getInstance());
+  static async getInstance(): Promise<AiSvc> {
+    if (AiSvc.instance) return AiSvc.instance;
+    if (AiSvc.in_flight) return AiSvc.in_flight;
+
+    AiSvc.in_flight = AiSvc.loadInstance();
+    return AiSvc.in_flight;
+  }
+
+  private static async loadInstance(): Promise<AiSvc> {
+    try {
+      const inst = new AiSvc(AdapterRegistry.getInstance(), StructuredSchemaRegistry.getInstance());
+      AiSvc.instance = inst;
+      logger.info('AiSvc initialized');
+      return inst;
+    } finally {
+      AiSvc.in_flight = null;
+    }
   }
 
   @logExecTime({ threshold_in_ms: SLOW_CALL_THRESHOLD_MS })

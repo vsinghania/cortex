@@ -23,10 +23,8 @@ type GenerateStructuredRequestBody = z.infer<typeof GenerateStructuredRequestSch
 export class AiController {
 
   private readonly router: express.Router;
-  private readonly ai_svc: AiSvc;
 
-  constructor(ai_svc: AiSvc) {
-    this.ai_svc = ai_svc;
+  constructor() {
     this.router = express.Router();
     this.registerRoutes();
   }
@@ -43,7 +41,8 @@ export class AiController {
   @validateRequest({ body: GenerateRequestSchema })
   private async generate(req: express.Request, res: express.Response, _next: express.NextFunction): Promise<void> {
     const body = req.body as GenerateRequestBody;
-    const result = await this.ai_svc.generateText({
+    const ai_svc = await AiSvc.getInstance();
+    const result = await ai_svc.generateText({
       messages: body.messages,
       provider: body.provider,
       options: body.options,
@@ -54,7 +53,8 @@ export class AiController {
   @validateRequest({ body: GenerateStructuredRequestSchema })
   private async generateStructured(req: express.Request, res: express.Response, _next: express.NextFunction): Promise<void> {
     const body = req.body as GenerateStructuredRequestBody;
-    const result = await this.ai_svc.generateStructured({
+    const ai_svc = await AiSvc.getInstance();
+    const result = await ai_svc.generateStructured({
       messages: body.messages,
       schema: { kind: 'registered', name: body.schema_name },
       provider: body.provider,

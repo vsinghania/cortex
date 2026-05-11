@@ -70,6 +70,13 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     );
   }
 
+  async setTitle(conversation_id: string, title: string): Promise<void> {
+    await this.conv_model.updateOne(
+      { conversation_id },
+      { $set: { title } }
+    );
+  }
+
   async appendMessages(messages: Omit<ConversationMessage, 'created_at'>[]): Promise<void> {
     if (!messages.length) return;
     await this.msg_model.insertMany(messages, { ordered: true });

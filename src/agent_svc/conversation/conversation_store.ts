@@ -39,12 +39,12 @@ export class ConversationStore {
     conversation_id?: string;
     user_id?: string;
     agent_id: string;
-  }): Promise<Conversation> {
+  }): Promise<{ conversation: Conversation; created: boolean }> {
     if (params.conversation_id) {
       const existing = await this.repo.getConversation(params.conversation_id);
       if (existing) {
         logger.debug({ conversation_id: existing.conversation_id }, 'Conversation reused');
-        return existing;
+        return { conversation: existing, created: false };
       }
     }
     const conversation_id = params.conversation_id ?? Id.generateUuidV7();
@@ -61,7 +61,11 @@ export class ConversationStore {
       },
       'Conversation created'
     );
-    return conversation;
+    return { conversation, created: true };
+  }
+
+  async setTitle(conversation_id: string, title: string): Promise<void> {
+    await this.repo.setTitle(conversation_id, title);
   }
 
   async loadHistory(conversation_id: string): Promise<Message[]> {

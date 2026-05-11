@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { App, AppDeps } from './app.js';
+import { App } from './app.js';
 import { MongooseConnectionManager } from '../db/mongo/mongoose_connection_manager.js';
 import { QdrantCollectionBootstrap } from '../db/qdrant/qdrant_collection_bootstrap.js';
 import { AgentSvc } from '../agent_svc/agent_svc.js';
@@ -15,9 +15,9 @@ class Server {
   static async start(): Promise<void> {
     const port = Number(process.env.PORT ?? 3000) || 3000;
 
-    const deps = await Server.initDependencies();
+    await Server.initDependencies();
 
-    const app = new App(deps);
+    const app = new App();
     app.initApp();
 
     const http_server = app.getApp().listen(port, () => {
@@ -43,20 +43,18 @@ class Server {
     process.on('SIGTERM', shutdown);
   }
 
-  private static async initDependencies(): Promise<AppDeps> {
+  private static async initDependencies(): Promise<void> {
     await Server.connectMongo();
     await Server.bootstrapQdrant();
     await Server.bootstrapRetrievalSvc();
     await Server.seedNotesRecallAgent();
     await Server.loadAgentSvc();
-    const ai_svc = await Server.loadAiSvc();
-    return { ai_svc };
+    await Server.loadAiSvc();
   }
 
-  private static async loadAiSvc(): Promise<AiSvc> {
-    const ai_svc = await AiSvc.create();
+  private static async loadAiSvc(): Promise<void> {
+    await AiSvc.getInstance();
     logger.info('AiSvc loaded');
-    return ai_svc;
   }
 
   private static async bootstrapRetrievalSvc(): Promise<void> {
