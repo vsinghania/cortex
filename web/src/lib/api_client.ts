@@ -6,7 +6,7 @@ import type {
   NoteListResponse,
   NotePatchBody,
 } from './note.types';
-import type { AgentRunRequest, AgentRunResponse } from './agent.types';
+import type { AgentRunRequest, AgentRunResponse, Conversation, ConversationWithMessages } from './agent.types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
 
@@ -192,5 +192,17 @@ export class ApiClient {
       method: 'POST',
       body: JSON.stringify(req),
     });
+  }
+
+  static async listConversations(params: { limit?: number; before_updated_at?: string } = {}): Promise<Conversation[]> {
+    const query = new URLSearchParams();
+    if (params.limit != null) query.set('limit', String(params.limit));
+    if (params.before_updated_at) query.set('before_updated_at', params.before_updated_at);
+    const qs = query.toString();
+    return ApiClient.request<Conversation[]>(`/agent/conversations${qs ? `?${qs}` : ''}`);
+  }
+
+  static async getConversation(conversation_id: string): Promise<ConversationWithMessages> {
+    return ApiClient.request<ConversationWithMessages>(`/agent/conversations/${encodeURIComponent(conversation_id)}`);
   }
 }

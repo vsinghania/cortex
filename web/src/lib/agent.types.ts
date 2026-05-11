@@ -13,3 +13,28 @@ export type AgentRunResponse = {
   conversation_id?: string;
   stop_reason: AgentStopReason;
 };
+
+export type Conversation = {
+  conversation_id: string;
+  agent_id: string;
+  title?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'json'; data: unknown }
+  | { type: 'image'; url: string };
+
+export type ConversationMessage = {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: ContentPart[];
+  turn: number;
+  created_at: string;
+};
+
+export type ConversationWithMessages = {
+  conversation: Conversation;
+  messages: ConversationMessage[];
+};
