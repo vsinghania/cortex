@@ -3,9 +3,11 @@ import {
   run as runAgent,
   tool as makeTool,
   MaxTurnsExceededError,
+  type JsonSchemaDefinition,
 } from '@openai/agents';
 import { BaseAgent, type BaseAgentInit } from '../base_agent.js';
 import type {
+  AgentManifest,
   AgentRunRequest,
   AgentRunResponse,
   Tool as DomainTool,
@@ -41,6 +43,7 @@ export class OpenAiAgent extends BaseAgent {
     const tool_agent_tools = this.buildToolAgentTools();
     const handoffs = this.buildHandoffs();
     const { self_hosted_servers, hosted_tools } = this.partitionMcpHandles();
+    const output_type = OpenAiAgent.toSdkOutputType(this.manifest);
 
     this.sdk_agent = new Agent({
       name: this.manifest.name,
@@ -49,7 +52,24 @@ export class OpenAiAgent extends BaseAgent {
       tools: [...fn_tools, ...tool_agent_tools, ...hosted_tools],
       mcpServers: self_hosted_servers,
       handoffs,
+      ...(output_type ? { outputType: output_type } : {}),
     });
+  }
+
+  private static toSdkOutputType(manifest: AgentManifest): JsonSchemaDefinition | undefined {
+    if (!manifest.output_schema) return undefined;
+    return {
+      type: 'json_schema',
+      name: OpenAiAgent.sanitizeOutputName(manifest.name),
+      strict: true,
+      schema: manifest.output_schema,
+    };
+  }
+
+  private static sanitizeOutputName(name: string): string {
+    const cleaned = name.replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    const fallback = cleaned.length > 0 ? cleaned : 'AgentOutput';
+    return fallback.slice(0, 64);
   }
 
   private partitionMcpHandles() {
@@ -196,6 +216,9 @@ export class OpenAiAgent extends BaseAgent {
   private toAgentResponse(req: AgentRunRequest, result: any): AgentRunResponse {
     const new_messages = OpenAiSdkUtils.extractMessages(result);
     const final_text = OpenAiSdkUtils.extractFinalText(result);
+    const final_json = this.manifest.output_schema
+      ? OpenAiSdkUtils.extractFinalJson(result)
+      : undefined;
     const usage = OpenAiSdkUtils.extractUsage(result);
     const model_name =
       OpenAiSdkUtils.extractModelName(result) ??
@@ -210,7 +233,7 @@ export class OpenAiAgent extends BaseAgent {
 
     return {
       final_output_text: final_text,
-      final_output_json: undefined,
+      final_output_json: final_json,
       message_history,
       usage,
       model: model_name,

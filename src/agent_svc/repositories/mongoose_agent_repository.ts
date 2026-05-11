@@ -45,12 +45,25 @@ export class MongooseAgentRepository implements AgentRepositoryInterface {
     agent_id: string,
     patch: AgentUpdatePatch
   ): Promise<AgentManifest | null> {
-    const doc = await this.model.findOneAndUpdate(
-      { agent_id },
-      { $set: patch },
-      { new: true }
-    ).lean();
+    const update = MongooseAgentRepository.toUpdateOperator(patch);
+    const doc = await this.model.findOneAndUpdate({ agent_id }, update, { new: true }).lean();
     return doc ? MongooseAgentRepository.toDomain(doc) : null;
+  }
+
+  private static toUpdateOperator(patch: AgentUpdatePatch): Record<string, unknown> {
+    const set: Record<string, unknown> = {};
+    const unset: Record<string, 1> = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) {
+        unset[key] = 1;
+      } else if (value !== undefined) {
+        set[key] = value;
+      }
+    }
+    const update: Record<string, unknown> = {};
+    if (Object.keys(set).length > 0) update.$set = set;
+    if (Object.keys(unset).length > 0) update.$unset = unset;
+    return update;
   }
 
   async upsertByAgentId(

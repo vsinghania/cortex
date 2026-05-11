@@ -282,6 +282,7 @@ export class AgentSvc implements AgentSvcInterface {
       tool_agent_ids: input.tool_agent_ids ?? [],
       handoff_agent_ids: input.handoff_agent_ids ?? [],
       mcp_server_ids: input.mcp_server_ids ?? [],
+      output_schema: input.output_schema,
       enabled: input.enabled ?? true,
       version: 1,
     };
@@ -295,6 +296,7 @@ export class AgentSvc implements AgentSvcInterface {
     }
     return out;
   }
+
 
   private async refreshAgentRegistry(): Promise<void> {
     const agent_registry = await AgentRegistry.getInstance();

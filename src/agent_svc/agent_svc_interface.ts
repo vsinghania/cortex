@@ -1,5 +1,6 @@
 import type {
   AgentManifest,
+  AgentOutputSchema,
   AgentUpdatePatch,
   AgentRunOptions,
   AgentRunRequest,
@@ -36,6 +37,7 @@ export type CreateAgentInput = {
   tool_agent_ids?: string[];
   handoff_agent_ids?: string[];
   mcp_server_ids?: string[];
+  output_schema?: AgentOutputSchema;
   enabled?: boolean;
 };
 

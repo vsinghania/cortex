@@ -171,6 +171,13 @@ export class OpenAiSdkUtils {
     return '';
   }
 
+  static extractFinalJson(result: any): unknown | undefined {
+    const final = result?.finalOutput;
+    if (final == null || typeof final === 'string') return undefined;
+    if (typeof final !== 'object') return undefined;
+    return final;
+  }
+
   static extractUsage(result: any): AgentUsage {
     const responses: any[] = Array.isArray(result?.rawResponses) ? result.rawResponses : [];
     let prompt_tokens = 0;

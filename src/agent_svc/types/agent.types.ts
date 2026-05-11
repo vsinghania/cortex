@@ -1,6 +1,9 @@
 import type { AnyZodObject } from 'zod';
 import type { Logger } from 'pino';
+import type { JsonSchemaDefinition } from '@openai/agents';
 import type { Message } from './message.types.js';
+
+export type AgentOutputSchema = JsonSchemaDefinition['schema'];
 
 export enum AgentEngine {
   OpenAi = 'openai',
@@ -16,6 +19,7 @@ export type AgentManifest = {
   tool_agent_ids: string[];
   handoff_agent_ids: string[];
   mcp_server_ids: string[];
+  output_schema?: AgentOutputSchema;
   enabled: boolean;
   version: number;
   created_at: Date;
@@ -35,7 +39,9 @@ export type AgentUpdatePatch = Partial<
     | 'mcp_server_ids'
     | 'enabled'
   >
->;
+> & {
+  output_schema?: AgentOutputSchema | null;
+};
 
 export type ToolResult =
   | { kind: 'text'; text: string }
