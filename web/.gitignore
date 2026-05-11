@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+
+# tsc -b composite build outputs
+vite.config.js
+vite.config.d.ts
+*.tsbuildinfo
