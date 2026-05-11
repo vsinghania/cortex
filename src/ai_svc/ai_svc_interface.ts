@@ -1,5 +1,11 @@
-import { PromptMessage } from './types/ai_prompt.types.js';
+import {
+  GenerateStructuredRequest,
+  GenerateStructuredResponse,
+  GenerateTextRequest,
+  GenerateTextResponse,
+} from './types/ai_prompt.types.js';
 
 export interface AiSvcInterface {
-  sendBasicPrompt(prompt: string): Promise<PromptMessage[]>;
+  generateText(req: GenerateTextRequest): Promise<GenerateTextResponse>;
+  generateStructured<T = unknown>(req: GenerateStructuredRequest): Promise<GenerateStructuredResponse<T>>;
 }

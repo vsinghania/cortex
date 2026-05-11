@@ -3,71 +3,60 @@ import { z } from 'zod';
 export enum Role {
   SYSTEM = 'system',
   USER = 'user',
-  ASSISTANT = 'assistant'
+  ASSISTANT = 'assistant',
 }
 
-export enum OutputContentType {
-  OutputText = 'output_text',
-  OutputJson = 'output_json'
-}
+export const GenAiProviderSchema = z.enum(['openai']);
+export type GenAiProvider = z.infer<typeof GenAiProviderSchema>;
 
-export enum InputContentType {
-  InputText = 'input_text',
-  InputJson = 'input_json'
-}
-
-// export const ContentSchema = z.union([
-//   z.string().optional(),
-//   z.array(z.object({type: z.enum(), text: z.string().optional(), json: z.any().optional()}))
-// ])
-
-export const PromptMessageTypeSchema = z.object({
+export const MessageSchema = z.object({
   role: z.enum([Role.SYSTEM, Role.USER, Role.ASSISTANT]),
-  content: z.string().min(1)
+  content: z.string().min(1),
 });
 
-export const PromptOptionsTypeSchema = z.object({
-  max_tokens: z.number().min(1).optional(),
-  temperature: z.number().min(0).max(1).optional(),
-  model: z.string().optional(),
-  ignore_history: z.boolean().optional(),
-  timeout: z.number().positive().optional(),
-  retries: z.number().min(0).optional()
+export type Message = z.infer<typeof MessageSchema>;
+
+export const GenerateOptionsSchema = z.object({
+  model: z.string().min(1).optional(),
+  max_tokens: z.number().int().positive().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  timeout_ms: z.number().int().positive().optional(),
+  retries: z.number().int().nonnegative().optional(),
 });
 
-export const PromptOutputSchema = z.object({
-  name: z.string().min(1),
-  schema: z.instanceof(z.ZodType)
-})
+export type GenerateOptions = z.infer<typeof GenerateOptionsSchema>;
 
-export const PromptRequestTypeSchema = z.object({
-  latest_prompt: PromptMessageTypeSchema,
-  message_history: z.array(PromptMessageTypeSchema).optional(),
-  last_response_id: z.string().optional(),
-  conversation_id: z.string().optional(),
-  options: PromptOptionsTypeSchema.optional(),
-  output_schema: PromptOutputSchema.optional()
-});
+export type Usage = {
+  input_tokens: number;
+  output_tokens: number;
+};
 
-export const PromptResponseTypeSchema = z.object({
-  response_text: z.string().optional(),
-  response_json: z.any().optional(),
-  content_type: z.enum([OutputContentType.OutputText, OutputContentType.OutputJson]),
-  message_history: z.array(PromptMessageTypeSchema),
-  usage: z.object({
-    prompt_tokens: z.number().min(0),
-    response_tokens: z.number().min(0),
-    total_tokens: z.number().min(0)
-  }),
-  model: z.string().optional(),
-  response_id: z.string().optional(),
-  conversation_id: z.string().optional()
-});
+export type GenerateTextRequest = {
+  messages: Message[];
+  provider?: GenAiProvider;
+  options?: GenerateOptions;
+};
 
-export type PromptRequest = z.infer<typeof PromptRequestTypeSchema>;
+export type GenerateTextResponse = {
+  message: Message;
+  model: string;
+  usage: Usage;
+};
 
-export type PromptMessage = z.infer<typeof PromptMessageTypeSchema>;
+export type StructuredSchemaSource =
+  | { kind: 'registered'; name: string }
+  | { kind: 'zod'; name: string; schema: z.ZodTypeAny }
+  | { kind: 'json_schema'; name: string; schema: Record<string, unknown> };
 
-export type PromptOptions = z.infer<typeof PromptOptionsTypeSchema>;
+export type GenerateStructuredRequest = {
+  messages: Message[];
+  schema: StructuredSchemaSource;
+  provider?: GenAiProvider;
+  options?: GenerateOptions;
+};
 
-export type PromptResponse = z.infer<typeof PromptResponseTypeSchema>;
+export type GenerateStructuredResponse<T = unknown> = {
+  data: T;
+  model: string;
+  usage: Usage;
+};

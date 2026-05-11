@@ -10,10 +10,20 @@ import cookieParser from 'cookie-parser';
 import { AuthController } from './auth/auth.controller.js';
 import { AgentController } from './agent/agent.controller.js';
 import { NotesController } from './notes/notes.controller.js';
+import { AiSvc } from '../ai_svc/ai_svc.js';
+
+export type AppDeps = {
+  ai_svc: AiSvc;
+};
 
 export class App {
 
   private app: express.Express = express();
+  private readonly deps: AppDeps;
+
+  constructor(deps: AppDeps) {
+    this.deps = deps;
+  }
 
   initApp() {
     // Enable CORS with credentials for refresh cookies
@@ -52,7 +62,7 @@ export class App {
     const auth_controller = new AuthController();
     v1_router.use('/auth', auth_controller.getRouter());
 
-    const ai_controller = new AiController();
+    const ai_controller = new AiController(this.deps.ai_svc);
     v1_router.use('/ai', ai_controller.getRouter());
 
     const agent_controller = new AgentController();

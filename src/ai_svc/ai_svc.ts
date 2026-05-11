@@ -1,33 +1,85 @@
-import { GenAiAdapter } from './adapters/genai_adapter.js';
-import { OpenAiAdapter } from './adapters/openai_adapter.js';
+import { z } from 'zod';
+import { NotFoundError } from '../common/errors.js';
+import { logExecTime } from '../lib/decorators/logging_decorators.js';
+import { AdapterRegistry, DEFAULT_PROVIDER } from './adapters/adapter_registry.js';
+import { AdapterStructuredFormat, GenAiAdapter } from './adapters/genai_adapter.js';
 import { AiSvcInterface } from './ai_svc_interface.js';
-import { PromptMessage, PromptRequest, Role } from './types/ai_prompt.types.js';
+import { StructuredSchemaRegistry } from './schemas/structured_schema_registry.js';
+import {
+  GenAiProvider,
+  GenerateStructuredRequest,
+  GenerateStructuredResponse,
+  GenerateTextRequest,
+  GenerateTextResponse,
+  Role,
+  StructuredSchemaSource,
+} from './types/ai_prompt.types.js';
+
+const SLOW_CALL_THRESHOLD_MS = 10000;
 
 export class AiSvc implements AiSvcInterface {
 
-  private ai_adapter: GenAiAdapter = new OpenAiAdapter();
+  private readonly adapter_registry: AdapterRegistry;
+  private readonly schema_registry: StructuredSchemaRegistry;
 
-  async sendBasicPrompt(prompt: string, message_history?: PromptMessage[]): Promise<PromptMessage[]> {
-    const prompt_request = this.constructPromptRequest(prompt, message_history);
-    const response = await this.ai_adapter.generateText(prompt_request);
-    return response.message_history.filter(msg => msg.role != Role.SYSTEM);
+  private constructor(adapter_registry: AdapterRegistry, schema_registry: StructuredSchemaRegistry) {
+    this.adapter_registry = adapter_registry;
+    this.schema_registry = schema_registry;
   }
 
-  private constructPromptRequest(
-    prompt: string,
-    message_history?: PromptMessage[]): PromptRequest {
+  static async create(): Promise<AiSvc> {
+    return new AiSvc(AdapterRegistry.getInstance(), StructuredSchemaRegistry.getInstance());
+  }
 
+  @logExecTime({ threshold_in_ms: SLOW_CALL_THRESHOLD_MS })
+  async generateText(req: GenerateTextRequest): Promise<GenerateTextResponse> {
+    const adapter = this.resolveAdapter(req.provider);
+    const resp = await adapter.generateText({
+      messages: req.messages,
+      options: req.options,
+    });
     return {
-      latest_prompt: {
-        role: Role.USER,
-        content: prompt
-      },
-      message_history: [{ role: Role.SYSTEM, content: this.basicSystemPrompt() }]
-        .concat(message_history ?? [])
+      message: { role: Role.ASSISTANT, content: resp.text },
+      model: resp.model,
+      usage: resp.usage,
     };
   }
 
-  private basicSystemPrompt(): string {
-    return `You are a grumpy AI assistant. Respond accordingly. Dont answer anything related to the application`
+  @logExecTime({ threshold_in_ms: SLOW_CALL_THRESHOLD_MS })
+  async generateStructured<T = unknown>(req: GenerateStructuredRequest): Promise<GenerateStructuredResponse<T>> {
+    const adapter = this.resolveAdapter(req.provider);
+    const format = this.resolveSchemaFormat<T>(req.schema);
+    const resp = await adapter.generateStructured<T>({
+      messages: req.messages,
+      format,
+      options: req.options,
+    });
+    return {
+      data: resp.data,
+      model: resp.model,
+      usage: resp.usage,
+    };
+  }
+
+  private resolveAdapter(provider: GenAiProvider | undefined): GenAiAdapter {
+    return this.adapter_registry.getAdapter(provider ?? DEFAULT_PROVIDER);
+  }
+
+  private resolveSchemaFormat<T>(source: StructuredSchemaSource): AdapterStructuredFormat<T> {
+    switch (source.kind) {
+      case 'registered': {
+        const schema = this.schema_registry.getSchema(source.name);
+        if (!schema) {
+          throw new NotFoundError(`Unknown schema_name: ${source.name}`, {
+            details: { schema_name: source.name },
+          });
+        }
+        return { kind: 'zod', name: source.name, schema: schema as z.ZodType<T> };
+      }
+      case 'zod':
+        return { kind: 'zod', name: source.name, schema: source.schema as z.ZodType<T> };
+      case 'json_schema':
+        return { kind: 'json_schema', name: source.name, schema: source.schema };
+    }
   }
 }

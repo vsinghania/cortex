@@ -1,210 +1,211 @@
-import { ParsedResponse } from 'openai/resources/responses/responses.mjs';
-import { PromptRequest, PromptOptions, PromptResponse, Role, PromptMessage, OutputContentType } from '../types/ai_prompt.types.js';
-import { GenAiAdapter } from './genai_adapter.js';
-import OpenAI from "openai";
-import { zodTextFormat, } from "openai/helpers/zod";
-import { logger } from "../../common/logger.js";
-import { logExecTime } from '../../lib/decorators/logging_decorators.js';
+import OpenAI from 'openai';
+import { zodTextFormat } from 'openai/helpers/zod';
 import { performance } from 'node:perf_hooks';
+import { logger } from '../../common/logger.js';
+import { logExecTime } from '../../lib/decorators/logging_decorators.js';
+import {
+  AdapterStructuredRequest,
+  AdapterStructuredResponse,
+  AdapterTextRequest,
+  AdapterTextResponse,
+  GenAiAdapter,
+} from './genai_adapter.js';
+import { GenerateOptions, Usage } from '../types/ai_prompt.types.js';
+
+const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_RETRIES = 3;
+const DEFAULT_TEMPERATURE = 0.7;
+const DEFAULT_MAX_TOKENS_TEXT = 256;
+const DEFAULT_MAX_TOKENS_STRUCTURED = 5000;
+const SLOW_CALL_THRESHOLD_MS = 10000;
+
+type ResolvedOptions = {
+  model: string;
+  timeout_ms: number;
+  retries: number;
+  temperature: number;
+  max_tokens: number;
+};
 
 export class OpenAiAdapter implements GenAiAdapter {
-  private openai_client: OpenAI;
-  private default_model: string;
-  private default_timeout: number;
-  private default_retries: number;
 
-  constructor() {
-    this.openai_client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    this.default_model = process.env.OPENAI_DEFAULT_MODEL ?? 'gpt-4o-mini';
-    this.default_timeout = Number(process.env.OPENAI_TIMEOUT_MS) || 10000;
-    this.default_retries = Number(process.env.OPENAI_RETRIES) || 3;
+  private readonly client: OpenAI;
+  private readonly default_model: string;
+  private readonly default_timeout_ms: number;
+  private readonly default_retries: number;
+
+  private constructor(client: OpenAI, default_model: string, default_timeout_ms: number, default_retries: number) {
+    this.client = client;
+    this.default_model = default_model;
+    this.default_timeout_ms = default_timeout_ms;
+    this.default_retries = default_retries;
   }
 
-  @logExecTime({threshold_in_ms: 10000})
-  async generateText(prompt: PromptRequest, opts?: PromptOptions): Promise<PromptResponse> {
-    const model = opts?.model ?? this.default_model;
-    const timeout = opts?.timeout ?? this.default_timeout;
-    const retries = opts?.retries ?? this.default_retries;
-
-    let input: PromptMessage[] = [prompt.latest_prompt];
-    if (!prompt.last_response_id) {
-      input = opts?.ignore_history
-        ? (prompt.message_history?.filter((msg) => msg.role === Role.SYSTEM) || []).concat(input)
-        : (prompt.message_history ?? []).concat(input);
+  static create(): OpenAiAdapter {
+    const api_key = process.env.OPENAI_API_KEY;
+    if (!api_key) {
+      throw new Error('OPENAI_API_KEY is not set');
     }
+    const model = process.env.OPENAI_DEFAULT_MODEL ?? DEFAULT_MODEL;
+    const timeout_ms = Number(process.env.OPENAI_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
+    const retries = Number(process.env.OPENAI_RETRIES) || DEFAULT_RETRIES;
+    return new OpenAiAdapter(new OpenAI({ apiKey: api_key }), model, timeout_ms, retries);
+  }
 
-    logger.debug(
-      { method: 'generateText', model, timeout, retries, message_count: input.length },
-      'OpenAI generateText starting'
+  @logExecTime({ threshold_in_ms: SLOW_CALL_THRESHOLD_MS })
+  async generateText(req: AdapterTextRequest): Promise<AdapterTextResponse> {
+    const resolved = this.resolveOptions(req.options, DEFAULT_MAX_TOKENS_TEXT);
+    const resp = await this.callWithRetry(resolved, (signal) =>
+      this.client.responses.create(
+        {
+          model: resolved.model,
+          input: req.messages,
+          max_output_tokens: resolved.max_tokens,
+          temperature: resolved.temperature,
+        },
+        { signal }
+      )
     );
-
-    let attempt = 0;
-    const start_ms = performance.now();
-    while (true) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
-      try {
-        const resp = await this.openai_client.responses.create(
-          {
-            model,
-            input,
-            max_output_tokens: opts?.max_tokens ?? 256,
-            temperature: opts?.temperature ?? 0.7,
-            previous_response_id: prompt.last_response_id
-          },
-          { signal: controller.signal }
-        );
-        clearTimeout(timer);
-        const duration_ms = Number((performance.now() - start_ms).toFixed(1));
-        logger.info(
-          {
-            method: 'generateText',
-            model: resp.model,
-            prompt_tokens: resp.usage?.input_tokens ?? 0,
-            completion_tokens: resp.usage?.output_tokens ?? 0,
-            total_tokens: (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0),
-            attempt: attempt + 1,
-            duration_ms,
-          },
-          'OpenAI generateText completed'
-        );
-        return this.transformTextResponse(resp, input);
-      } catch (err) {
-        clearTimeout(timer);
-        attempt++;
-        if (attempt > retries) {
-          logger.error({ method: 'generateText', err, attempt }, 'generateText failed after retries');
-          throw err;
-        }
-        logger.warn({ method: 'generateText', err, attempt }, 'generateText attempt failed, retrying');
-      }
-    }
-  }
-
-  @logExecTime({ threshold_in_ms: 10000 })
-  async generateJsonOutput<T>(prompt: PromptRequest, opts?: PromptOptions): Promise<PromptResponse> {
-    if (!prompt.output_schema) {
-      throw new Error("Output schema is required for generateJsonOutput");
-    }
-
-    const model = opts?.model ?? this.default_model;
-    const timeout = opts?.timeout ?? this.default_timeout;
-    const retries = opts?.retries ?? this.default_retries;
-
-    let input: PromptMessage[] = [prompt.latest_prompt];
-    if (!prompt.last_response_id) {
-      input = opts?.ignore_history
-        ? (prompt.message_history?.filter((msg) => msg.role === Role.SYSTEM) || []).concat(input)
-        : (prompt.message_history ?? []).concat(input);
-    }
-
-    logger.debug(
-      { method: 'generateJsonOutput', model, timeout, retries, message_count: input.length },
-      'OpenAI generateJsonOutput starting'
-    );
-
-    let attempt = 0;
-    const start_ms = performance.now();
-    while (true) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
-      try {
-        const resp = await this.openai_client.responses.parse(
-          {
-            model,
-            input,
-            max_output_tokens: opts?.max_tokens ?? 5000,
-            temperature: opts?.temperature ?? 0.7,
-            previous_response_id: prompt.last_response_id,
-            text: {
-              format: zodTextFormat(prompt.output_schema.schema, prompt.output_schema.name),
-            },
-          },
-          { signal: controller.signal }
-        );
-        clearTimeout(timer);
-        const duration_ms = Number((performance.now() - start_ms).toFixed(1));
-        logger.info(
-          {
-            method: 'generateJsonOutput',
-            model: resp.model,
-            prompt_tokens: resp.usage?.input_tokens ?? 0,
-            completion_tokens: resp.usage?.output_tokens ?? 0,
-            total_tokens: (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0),
-            attempt: attempt + 1,
-            duration_ms,
-          },
-          'OpenAI generateJsonOutput completed'
-        );
-        return this.transformJsonResponse(resp, input);
-      } catch (err) {
-        clearTimeout(timer);
-        attempt++;
-        if (attempt > retries) {
-          logger.error({ method: 'generateJsonOutput', err, attempt }, 'generateJsonOutput failed after retries');
-          throw err;
-        }
-        logger.warn({ method: 'generateJsonOutput', err, attempt }, 'generateJsonOutput attempt failed, retrying');
-      }
-    }
-  }
-
-  private extractText(resp: OpenAI.Responses.Response): string | null {
-    if (Array.isArray(resp.output)) {
-      const parts: string[] = [];
-      for (const item of resp.output) {
-        if ("content" in item && Array.isArray(item.content)) {
-          for (const c of item.content) {
-            if (c.type === "output_text" && "text" in c && typeof c.text === "string") {
-              parts.push(c.text);
-            }
-          }
-        }
-      }
-      if (parts.length) return parts.join("");
-    }
-    return null;
-  }
-
-  private extractJsonResponse<T>(resp: ParsedResponse<T>): T | null {
-    return resp.output_parsed;
-  }
-
-  private transformJsonResponse(
-    openai_response: ParsedResponse<any>,
-    prompt_input: PromptMessage[]): PromptResponse {
-    const response_json = this.extractJsonResponse<any>(openai_response);
+    const text = OpenAiAdapter.extractText(resp) ?? '';
     return {
-      response_json,
-      content_type: OutputContentType.OutputJson,
-      message_history: prompt_input.concat([{ role: Role.ASSISTANT, content: JSON.stringify(response_json) }]),
-      usage: {
-        prompt_tokens: openai_response.usage?.input_tokens ?? 0,
-        response_tokens: openai_response.usage?.output_tokens ?? 0,
-        total_tokens: (openai_response.usage?.input_tokens ?? 0) + (openai_response.usage?.output_tokens ?? 0)
-      },
-      model: openai_response.model,
-      response_id: openai_response.id,
-      conversation_id: undefined
+      text,
+      model: resp.model,
+      usage: OpenAiAdapter.toUsage(resp.usage),
     };
   }
 
-  private transformTextResponse(
-    openai_response: OpenAI.Responses.Response,
-    prompt_input: PromptMessage[]): PromptResponse {
-    const response_text = this.extractText(openai_response) ?? "";
+  @logExecTime({ threshold_in_ms: SLOW_CALL_THRESHOLD_MS })
+  async generateStructured<T>(req: AdapterStructuredRequest<T>): Promise<AdapterStructuredResponse<T>> {
+    if (req.format.kind === 'zod') {
+      return this.generateStructuredFromZod(req, req.format);
+    }
+    return this.generateStructuredFromJsonSchema(req, req.format);
+  }
+
+  private async generateStructuredFromZod<T>(
+    req: AdapterStructuredRequest<T>,
+    format: Extract<AdapterStructuredRequest<T>['format'], { kind: 'zod' }>
+  ): Promise<AdapterStructuredResponse<T>> {
+    const resolved = this.resolveOptions(req.options, DEFAULT_MAX_TOKENS_STRUCTURED);
+    const resp = await this.callWithRetry(resolved, (signal) =>
+      this.client.responses.parse(
+        {
+          model: resolved.model,
+          input: req.messages,
+          max_output_tokens: resolved.max_tokens,
+          temperature: resolved.temperature,
+          text: {
+            format: zodTextFormat(format.schema, format.name),
+          },
+        },
+        { signal }
+      )
+    );
+    const parsed = resp.output_parsed;
+    if (parsed === null || parsed === undefined) {
+      throw new Error('OpenAI returned no parsed structured output');
+    }
     return {
-      response_text,
-      content_type: OutputContentType.OutputText,
-      message_history: prompt_input.concat([{ role: Role.ASSISTANT, content: response_text }]),
-      usage: {
-        prompt_tokens: openai_response.usage?.input_tokens ?? 0,
-        response_tokens: openai_response.usage?.output_tokens ?? 0,
-        total_tokens: (openai_response.usage?.input_tokens ?? 0) + (openai_response.usage?.output_tokens ?? 0)
-      },
-      model: openai_response.model,
-      response_id: openai_response.id,
-      conversation_id: undefined
+      data: parsed as T,
+      model: resp.model,
+      usage: OpenAiAdapter.toUsage(resp.usage),
+    };
+  }
+
+  private async generateStructuredFromJsonSchema<T>(
+    req: AdapterStructuredRequest<T>,
+    format: Extract<AdapterStructuredRequest<T>['format'], { kind: 'json_schema' }>
+  ): Promise<AdapterStructuredResponse<T>> {
+    const resolved = this.resolveOptions(req.options, DEFAULT_MAX_TOKENS_STRUCTURED);
+    const resp = await this.callWithRetry(resolved, (signal) =>
+      this.client.responses.create(
+        {
+          model: resolved.model,
+          input: req.messages,
+          max_output_tokens: resolved.max_tokens,
+          temperature: resolved.temperature,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: format.name,
+              schema: format.schema,
+              strict: true,
+            },
+          },
+        },
+        { signal }
+      )
+    );
+    const text = OpenAiAdapter.extractText(resp);
+    if (!text) {
+      throw new Error('OpenAI returned no text for structured output');
+    }
+    return {
+      data: JSON.parse(text) as T,
+      model: resp.model,
+      usage: OpenAiAdapter.toUsage(resp.usage),
+    };
+  }
+
+  private resolveOptions(opts: GenerateOptions | undefined, default_max_tokens: number): ResolvedOptions {
+    return {
+      model: opts?.model ?? this.default_model,
+      timeout_ms: opts?.timeout_ms ?? this.default_timeout_ms,
+      retries: opts?.retries ?? this.default_retries,
+      temperature: opts?.temperature ?? DEFAULT_TEMPERATURE,
+      max_tokens: opts?.max_tokens ?? default_max_tokens,
+    };
+  }
+
+  private async callWithRetry<R>(
+    resolved: ResolvedOptions,
+    invoke: (signal: AbortSignal) => Promise<R>
+  ): Promise<R> {
+    const start_ms = performance.now();
+    let attempt = 0;
+    while (true) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), resolved.timeout_ms);
+      try {
+        const result = await invoke(controller.signal);
+        const duration_ms = Number((performance.now() - start_ms).toFixed(1));
+        logger.info(
+          { model: resolved.model, attempt: attempt + 1, duration_ms },
+          'OpenAI call completed'
+        );
+        return result;
+      } catch (err) {
+        attempt++;
+        if (attempt > resolved.retries) {
+          logger.error({ err, attempt }, 'OpenAI call failed after retries');
+          throw err;
+        }
+        logger.warn({ err, attempt }, 'OpenAI call attempt failed, retrying');
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  private static extractText(resp: OpenAI.Responses.Response): string | null {
+    if (!Array.isArray(resp.output)) return null;
+    const parts: string[] = [];
+    for (const item of resp.output) {
+      if (!('content' in item) || !Array.isArray(item.content)) continue;
+      for (const c of item.content) {
+        if (c.type === 'output_text' && typeof c.text === 'string') {
+          parts.push(c.text);
+        }
+      }
+    }
+    return parts.length ? parts.join('') : null;
+  }
+
+  private static toUsage(usage: { input_tokens?: number; output_tokens?: number } | undefined | null): Usage {
+    return {
+      input_tokens: usage?.input_tokens ?? 0,
+      output_tokens: usage?.output_tokens ?? 0,
     };
   }
 }

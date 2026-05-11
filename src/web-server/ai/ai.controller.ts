@@ -1,35 +1,65 @@
 import express from 'express';
-import { logger } from '../../common/logger.js';
+import { z } from 'zod';
 import { AiSvc } from '../../ai_svc/ai_svc.js';
-import { HttpError, BadRequestError } from '../../common/errors.js';
+import { GenAiProviderSchema, GenerateOptionsSchema, MessageSchema } from '../../ai_svc/types/ai_prompt.types.js';
+import { validateRequest } from '../../lib/decorators/validation_decorators.js';
+
+const GenerateRequestSchema = z.object({
+  messages: z.array(MessageSchema).min(1),
+  provider: GenAiProviderSchema.optional(),
+  options: GenerateOptionsSchema.optional(),
+});
+
+const GenerateStructuredRequestSchema = z.object({
+  messages: z.array(MessageSchema).min(1),
+  schema_name: z.string().min(1),
+  provider: GenAiProviderSchema.optional(),
+  options: GenerateOptionsSchema.optional(),
+});
+
+type GenerateRequestBody = z.infer<typeof GenerateRequestSchema>;
+type GenerateStructuredRequestBody = z.infer<typeof GenerateStructuredRequestSchema>;
 
 export class AiController {
 
   private readonly router: express.Router;
-  constructor() {
+  private readonly ai_svc: AiSvc;
+
+  constructor(ai_svc: AiSvc) {
+    this.ai_svc = ai_svc;
     this.router = express.Router();
     this.registerRoutes();
   }
 
-  public getRouter() {
+  public getRouter(): express.Router {
     return this.router;
   }
 
-  private registerRoutes() {
-    this.router.post('/basic-prompt', this.basicPrompt);
+  private registerRoutes(): void {
+    this.router.post('/generate', this.generate.bind(this));
+    this.router.post('/generate-structured', this.generateStructured.bind(this));
   }
 
-  private basicPrompt = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    try {
-      const { prompt, message_history } = req.body;
-      if (!prompt) {
-        throw new BadRequestError('Prompt is required');
-      }
-      const ai_svc = new AiSvc();
-      const resp_text = await ai_svc.sendBasicPrompt(prompt, message_history);
-      res.status(200).json({ response: resp_text });
-    } catch (e) {
-      next(e);
-    }
+  @validateRequest({ body: GenerateRequestSchema })
+  private async generate(req: express.Request, res: express.Response, _next: express.NextFunction): Promise<void> {
+    const body = req.body as GenerateRequestBody;
+    const result = await this.ai_svc.generateText({
+      messages: body.messages,
+      provider: body.provider,
+      options: body.options,
+    });
+    res.status(200).json(result);
+  }
+
+  @validateRequest({ body: GenerateStructuredRequestSchema })
+  private async generateStructured(req: express.Request, res: express.Response, _next: express.NextFunction): Promise<void> {
+    const body = req.body as GenerateStructuredRequestBody;
+    const result = await this.ai_svc.generateStructured({
+      messages: body.messages,
+      schema: { kind: 'registered', name: body.schema_name },
+      provider: body.provider,
+      options: body.options,
+    });
+    res.status(200).json(result);
   }
 }
