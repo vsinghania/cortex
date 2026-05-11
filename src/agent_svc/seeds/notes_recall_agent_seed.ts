@@ -34,7 +34,7 @@ export class NotesRecallAgentSeed {
   static async ensure(): Promise<string> {
     const repo = await MongooseAgentRepository.create();
     const existing = await repo.getById(AGENT_ID);
-    const desired_model = process.env.RAG_ANSWER_MODEL?.trim() || 'gpt-4o-mini';
+    const desired_model = process.env.RAG_ANSWER_MODEL?.trim() || 'gpt-5.4-nano';
 
     if (NotesRecallAgentSeed.matches(existing, desired_model)) {
       logger.debug({ agent_id: AGENT_ID }, 'notes-recall agent seed already up-to-date');

@@ -59,11 +59,11 @@ services:
       AUTH_RATE_LIMIT_MAX: "60"
       BCRYPT_SALT_ROUNDS: "12"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_DEFAULT_MODEL: gpt-4o-mini
+      OPENAI_DEFAULT_MODEL: gpt-5.4-nano
       OPENAI_EMBEDDING_MODEL: text-embedding-3-small
       QDRANT_URL: http://qdrant:6333
       RAG_TOP_K: "8"
-      RAG_ANSWER_MODEL: gpt-4o-mini
+      RAG_ANSWER_MODEL: gpt-5.4-nano
       CHUNK_TARGET_TOKENS: "512"
       CHUNK_OVERLAP_TOKENS: "64"
       MCP_NOTES_HOST: mcp-notes

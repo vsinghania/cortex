@@ -12,7 +12,7 @@ import {
 } from './genai_adapter.js';
 import { GenerateOptions, Usage } from '../types/ai_prompt.types.js';
 
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_MODEL = 'gpt-5.4-nano';
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_RETRIES = 3;
 const DEFAULT_TEMPERATURE = 0.7;

@@ -26,7 +26,7 @@ export class OpenAiAgent extends BaseAgent {
 
   constructor(init: BaseAgentInit) {
     super(init);
-    this.default_model = process.env.OPENAI_DEFAULT_MODEL ?? 'gpt-4o-mini';
+    this.default_model = process.env.OPENAI_DEFAULT_MODEL ?? 'gpt-5.4-nano';
   }
 
   /**
