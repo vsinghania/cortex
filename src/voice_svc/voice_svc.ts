@@ -1,17 +1,16 @@
 import { logger } from '../common/logger.js';
 import { logExecTime } from '../lib/decorators/logging_decorators.js';
-import { OpenAiRealtimeClient } from './lib/openai_realtime_client.js';
+import { DEFAULT_VOICE_PROVIDER, VoiceAdapterRegistry } from './adapters/voice_adapter_registry.js';
+import { McpAttachmentSpec, RealtimeVoiceAdapter } from './adapters/realtime_voice_adapter.js';
 import { VoiceCaptureInstructions } from './prompts/voice_capture_instructions.js';
 import {
   MintTokenRequest,
   MintTokenResponse,
-  RealtimeMcpAttachment,
-  RealtimeSessionConfig,
+  VoiceProvider,
+  VoiceProviderSchema,
 } from './types/voice.types.js';
 import { VoiceSvcInterface } from './voice_svc_interface.js';
 
-const DEFAULT_MODEL = 'gpt-realtime';
-const DEFAULT_VOICE = 'alloy';
 const MCP_SERVER_LABEL = 'cortex-notes';
 const MCP_ALLOWED_TOOLS = ['notes.create', 'notes.update', 'notes.search_semantic'];
 const SLOW_MINT_THRESHOLD_MS = 2000;
@@ -21,22 +20,19 @@ export class VoiceSvc implements VoiceSvcInterface {
   private static instance: VoiceSvc | null = null;
   private static in_flight: Promise<VoiceSvc> | null = null;
 
-  private readonly realtime_client: OpenAiRealtimeClient;
-  private readonly model: string;
-  private readonly voice: string;
+  private readonly registry: VoiceAdapterRegistry;
+  private readonly provider: VoiceProvider;
   private readonly mcp_public_url: string | undefined;
   private readonly mcp_auth_token: string | undefined;
 
   private constructor(opts: {
-    realtime_client: OpenAiRealtimeClient;
-    model: string;
-    voice: string;
+    registry: VoiceAdapterRegistry;
+    provider: VoiceProvider;
     mcp_public_url: string | undefined;
     mcp_auth_token: string | undefined;
   }) {
-    this.realtime_client = opts.realtime_client;
-    this.model = opts.model;
-    this.voice = opts.voice;
+    this.registry = opts.registry;
+    this.provider = opts.provider;
     this.mcp_public_url = opts.mcp_public_url;
     this.mcp_auth_token = opts.mcp_auth_token;
   }
@@ -51,15 +47,14 @@ export class VoiceSvc implements VoiceSvcInterface {
   private static async loadInstance(): Promise<VoiceSvc> {
     try {
       const inst = new VoiceSvc({
-        realtime_client: OpenAiRealtimeClient.create(),
-        model: process.env.OPENAI_REALTIME_MODEL ?? DEFAULT_MODEL,
-        voice: process.env.OPENAI_REALTIME_VOICE ?? DEFAULT_VOICE,
+        registry: VoiceAdapterRegistry.getInstance(),
+        provider: VoiceSvc.resolveProvider(),
         mcp_public_url: process.env.VOICE_MCP_PUBLIC_URL,
         mcp_auth_token: process.env.MCP_NOTES_AUTH_TOKEN,
       });
       VoiceSvc.instance = inst;
       logger.info(
-        { model: inst.model, voice: inst.voice, mcp_attached: Boolean(inst.mcp_public_url) },
+        { provider: inst.provider, mcp_attached: Boolean(inst.mcp_public_url && inst.mcp_auth_token) },
         'VoiceSvc initialized'
       );
       return inst;
@@ -70,59 +65,62 @@ export class VoiceSvc implements VoiceSvcInterface {
 
   @logExecTime({ threshold_in_ms: SLOW_MINT_THRESHOLD_MS })
   public async mintEphemeralToken(req: MintTokenRequest): Promise<MintTokenResponse> {
-    const config = this.buildSessionConfig(req.user_id);
-    const session = await this.realtime_client.createSession(config);
+    const adapter = this.resolveAdapter();
+    const mcp_attachment = this.buildMcpAttachment(req.user_id);
+    const session = await adapter.mintEphemeralSession({
+      user_id: req.user_id,
+      instructions: VoiceCaptureInstructions.build(),
+      mcp_attachment,
+    });
     logger.info(
       {
-        session_id: session.id,
+        provider: this.provider,
+        session_id: session.session_id,
         model: session.model,
-        expires_at: session.client_secret.expires_at,
-        mcp_attached: Boolean(config.tools && config.tools.length > 0),
+        expires_at: session.expires_at,
+        mcp_attached: Boolean(mcp_attachment),
       },
       'voice session minted'
     );
     return {
-      session_id: session.id,
-      client_secret: session.client_secret.value,
-      expires_at: session.client_secret.expires_at,
+      session_id: session.session_id,
+      client_secret: session.client_secret,
+      expires_at: session.expires_at,
       model: session.model,
+      provider: this.provider,
     };
   }
 
-  private buildSessionConfig(user_id: string): RealtimeSessionConfig {
-    const config: RealtimeSessionConfig = {
-      model: this.model,
-      voice: this.voice,
-      instructions: VoiceCaptureInstructions.build(),
-    };
-    const mcp = this.buildMcpAttachment(user_id);
-    if (mcp) {
-      config.tools = [mcp];
-    }
-    return config;
+  private resolveAdapter(): RealtimeVoiceAdapter {
+    return this.registry.getAdapter(this.provider);
   }
 
-  private buildMcpAttachment(user_id: string): RealtimeMcpAttachment | null {
+  private buildMcpAttachment(user_id: string): McpAttachmentSpec | undefined {
     if (!this.mcp_public_url) {
-      logger.warn(
-        'VOICE_MCP_PUBLIC_URL not set; minting voice session without MCP tools'
-      );
-      return null;
+      logger.warn('VOICE_MCP_PUBLIC_URL not set; minting voice session without MCP tools');
+      return undefined;
     }
     if (!this.mcp_auth_token) {
-      logger.warn(
-        'MCP_NOTES_AUTH_TOKEN not set; minting voice session without MCP tools'
-      );
-      return null;
+      logger.warn('MCP_NOTES_AUTH_TOKEN not set; minting voice session without MCP tools');
+      return undefined;
     }
     return {
-      type: 'mcp',
       server_label: MCP_SERVER_LABEL,
       server_url: this.mcp_public_url,
-      authorization: `Bearer ${this.mcp_auth_token}`,
+      bearer_token: this.mcp_auth_token,
       headers: { 'X-User-Id': user_id },
       allowed_tools: MCP_ALLOWED_TOOLS,
       require_approval: 'never',
     };
+  }
+
+  private static resolveProvider(): VoiceProvider {
+    const raw = process.env.VOICE_PROVIDER;
+    if (!raw) return DEFAULT_VOICE_PROVIDER;
+    const parsed = VoiceProviderSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(`Unsupported VOICE_PROVIDER: ${raw}`);
+    }
+    return parsed.data;
   }
 }
