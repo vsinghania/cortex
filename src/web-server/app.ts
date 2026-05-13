@@ -10,6 +10,7 @@ import cookieParser from 'cookie-parser';
 import { AuthController } from './auth/auth.controller.js';
 import { AgentController } from './agent/agent.controller.js';
 import { NotesController } from './notes/notes.controller.js';
+import { McpProxyRouter } from './mcp/mcp_proxy_router.js';
 
 export class App {
 
@@ -21,14 +22,18 @@ export class App {
     // Enable CORS with credentials for refresh cookies
     const origins = process.env.CORS_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean);
     this.app.use(cors({ origin: origins && origins.length ? origins : true, credentials: true }));
-    this.app.use(express.json());
-    this.app.use(cookieParser());
 
     this.app.use(TraceContextMiddleware.establish);
-
     this.app.use(pinoHttp({ logger, autoLogging: true }));
 
     this.app.get('/healthz', (_req, res) => res.send('ok'));
+
+    // MCP proxy routes are registered BEFORE express.json() so the request
+    // body remains a raw stream that can be piped to upstream MCP servers.
+    this.registerMcpProxyRoutes();
+
+    this.app.use(express.json());
+    this.app.use(cookieParser());
 
     this.registerRoutes();
 
@@ -37,6 +42,17 @@ export class App {
 
     logger.info({ cors_origins: origins ?? 'any' }, 'Express app initialized');
     return;
+  }
+
+  private registerMcpProxyRoutes() {
+    const notes_target = process.env.MCP_NOTES_INTERNAL_URL;
+    if (!notes_target) {
+      logger.warn('MCP_NOTES_INTERNAL_URL not set; /mcp/notes proxy is disabled');
+      return;
+    }
+
+    this.app.use('/mcp/notes', McpProxyRouter.build({ name: 'notes', target_url: notes_target }));
+    logger.info({ mounts: ['/mcp/notes'], notes_target }, 'MCP proxy routes mounted');
   }
 
   getApp() {

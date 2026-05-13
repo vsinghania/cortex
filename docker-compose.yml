@@ -70,6 +70,7 @@ services:
       MCP_NOTES_PORT: "3010"
       MCP_NOTES_PATH: /mcp
       MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:-dev_mcp_notes_token_change_me}
+      MCP_NOTES_INTERNAL_URL: http://mcp-notes:3010/mcp
     ports:
       - "3000:3000"
 
