@@ -71,6 +71,9 @@ services:
       MCP_NOTES_PATH: /mcp
       MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:-dev_mcp_notes_token_change_me}
       MCP_NOTES_INTERNAL_URL: http://mcp-notes:3010/mcp
+      OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime}
+      OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-alloy}
+      VOICE_MCP_PUBLIC_URL: ${VOICE_MCP_PUBLIC_URL:-}
     ports:
       - "3000:3000"
 
