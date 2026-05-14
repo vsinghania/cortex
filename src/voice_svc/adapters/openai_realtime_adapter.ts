@@ -28,9 +28,7 @@ type OpenAiMcpAttachment = {
   type: 'mcp';
   server_label: string;
   server_url: string;
-  authorization: string;
   headers: Record<string, string>;
-  allowed_tools: string[];
   require_approval: 'never' | 'always';
 };
 
@@ -106,9 +104,10 @@ export class OpenAiRealtimeAdapter implements RealtimeVoiceAdapter {
       type: 'mcp',
       server_label: spec.server_label,
       server_url: spec.server_url,
-      authorization: `Bearer ${spec.bearer_token}`,
-      headers: spec.headers,
-      allowed_tools: spec.allowed_tools,
+      headers: {
+        Authorization: `Bearer ${spec.bearer_token}`,
+        ...spec.headers,
+      },
       require_approval: spec.require_approval,
     };
   }

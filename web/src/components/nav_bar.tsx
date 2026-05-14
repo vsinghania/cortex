@@ -23,6 +23,7 @@ export function NavBar() {
         <div className="nav-links">
           <Link to="/notes">Notes</Link>
           <Link to="/chat">Chat</Link>
+          <Link to="/voice">Voice</Link>
           <span className="nav-user">{user?.email}</span>
           <button type="button" onClick={handleLogout} className="link-button">
             Logout

@@ -48,12 +48,12 @@ export class App {
   private registerMcpProxyRoutes() {
     const notes_target = process.env.MCP_NOTES_INTERNAL_URL;
     if (!notes_target) {
-      logger.warn('MCP_NOTES_INTERNAL_URL not set; /mcp/notes proxy is disabled');
+      logger.warn('MCP_NOTES_INTERNAL_URL not set; /api/v1/mcp/notes proxy is disabled');
       return;
     }
 
-    this.app.use('/mcp/notes', McpProxyRouter.build({ name: 'notes', target_url: notes_target }));
-    logger.info({ mounts: ['/mcp/notes'], notes_target }, 'MCP proxy routes mounted');
+    this.app.use('/api/v1/mcp/notes', McpProxyRouter.build({ name: 'notes', target_url: notes_target }));
+    logger.info({ mounts: ['/api/v1/mcp/notes'], notes_target }, 'MCP proxy routes mounted');
   }
 
   getApp() {

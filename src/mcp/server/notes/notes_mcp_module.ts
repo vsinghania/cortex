@@ -177,7 +177,7 @@ export class NotesMcpModule extends McpModule {
   private registerSearchSemanticTool(server: McpServer): void {
     this.registerTool(
       server,
-      'notes.search_semantic',
+      'notes_search_semantic',
       {
         title: 'Semantic Search Notes',
         description:
@@ -205,7 +205,7 @@ export class NotesMcpModule extends McpModule {
   private registerListTool(server: McpServer): void {
     this.registerTool(
       server,
-      'notes.list',
+      'notes_list',
       {
         title: 'List Notes',
         description: 'List notes for a user with optional text query, pagination.',
@@ -227,7 +227,7 @@ export class NotesMcpModule extends McpModule {
   private registerGetTool(server: McpServer): void {
     this.registerTool(
       server,
-      'notes.get',
+      'notes_get',
       {
         title: 'Get Note',
         description: 'Get a note by locator: { id } or { source, external_id }, scoped to the authenticated user.',
@@ -249,7 +249,7 @@ export class NotesMcpModule extends McpModule {
   private registerCreateTool(server: McpServer): void {
     this.registerTool(
       server,
-      'notes.create',
+      'notes_create',
       {
         title: 'Create Note',
         description:
@@ -270,7 +270,7 @@ export class NotesMcpModule extends McpModule {
   private registerUpdateTool(server: McpServer): void {
     this.registerTool(
       server,
-      'notes.update',
+      'notes_update',
       {
         title: 'Update Note (partial)',
         description: 'Update a note by locator with a partial patch.',
@@ -292,7 +292,7 @@ export class NotesMcpModule extends McpModule {
   private registerDeleteTool(server: McpServer): void {
     this.registerTool(
       server,
-      'notes.delete',
+      'notes_delete',
       {
         title: 'Delete Note',
         description: 'Delete a note by locator.',
@@ -311,7 +311,7 @@ export class NotesMcpModule extends McpModule {
   private registerSearchTool(server: McpServer): void {
     this.registerTool(
       server,
-      'notes.search',
+      'notes_search',
       {
         title: 'Search Notes',
         description: 'Full-text search across title/body for the authenticated user.',

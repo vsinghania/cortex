@@ -5,7 +5,6 @@ export type McpAttachmentSpec = {
   server_url: string;
   bearer_token: string;
   headers: Record<string, string>;
-  allowed_tools: string[];
   require_approval: 'never' | 'always';
 };
 

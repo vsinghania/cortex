@@ -12,7 +12,6 @@ import {
 import { VoiceSvcInterface } from './voice_svc_interface.js';
 
 const MCP_SERVER_LABEL = 'cortex-notes';
-const MCP_ALLOWED_TOOLS = ['notes.create', 'notes.update', 'notes.search_semantic'];
 const SLOW_MINT_THRESHOLD_MS = 2000;
 
 export class VoiceSvc implements VoiceSvcInterface {
@@ -109,7 +108,6 @@ export class VoiceSvc implements VoiceSvcInterface {
       server_url: this.mcp_public_url,
       bearer_token: this.mcp_auth_token,
       headers: { 'X-User-Id': user_id },
-      allowed_tools: MCP_ALLOWED_TOOLS,
       require_approval: 'never',
     };
   }

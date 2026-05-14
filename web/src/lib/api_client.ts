@@ -7,6 +7,7 @@ import type {
   NotePatchBody,
 } from './note.types';
 import type { AgentRunRequest, AgentRunResponse, Conversation, ConversationWithMessages } from './agent.types';
+import type { MintTokenResponse } from './voice.types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
 
@@ -204,5 +205,9 @@ export class ApiClient {
 
   static async getConversation(conversation_id: string): Promise<ConversationWithMessages> {
     return ApiClient.request<ConversationWithMessages>(`/agent/conversations/${encodeURIComponent(conversation_id)}`);
+  }
+
+  static async mintVoiceToken(): Promise<MintTokenResponse> {
+    return ApiClient.request<MintTokenResponse>('/voice/session', { method: 'POST' });
   }
 }
