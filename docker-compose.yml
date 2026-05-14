@@ -33,7 +33,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: cortex:dev
-    command: ["node", "dist/web-server/server.js"]
+    command: ["node", "--enable-source-maps", "dist/web-server/server.js"]
     restart: unless-stopped
     depends_on:
       mongodb:
@@ -83,7 +83,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: cortex:dev
-    command: ["node", "dist/mcp/server/notes/server.js"]
+    command: ["node", "--enable-source-maps", "dist/mcp/server/notes/server.js"]
     restart: unless-stopped
     depends_on:
       mongodb:
