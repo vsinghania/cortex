@@ -8,6 +8,7 @@ import type { RawRetrievedChunk, RetrievedChunk, RetrieveParams } from '../retri
 import { Corpus } from '../retrieval_svc/types/retrieval.types.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 import { Id } from '../lib/id.js';
+import { Time } from '../lib/time.js';
 import { logger } from '../common/logger.js';
 
 export type NoteListParams = RepoListParams;
@@ -70,14 +71,26 @@ export class NotesSvc {
   }
 
   async createNote(input: NoteCreateInput): Promise<Note> {
+    const start_ms = performance.now();
     const note = NotesSvc.isSourceKeyedInput(input)
       ? await this.upsertSourceKeyed(input)
       : await this.createNative(input);
     await this.vectorizeSafely(note);
+    logger.info(
+      {
+        note_id: note.id,
+        source: note.source,
+        title_chars: note.title.length,
+        body_chars: note.body.length,
+        duration_ms: Time.elapsedMs(start_ms)
+      },
+      'note created'
+    );
     return note;
   }
 
   async updateNote(user_id: string, locator: NoteLocator, patch: NotePatch): Promise<Note | null> {
+    const start_ms = performance.now();
     const updated = 'id' in locator
       ? await this.notes_repo.updateNoteById({ user_id, id: locator.id, patch })
       : await this.notes_repo.updateNoteByKey({
@@ -86,13 +99,27 @@ export class NotesSvc {
           external_id: locator.external_id,
           patch
         });
-    if (updated && NotesSvc.patchTouchesBody(patch)) {
+    const revectorized = !!updated && NotesSvc.patchTouchesBody(patch);
+    if (updated && revectorized) {
       await this.vectorizeSafely(updated);
+    }
+    if (updated) {
+      logger.info(
+        {
+          note_id: updated.id,
+          revectorized,
+          duration_ms: Time.elapsedMs(start_ms)
+        },
+        'note updated'
+      );
+    } else {
+      logger.warn({ reason: 'not_found' }, 'note update missed');
     }
     return updated;
   }
 
   async deleteNote(user_id: string, locator: NoteLocator): Promise<boolean> {
+    const start_ms = performance.now();
     const target = await this.getNote(user_id, locator);
     const deleted = 'id' in locator
       ? await this.notes_repo.deleteNoteById({ user_id, id: locator.id })
@@ -104,18 +131,52 @@ export class NotesSvc {
     if (deleted && target) {
       await this.removeVectorsSafely(user_id, target.id);
     }
+    if (deleted) {
+      logger.info(
+        {
+          note_id: target?.id,
+          vectors_removed: !!target,
+          duration_ms: Time.elapsedMs(start_ms)
+        },
+        'note deleted'
+      );
+    } else {
+      logger.warn({ reason: 'not_found' }, 'note delete missed');
+    }
     return deleted;
   }
 
   async searchNotes(params: { user_id: string; query: string; limit?: number; offset?: number }): Promise<NoteListResult> {
-    return this.notes_repo.searchNotes(params);
+    const start_ms = performance.now();
+    const result = await this.notes_repo.searchNotes(params);
+    logger.info(
+      {
+        query_chars: params.query.length,
+        result_count: result.items.length,
+        limit: params.limit,
+        offset: params.offset,
+        duration_ms: Time.elapsedMs(start_ms)
+      },
+      'notes searched'
+    );
+    return result;
   }
 
   async retrieveChunks(params: RetrieveParams): Promise<RetrievedChunk[]> {
+    const start_ms = performance.now();
     const retrieval = await RetrievalSvc.getInstance();
     const raw = await retrieval.retrieve(Corpus.Notes, params);
-    if (raw.length === 0) return [];
-    return this.decorateWithNoteTitles(params.user_id, raw);
+    const chunks = raw.length === 0 ? [] : await this.decorateWithNoteTitles(params.user_id, raw);
+    logger.info(
+      {
+        question_chars: params.question.length,
+        top_k: params.top_k,
+        chunk_count: chunks.length,
+        duration_ms: Time.elapsedMs(start_ms)
+      },
+      'chunks retrieved'
+    );
+    return chunks;
   }
 
   async revectorizeNote(params: { user_id: string; note_id: string }): Promise<NoteVectorization | null> {

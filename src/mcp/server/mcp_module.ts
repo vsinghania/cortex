@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { performance } from 'node:perf_hooks';
 import { logger } from '../../common/logger.js';
+import { Time } from '../../lib/time.js';
 
 export abstract class McpModule {
   public async register(server: McpServer): Promise<void> {
@@ -40,7 +41,7 @@ export abstract class McpModule {
             module: module_name,
             tool: name,
             ok: true,
-            duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+            duration_ms: Time.elapsedMs(start_ms),
           },
           'MCP tool invoked'
         );
@@ -52,7 +53,7 @@ export abstract class McpModule {
             tool: name,
             ok: false,
             err,
-            duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+            duration_ms: Time.elapsedMs(start_ms),
           },
           'MCP tool failed'
         );

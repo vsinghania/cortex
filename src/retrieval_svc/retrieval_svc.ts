@@ -5,6 +5,7 @@ import { Corpus } from './types/retrieval.types.js';
 import { NotesCorpusRetriever } from './corpora/notes_corpus_retriever.js';
 import { NotFoundError } from '../common/errors.js';
 import { logger } from '../common/logger.js';
+import { Time } from '../lib/time.js';
 
 export class RetrievalSvc implements RetrievalSvcInterface {
   private static instance: RetrievalSvc | null = null;
@@ -41,17 +42,38 @@ export class RetrievalSvc implements RetrievalSvcInterface {
   }
 
   async retrieve(corpus: Corpus, params: RetrieveParams): Promise<RawRetrievedChunk[]> {
+    const start_ms = performance.now();
     const retriever = this.retrievers.get(corpus);
     if (!retriever) {
       throw new NotFoundError(`No retriever registered for corpus: ${corpus}`);
     }
-    return retriever.retrieve(params);
+    const result = await retriever.retrieve(params);
+    logger.info(
+      {
+        corpus,
+        top_k: params.top_k,
+        result_count: result.length,
+        duration_ms: Time.elapsedMs(start_ms)
+      },
+      'corpus retrieved'
+    );
+    return result;
   }
 
   async retrieveAcross(corpora: Corpus[], params: RetrieveParams): Promise<RawRetrievedChunk[]> {
     if (corpora.length === 0) return [];
+    const start_ms = performance.now();
     const results = await Promise.all(corpora.map((c) => this.retrieve(c, params)));
-    return results.flat().sort((a, b) => b.score - a.score);
+    const merged = results.flat().sort((a, b) => b.score - a.score);
+    logger.info(
+      {
+        corpus_count: corpora.length,
+        result_count: merged.length,
+        duration_ms: Time.elapsedMs(start_ms)
+      },
+      'multi-corpus retrieved'
+    );
+    return merged;
   }
 
   listCorpora(): Corpus[] {

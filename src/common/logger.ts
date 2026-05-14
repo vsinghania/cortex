@@ -3,7 +3,7 @@ import { TraceContext } from "./trace_context.js";
 
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
-  redact: { paths: ["password", "req.headers.authorization"], remove: true },
+  redact: { paths: ["password", "req.headers.authorization"], censor: "[REDACTED]" },
   mixin() {
     const store = TraceContext.get();
     if (!store) return {};

@@ -11,6 +11,7 @@ import { EmbeddingsSvc } from '../embeddings_svc/embeddings_svc.js';
 import { MarkdownChunker, type ChunkSpec } from '../lib/text/markdown_chunker.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 import { Id } from '../lib/id.js';
+import { Time } from '../lib/time.js';
 import { logger } from '../common/logger.js';
 import { logExecTime } from '../lib/decorators/logging_decorators.js';
 
@@ -147,7 +148,7 @@ export class NotesVectorizationSvc {
           embedded_count: new_chunks.length,
           obsolete_count: obsolete.length,
           model,
-          duration_ms: Number((performance.now() - start_ms).toFixed(1))
+          duration_ms: Time.elapsedMs(start_ms)
         },
         'note vectorized'
       );

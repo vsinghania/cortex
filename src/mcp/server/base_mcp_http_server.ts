@@ -4,7 +4,7 @@ import type { Server } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { hostHeaderValidation, localhostHostValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { pinoHttp } from 'pino-http';
+import { HttpLoggerMiddleware } from '../../common/middlewares/http_logger_middleware.js';
 import { logger } from '../../common/logger.js';
 import { TraceContext } from '../../common/trace_context.js';
 import { Id } from '../../lib/id.js';
@@ -85,7 +85,7 @@ export abstract class BaseMcpHttpServer {
     app.use(express.json());
     this.configureHostValidation(app, cfg);
     app.use(this.establishTraceContext.bind(this));
-    app.use(pinoHttp({ logger, autoLogging: true }));
+    app.use(HttpLoggerMiddleware.build(logger));
   }
 
   private establishTraceContext(req: Request, _res: Response, next: express.NextFunction): void {

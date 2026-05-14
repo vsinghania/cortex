@@ -15,6 +15,7 @@ import type {
 import type { Message } from '../../types/message.types.js';
 import { OpenAiSdkUtils } from './openai_sdk_utils.js';
 import { logExecTime } from '../../../lib/decorators/logging_decorators.js';
+import { Time } from '../../../lib/time.js';
 import { McpServerMode } from '../../types/mcp_server.types.js';
 import { performance } from 'node:perf_hooks';
 
@@ -112,7 +113,7 @@ export class OpenAiAgent extends BaseAgent {
           model: response.model,
           message_count: response.message_history.length,
           stop_reason: response.stop_reason,
-          duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+          duration_ms: Time.elapsedMs(start_ms),
         },
         'OpenAiAgent.run completed'
       );
@@ -123,7 +124,7 @@ export class OpenAiAgent extends BaseAgent {
           {
             agent_id: this.manifest.agent_id,
             err: err.message,
-            duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+            duration_ms: Time.elapsedMs(start_ms),
           },
           'Agent run hit max turns'
         );
@@ -133,7 +134,7 @@ export class OpenAiAgent extends BaseAgent {
         {
           agent_id: this.manifest.agent_id,
           err,
-          duration_ms: Number((performance.now() - start_ms).toFixed(1)),
+          duration_ms: Time.elapsedMs(start_ms),
         },
         'Agent run failed'
       );

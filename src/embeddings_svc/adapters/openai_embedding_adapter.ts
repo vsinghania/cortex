@@ -4,6 +4,7 @@ import type { EmbeddingAdapter } from './embedding_adapter.js';
 import type { EmbedQueryResult, EmbedTextsResult } from '../types/embedding.types.js';
 import { logger } from '../../common/logger.js';
 import { logExecTime } from '../../lib/decorators/logging_decorators.js';
+import { Time } from '../../lib/time.js';
 
 const DEFAULT_MODEL = 'text-embedding-3-small';
 const DEFAULT_DIMENSIONS = 1536;
@@ -46,7 +47,7 @@ export class OpenAiEmbeddingAdapter implements EmbeddingAdapter {
     for (const batch of batches) {
       const start_ms = performance.now();
       const resp = await this.embedBatchWithRetry(batch);
-      const duration_ms = Number((performance.now() - start_ms).toFixed(1));
+      const duration_ms = Time.elapsedMs(start_ms);
 
       for (const item of resp.data) {
         vectors[cursor + item.index] = item.embedding;

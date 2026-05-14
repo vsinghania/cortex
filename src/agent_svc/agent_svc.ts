@@ -28,6 +28,7 @@ import { AgentIdGenerator } from './agent_id_generator.js';
 import type { BaseAgent } from './agents/base_agent.js';
 import { logger } from '../common/logger.js';
 import { logExecTime } from '../lib/decorators/logging_decorators.js';
+import { Time } from '../lib/time.js';
 import { performance } from 'node:perf_hooks';
 
 export class AgentSvc implements AgentSvcInterface {
@@ -146,7 +147,7 @@ export class AgentSvc implements AgentSvcInterface {
 
     const start_ms = performance.now();
     const response = await agent.run(req);
-    const duration_ms = Number((performance.now() - start_ms).toFixed(1));
+    const duration_ms = Time.elapsedMs(start_ms);
 
     await this.persistTurn(agent, req, response);
     await title_promise;
@@ -172,9 +173,22 @@ export class AgentSvc implements AgentSvcInterface {
    * the registry. Used by tests/scripts. Does NOT persist conversation.
    */
   async runAdHoc(input: RunAdHocInput): Promise<AgentRunResponse> {
+    const start_ms = performance.now();
     const agent = AgentFactory.forManifest({ manifest: input.manifest, tools: input.tools });
     agent.compile();
-    return agent.run(input.request);
+    const response = await agent.run(input.request);
+    logger.info(
+      {
+        agent_name: input.manifest.name,
+        model: response.model,
+        message_count: response.message_history.length,
+        usage: response.usage,
+        stop_reason: response.stop_reason,
+        duration_ms: Time.elapsedMs(start_ms),
+      },
+      'ad-hoc agent run completed'
+    );
+    return response;
   }
 
   async listConversations(input: ListConversationsInput): Promise<Conversation[]> {

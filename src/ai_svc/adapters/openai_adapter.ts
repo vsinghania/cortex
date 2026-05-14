@@ -3,6 +3,7 @@ import { zodTextFormat } from 'openai/helpers/zod';
 import { performance } from 'node:perf_hooks';
 import { logger } from '../../common/logger.js';
 import { logExecTime } from '../../lib/decorators/logging_decorators.js';
+import { Time } from '../../lib/time.js';
 import {
   AdapterStructuredRequest,
   AdapterStructuredResponse,
@@ -169,7 +170,7 @@ export class OpenAiAdapter implements GenAiAdapter {
       const timer = setTimeout(() => controller.abort(), resolved.timeout_ms);
       try {
         const result = await invoke(controller.signal);
-        const duration_ms = Number((performance.now() - start_ms).toFixed(1));
+        const duration_ms = Time.elapsedMs(start_ms);
         logger.info(
           { model: resolved.model, attempt: attempt + 1, duration_ms },
           'OpenAI call completed'

@@ -15,6 +15,7 @@ import { EmbeddingsSvc } from '../../embeddings_svc/embeddings_svc.js';
 import { DbNameResolver } from '../../db/mongo/db_name_resolver.js';
 import { logger } from '../../common/logger.js';
 import { logExecTime } from '../../lib/decorators/logging_decorators.js';
+import { Time } from '../../lib/time.js';
 
 const DEFAULT_TOP_K = 8;
 const MAX_TOP_K = 20;
@@ -62,7 +63,7 @@ export class NotesCorpusRetriever implements CorpusRetriever {
           top_k,
           source_filter,
           embedding_model: query_result.model,
-          duration_ms: Number((performance.now() - start_ms).toFixed(1))
+          duration_ms: Time.elapsedMs(start_ms)
         },
         'notes corpus retrieval returned no hits'
       );
@@ -82,7 +83,7 @@ export class NotesCorpusRetriever implements CorpusRetriever {
         top_k,
         hit_count: out.length,
         embedding_model: query_result.model,
-        duration_ms: Number((performance.now() - start_ms).toFixed(1))
+        duration_ms: Time.elapsedMs(start_ms)
       },
       'notes corpus retrieval completed'
     );

@@ -1,8 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import {pinoHttp} from 'pino-http';
 import { ErrorHandlerMiddleware } from '../common/middlewares/error_handler.js'
 import { TraceContextMiddleware } from '../common/middlewares/trace_context_middleware.js';
+import { HttpLoggerMiddleware } from '../common/middlewares/http_logger_middleware.js';
 import { logger } from '../common/logger.js';
 import { AiController } from './ai/ai.controller.js';
 import { HealthController } from './health/health.controller.js';
@@ -25,7 +25,7 @@ export class App {
     this.app.use(cors({ origin: origins && origins.length ? origins : true, credentials: true }));
 
     this.app.use(TraceContextMiddleware.establish);
-    this.app.use(pinoHttp({ logger, autoLogging: true }));
+    this.app.use(HttpLoggerMiddleware.build(logger));
 
     this.app.get('/healthz', (_req, res) => res.send('ok'));
 

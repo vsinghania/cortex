@@ -18,6 +18,8 @@ import { TokenUtils } from './utils/token_utils.js';
 import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from '../common/errors.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 import { Id } from '../lib/id.js';
+import { Time } from '../lib/time.js';
+import { logger } from '../common/logger.js';
 
 const USER_DB = DbNameResolver.resolve('user');
 const AUTH_DB = DbNameResolver.resolve('auth');
@@ -45,9 +47,11 @@ export class AuthSvc implements AuthSvcInterface {
   }
 
   async register(input: RegisterInput, ctx?: AuthContext): Promise<AuthResult> {
+    const start_ms = performance.now();
     const user_repo = this.user_repo;
     const existing = await user_repo.findByEmail(input.email);
     if (existing) {
+      logger.warn({ reason: 'email_taken' }, 'user registration rejected');
       throw new ConflictError('Email already registered');
     }
 
@@ -73,6 +77,15 @@ export class AuthSvc implements AuthSvcInterface {
       expires_at
     });
 
+    logger.info(
+      {
+        user_id: created.user_id,
+        role_count: created.roles.length,
+        duration_ms: Time.elapsedMs(start_ms)
+      },
+      'user registered'
+    );
+
     return {
       user: AuthSvc.redactUser(created),
       tokens: {
@@ -85,14 +98,17 @@ export class AuthSvc implements AuthSvcInterface {
   }
 
   async login(input: LoginInput, ctx?: AuthContext): Promise<AuthResult> {
+    const start_ms = performance.now();
     const user_repo = this.user_repo;
     const user = await user_repo.findByEmail(input.email);
     if (!user) {
+      logger.warn({ reason: 'user_not_found' }, 'login rejected');
       throw new UnauthorizedError('Invalid credentials');
     }
 
     const valid = await PasswordUtils.verifyPassword(input.password, user.password_hash);
     if (!valid) {
+      logger.warn({ reason: 'bad_password', user_id: user.user_id }, 'login rejected');
       throw new UnauthorizedError('Invalid credentials');
     }
 
@@ -109,6 +125,11 @@ export class AuthSvc implements AuthSvcInterface {
       ip: ctx?.ip ?? null,
       expires_at
     });
+
+    logger.info(
+      { user_id: user.user_id, duration_ms: Time.elapsedMs(start_ms) },
+      'user logged in'
+    );
 
     return {
       user: AuthSvc.redactUser(user),
@@ -130,14 +151,17 @@ export class AuthSvc implements AuthSvcInterface {
     const rt_repo = this.rt_repo;
     const session = await rt_repo.findByTokenHash(token_hash);
     if (!session) {
+      logger.warn({ reason: 'session_not_found' }, 'refresh rejected');
       throw new UnauthorizedError('Invalid refresh token');
     }
     if (session.revoked_at) {
+      logger.warn({ reason: 'session_revoked', user_id: session.user_id }, 'refresh rejected');
       throw new UnauthorizedError('Refresh token revoked');
     }
     if (session.expires_at.getTime() <= Date.now()) {
       // prune or mark as revoked for hygiene (best effort)
       await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+      logger.warn({ reason: 'session_expired', user_id: session.user_id }, 'refresh rejected');
       throw new UnauthorizedError('Refresh token expired');
     }
 
@@ -147,6 +171,7 @@ export class AuthSvc implements AuthSvcInterface {
     if (!user) {
       // Revoke session if user missing
       await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+      logger.warn({ reason: 'user_missing', user_id: session.user_id }, 'refresh rejected');
       throw new NotFoundError('User not found for refresh token');
     }
 
@@ -160,6 +185,7 @@ export class AuthSvc implements AuthSvcInterface {
       new_expires_at: new_expires
     });
     if (!rotated) {
+      logger.warn({ reason: 'rotation_failed', user_id: user.user_id }, 'refresh rejected');
       throw new UnauthorizedError('Refresh token rotation failed');
     }
 
@@ -184,6 +210,7 @@ export class AuthSvc implements AuthSvcInterface {
     const token_hash = TokenUtils.sha256Base64Url(refresh_token);
     const rt_repo = this.rt_repo;
     await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+    logger.info({}, 'user logged out');
     return { success: true };
   }
 
