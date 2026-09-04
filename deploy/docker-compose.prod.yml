@@ -14,6 +14,12 @@ services:
     logging: *default_logging
     volumes:
       - mongodb_data:/data/db
+    # Published on the instance's loopback ONLY, for remote access via an SSM
+    # port-forward (see deploy/aws.md "Connecting to the prod database"). Mongo
+    # runs without auth, so 0.0.0.0 here or a port 27017 rule in cortex-ec2-sg
+    # would put the whole database on the public internet. Never do either.
+    ports:
+    - "127.0.0.1:27017:27017"
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 10s

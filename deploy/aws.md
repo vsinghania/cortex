@@ -37,6 +37,12 @@ docker buildx build --platform linux/amd64 -t "$ECR_IMAGE:$(git rev-parse --shor
 npm --prefix web run build
 aws s3 sync web/dist "s3://$SPA_BUCKET" --delete
 aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths '/*'
+
+# Connect to the prod database (tunnel 27017 to localhost:27018)
+aws ssm start-session --target "$INSTANCE_ID" \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["27017"],"localPortNumber":["27018"]}'
+#   then point Compass / mongosh at mongodb://localhost:27018
 ```
 
 The helper only resolves values — it runs none of the operations above, which stay
@@ -228,12 +234,37 @@ the env-layering docs for the full secret-vs-fact split.
 | --- | --- | --- |
 | `web-server` | `0.0.0.0:3000` (ALB target) | — |
 | `mcp-notes` | `127.0.0.1:3010` (loopback only) | `mcp-notes:3010` |
-| `mongodb` | none | `mongodb:27017` |
+| `mongodb` | `127.0.0.1:27017` (loopback only) | `mongodb:27017` |
 | `qdrant` | none | `qdrant:6333` |
 
 Data lives in Docker named volumes (`mongodb_data`, `qdrant_data`) on the root
 volume. **There is no backup** — see the durability gap in
 [README.md](README.md#known-gaps-phase-1-backlog).
+
+### Connecting to the prod database
+
+MongoDB publishes `27017` on the **instance loopback only** — it is not on the ALB,
+not in `cortex-ec2-sg`, and never bound to `0.0.0.0`. Reach it from your laptop with
+an SSM port-forward (the command is in the cheat sheet at the top):
+
+```sh
+aws ssm start-session --target "$INSTANCE_ID" \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["27017"],"localPortNumber":["27018"]}'
+# Compass / mongosh: mongodb://localhost:27018
+```
+
+Two things to keep in mind, both consequences of the current setup rather than of
+the tunnel:
+
+- **Mongo runs without auth**, so your AWS/SSM permission to the instance is the
+  entire perimeter around the database — there are no DB credentials. This is why
+  the loopback bind and the "no 0.0.0.0, no SG rule" rule above are load-bearing,
+  not optional. Tracked as a hardening item in
+  [README.md](README.md#known-gaps-phase-1-backlog).
+- **You are connected to live prod data with full write access.** A stray
+  destructive command in a GUI hits production. Until Mongo has auth (and thus a
+  read-only role), care is the only guardrail.
 
 ## 10. Route 53 / DNS
 
@@ -272,9 +303,11 @@ What is and isn't exposed, in one place:
   `MCP_NOTES_AUTH_TOKEN` with the tenant chosen by an `X-User-Id` header. Treat that
   token as the entire perimeter around every user's notes — see
   [../docs/mcp.md](../docs/mcp.md) §2 and [../docs/voice.md](../docs/voice.md) §4.
-- **Private:** `mcp-notes` (loopback host bind), MongoDB and Qdrant (unpublished,
-  Docker-network only, and currently without their own auth — a defense-in-depth
-  gap noted in the backlog).
+- **Private:** `mcp-notes` and MongoDB are published on the instance **loopback
+  only** (`127.0.0.1`, reached via SSM port-forward, never in the SG); Qdrant is
+  unpublished (Docker-network only). None has its own auth — a defense-in-depth gap
+  noted in the backlog, and the reason Mongo's loopback bind must never become
+  `0.0.0.0`. DB access flow: § "Connecting to the prod database".
 - **No SSH.** SSM only; the inspector ports are never opened in the SG.
 - **Secrets** are plaintext in the box's `.env` (Phase 2 → Secrets Manager). That
   file is the only copy — losing the instance loses it. Keep a copy somewhere safe.
