@@ -10,6 +10,7 @@ Thumbs.db
 
 # Environment config for testing.
 environments/Testing.yml
+environments/Reverse Tunnel - Dev.yml
 
 # Playground folder for testing.
 playground/
