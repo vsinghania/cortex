@@ -2,6 +2,7 @@
 
 Compose stacks and manifests for running Cortex outside local dev.
 
+- [aws.md](aws.md) — the current Phase 1 AWS deployment: architecture, access, and the build/push/deploy flow.
 - [docker-compose.prod.yml](docker-compose.prod.yml) — the production stack (web-server, mcp-notes, mongodb, qdrant) that runs on the EC2 instance.
 - [docker-compose.debug.yml](docker-compose.debug.yml) — overlay that adds a Node inspector; never run on its own.
 - [k8s/](k8s/) and [kind/](kind/) — Kubernetes manifests and a local kind cluster (Phase 3+, not the current deployment).
