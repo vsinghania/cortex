@@ -36,6 +36,7 @@ Note the contrast with the chat agent: same tools, but a spoken-output prompt th
 
 ## 4. Gotchas
 
+- **Setting `VOICE_MCP_PUBLIC_URL` puts the notes MCP on the public internet.** OpenAI hosts the MCP client, so the proxy route has to be reachable from anywhere — in production `https://api.cortexapp.me/api/v1/mcp/notes`. Express does not authenticate that route; the only credential is `MCP_NOTES_AUTH_TOKEN`, and the tenant is whatever `X-User-Id` the caller sends. Anyone holding the token can therefore read or write **any** user's notes by changing one header — see [mcp.md §2](mcp.md#2-trust-model). Treat it as a production secret, and rotate it if it has ever appeared in a tunnel URL, a browser devtools session or a shared shell history.
 - **A missing `VOICE_MCP_PUBLIC_URL` or `MCP_NOTES_AUTH_TOKEN` still mints a session — without tools.** The model talks but can neither read nor save notes. This is the first thing to check when voice "works" but nothing is captured; the `voice session minted` log line reports `mcp_attached`.
 - **`require_approval: 'never'`** is set on the attachment, so tool calls are not gated. The safety boundary is the pinned `X-User-Id`, not user confirmation.
 - **`stop()` must run** on the client — a leaked mic track keeps the browser's recording indicator on.
