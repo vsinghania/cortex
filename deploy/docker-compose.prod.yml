@@ -36,7 +36,7 @@ services:
 
   web-server:
     image: ${CORTEX_IMAGE:?CORTEX_IMAGE is required}
-    command: ["node", "--inspect=0.0.0.0:9229", "--enable-source-maps", "dist/web-server/server.js"]
+    command: ["node", "--enable-source-maps", "dist/web-server/server.js"]
     restart: unless-stopped
     logging: *default_logging
 
@@ -95,11 +95,10 @@ services:
 
     ports:
     - "3000:3000"
-    - "127.0.0.1:9229:9229"
 
   mcp-notes:
     image: ${CORTEX_IMAGE:?CORTEX_IMAGE is required}
-    command: ["node", "--inspect=0.0.0.0:9229", "--enable-source-maps", "dist/mcp/server/notes/server.js"]
+    command: ["node", "--enable-source-maps", "dist/mcp/server/notes/server.js"]
     restart: unless-stopped
     logging: *default_logging
 
@@ -130,7 +129,6 @@ services:
     # group would then be the only thing keeping mcp-notes off the internet.
     ports:
     - "127.0.0.1:3010:3010"
-    - "127.0.0.1:9230:9229"
 
 volumes:
   mongodb_data:

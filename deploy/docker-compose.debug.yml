@@ -1,0 +1,30 @@
+# Debug overlay — brought up ONLY when attaching a Node inspector.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.debug.yml up -d
+#
+# Merges on top of docker-compose.prod.yml: everything else (image, command,
+# env, volumes, healthchecks, depends_on) still comes from that file. This
+# holds only the two things that differ when debugging — the inspector flag and
+# the host port that exposes it.
+#
+# NODE_OPTIONS is used instead of editing `command` so nothing here duplicates
+# the prod command string; environment keys merge by key, so these are added,
+# not replaced.
+#
+# Both inspectors bind 0.0.0.0:9229 INSIDE their container (Docker's published
+# port DNATs to the container's eth0, which a loopback bind would miss). Public
+# exposure is prevented on the host side: each publish is 127.0.0.1-only, so the
+# port lives on the EC2 loopback and is reached with an SSM port-forward.
+# Do NOT add 9229/9230 to the EC2 security group.
+services:
+  web-server:
+    environment:
+      NODE_OPTIONS: --inspect=0.0.0.0:9229
+    ports:
+      - "127.0.0.1:9229:9229"
+
+  mcp-notes:
+    environment:
+      NODE_OPTIONS: --inspect=0.0.0.0:9229
+    ports:
+      - "127.0.0.1:9230:9229"
