@@ -90,9 +90,11 @@ Two rules the whole design enforces:
 - **Cert:** ACM in **us-east-1** (CloudFront only reads certs from that region).
 - Default root object `index.html`; SPA fallback returns `index.html` for
   client-side routes.
-- `VITE_API_BASE_URL` is **baked into the bundle at build time** (see
-  [web/.env](../web/.env) and `docs/` on env layering) — changing the API URL means
-  a rebuild and re-upload, not a config change.
+- `VITE_API_BASE_URL` is **baked into the bundle at build time**, selected by Vite
+  mode: `vite build` reads the committed [web/.env.production](../web/.env.production)
+  (the prod API), while `npm run dev` reads [web/.env.development](../web/.env.development)
+  (localhost). Nothing is hand-edited per build; changing the prod API URL means
+  editing `.env.production` and rebuilding, not a runtime config change.
 
 ## 3. Backend — API on the ALB
 

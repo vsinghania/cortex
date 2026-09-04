@@ -48,6 +48,10 @@ blob-report/
 .env
 .env.*
 !.env.example
+# Frontend build-time config is not secret (it ships in the public bundle), so
+# its per-mode files are committed; personal overrides go in web/.env.local (ignored).
+!web/.env.development
+!web/.env.production
 .envrc
 
 # Deploy config (account-specific values; template is committed)
