@@ -20,6 +20,8 @@ export class App {
   constructor() {}
 
   initApp() {
+    const trusted_proxy_hops = this.configureProxyTrust();
+
     // Enable CORS with credentials for refresh cookies
     const origins = process.env.CORS_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean);
     this.app.use(cors({ origin: origins && origins.length ? origins : true, credentials: true }));
@@ -41,8 +43,19 @@ export class App {
     this.app.use(ErrorHandlerMiddleware.notFoundHandler);
     this.app.use(ErrorHandlerMiddleware.errorHandler);
 
-    logger.info({ cors_origins: origins ?? 'any' }, 'Express app initialized');
+    logger.info({ cors_origins: origins ?? 'any', trusted_proxy_hops }, 'Express app initialized');
     return;
+  }
+
+  // Behind a load balancer the real client IP only exists in X-Forwarded-For.
+  // Without a hop count Express reports the balancer's address as req.ip for
+  // every request, collapsing the per-IP auth rate limiter into one shared
+  // bucket. A count rather than `true` keeps the header unspoofable.
+  private configureProxyTrust(): number {
+    const configured_hops = Number(process.env.TRUST_PROXY_HOPS);
+    const trusted_hops = Number.isInteger(configured_hops) && configured_hops >= 0 ? configured_hops : 0;
+    this.app.set('trust proxy', trusted_hops);
+    return trusted_hops;
   }
 
   private registerMcpProxyRoutes() {
