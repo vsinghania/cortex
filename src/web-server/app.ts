@@ -24,7 +24,11 @@ export class App {
 
     // Enable CORS with credentials for refresh cookies
     const origins = process.env.CORS_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean);
-    this.app.use(cors({ origin: origins && origins.length ? origins : true, credentials: true }));
+    this.app.use(cors({
+      origin: origins && origins.length ? origins : true,
+      credentials: true,
+      exposedHeaders: [TraceContextMiddleware.trace_id_header],
+    }));
 
     this.app.use(TraceContextMiddleware.establish);
     this.app.use(HttpLoggerMiddleware.build(logger));
