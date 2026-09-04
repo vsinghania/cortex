@@ -50,6 +50,9 @@ blob-report/
 !.env.example
 .envrc
 
+# Deploy config (account-specific values; template is committed)
+deploy/aws.env
+
 # OS-specific files
 .DS_Store
 Thumbs.db

@@ -11,6 +11,41 @@ zone id — stay out of this file by convention; keep them in local notes.
 
 ---
 
+## Day-to-day cheat sheet
+
+The account-specific values (instance id, ECR registry, SPA bucket, distribution id)
+don't need to be memorized or looked up. Source the helper once per terminal and it
+exports them; the commands below then run unmodified.
+
+```sh
+# One-time: copy the template and fill in the two non-derivable values.
+cp deploy/aws.env.example deploy/aws.env      # set SPA_BUCKET + CLOUDFRONT_DISTRIBUTION_ID
+
+# Per terminal (needs a live SSO session — run `aws sso login` if expired):
+source scripts/aws-env.sh
+#   exports INSTANCE_ID, ECR_REGISTRY, ECR_IMAGE, SPA_BUCKET,
+#   CLOUDFRONT_DISTRIBUTION_ID, AWS_ACCOUNT_ID, AWS_REGION
+
+# EC2 shell over SSM
+aws ssm start-session --target "$INSTANCE_ID"
+
+# Build for the instance's arch and push a SHA-tagged image to ECR
+aws ecr get-login-password | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+docker buildx build --platform linux/amd64 -t "$ECR_IMAGE:$(git rev-parse --short HEAD)" --push .
+
+# Deploy the SPA
+npm --prefix web run build
+aws s3 sync web/dist "s3://$SPA_BUCKET" --delete
+aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths '/*'
+```
+
+The helper only resolves values — it runs none of the operations above, which stay
+manual and one at a time. `scripts/aws-env.sh` derives the account id and instance
+id from the CLI (instance id via the `cortex-ec2` Name tag) and reads the rest from
+`deploy/aws.env`. The sections below explain each piece.
+
+---
+
 ## 1. Topology
 
 ```
@@ -121,13 +156,16 @@ The instance is **x86_64 while a Mac is ARM** — images must be built for
 There is no SSH key and no port 22. Everything goes through SSM, which is why the
 instance needs the SSM managed-instance policy and outbound reachability to AWS.
 
+`$INSTANCE_ID` below comes from `source scripts/aws-env.sh` (see the cheat sheet);
+substitute the literal id if you have not sourced the helper.
+
 ```sh
 # interactive shell on the box
-aws ssm start-session --target <instance-id>
+aws ssm start-session --target "$INSTANCE_ID"
 
 # port-forward the inspector for remote debugging (see README.md §"Attaching a debugger")
 aws ssm start-session \
-  --target <instance-id> \
+  --target "$INSTANCE_ID" \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["9229"],"localPortNumber":["9229"]}'
 ```
@@ -148,15 +186,14 @@ No static AWS access keys live in the repo or `.envrc`.
 Private repository **`cortex-app`**. `web-server` and `mcp-notes` run the **same
 image** with different commands (see [docker-compose.prod.yml](docker-compose.prod.yml)).
 
-Because the Mac is ARM and the instance is x86_64, always build for `linux/amd64`:
+Because the Mac is ARM and the instance is x86_64, always build for `linux/amd64`.
+`$ECR_REGISTRY` / `$ECR_IMAGE` come from `source scripts/aws-env.sh` (cheat sheet):
 
 ```sh
 # from the repo root, on your Mac
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-REGISTRY="$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com"
-TAG="$REGISTRY/cortex-app:$(git rev-parse --short HEAD)"
+TAG="$ECR_IMAGE:$(git rev-parse --short HEAD)"
 
-aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+aws ecr get-login-password | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 docker buildx build --platform linux/amd64 -t "$TAG" --push .
 ```
 
@@ -164,7 +201,7 @@ Then on the box (the instance authenticates to ECR via `cortex-ec2-role`, no
 `docker login` needed):
 
 ```sh
-aws ssm start-session --target <instance-id>
+aws ssm start-session --target "$INSTANCE_ID"
 cd <app-dir>                                        # holds docker-compose.prod.yml + .env
 export CORTEX_IMAGE=<registry>/cortex-app:<tag>     # or set it in .env
 docker compose -f docker-compose.prod.yml pull
@@ -212,6 +249,8 @@ dig api.cortexapp.me +short         # resolves to the ALB
 ```
 
 ## 11. Deploy checklist
+
+Exact commands are in the cheat sheet at the top; this is the sequence.
 
 **Backend:** build+push (§8) → `pull` + `up -d` on the box → `curl localhost:3000/healthz`.
 
