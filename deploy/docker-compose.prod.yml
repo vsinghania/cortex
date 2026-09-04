@@ -1,0 +1,118 @@
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web-server:
+    image: ${CORTEX_IMAGE:?CORTEX_IMAGE is required}
+    command: ["node", "--inspect=0.0.0.0:9229", "--enable-source-maps", "dist/web-server/server.js"]
+    restart: unless-stopped
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      mcp-notes:
+        condition: service_started
+
+    environment:
+      PORT: "3000"
+      LOG_LEVEL: info
+
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_DB_APP: cortex
+
+      CORS_ORIGINS: https://cortexapp.me
+
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+      ACCESS_TOKEN_TTL_SEC: "900"
+      REFRESH_TOKEN_TTL_SEC: "604800"
+      REFRESH_COOKIE_NAME: rt
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: lax
+
+      AUTH_RATE_LIMIT_WINDOW_MS: "900000"
+      AUTH_RATE_LIMIT_MAX: "60"
+      BCRYPT_SALT_ROUNDS: "12"
+
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      OPENAI_DEFAULT_MODEL: gpt-5.4-nano
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+
+      QDRANT_URL: http://qdrant:6333
+      RAG_TOP_K: "8"
+      RAG_ANSWER_MODEL: gpt-5.4-nano
+      CHUNK_TARGET_TOKENS: "512"
+      CHUNK_OVERLAP_TOKENS: "64"
+
+      MCP_NOTES_HOST: mcp-notes
+      MCP_NOTES_PORT: "3010"
+      MCP_NOTES_PATH: /mcp
+      MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:?MCP_NOTES_AUTH_TOKEN is required}
+      MCP_NOTES_INTERNAL_URL: http://mcp-notes:3010/mcp
+
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-openai}
+      OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime}
+      OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-alloy}
+      VOICE_MCP_PUBLIC_URL: ${VOICE_MCP_PUBLIC_URL:-}
+
+    ports:
+    - "3000:3000"
+    - "127.0.0.1:9229:9229"
+
+  mcp-notes:
+    image: ${CORTEX_IMAGE:?CORTEX_IMAGE is required}
+    command: ["node", "--inspect=0.0.0.0:9229", "--enable-source-maps", "dist/mcp/server/notes/server.js"]
+    restart: unless-stopped
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+    environment:
+      PORT: "3010"
+      LOG_LEVEL: info
+
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_DB_APP: cortex
+
+      MCP_NOTES_HOST: 0.0.0.0
+      MCP_NOTES_PORT: "3010"
+      MCP_NOTES_PATH: /mcp
+      MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:?MCP_NOTES_AUTH_TOKEN is required}
+
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      QDRANT_URL: http://qdrant:6333
+    ports:
+    - "3010:3010"
+    - "127.0.0.1:9230:9229"
+
+volumes:
+  mongodb_data:
+  qdrant_data:
