@@ -44,11 +44,15 @@ jobs:
       - name: Who am I
         run: aws sts get-caller-identity
 
-      - name: Scoped ECR permission works
+      # Probe only actions the build role is actually granted: the account-wide
+      # auth token, and DescribeImages scoped to the cortex-app repository.
+      - name: Registry auth works
+        run: aws ecr get-login-password > /dev/null && echo "got a registry token"
+
+      - name: Scoped repository permission works
         run: |
-          aws ecr describe-repositories \
-            --repository-names "${{ vars.ECR_REPO }}" \
-            --query 'repositories[0].repositoryUri' --output text
+          aws ecr describe-images --repository-name "${{ vars.ECR_REPO }}" \
+            --query 'length(imageDetails)' --output text
 
   deploy-role:
     runs-on: ubuntu-latest
