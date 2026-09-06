@@ -46,18 +46,23 @@ Deliberately deferred, not forgotten. Each is safe to leave for now given a
 single trusted operator and low traffic; the note is so the reason and the fix
 survive.
 
-### Data durability — no backups
+### Data durability — daily snapshots (closed)
 
 Mongo and Qdrant data live in Docker named volumes on the instance's single gp3
-root volume. Terminating or replacing `cortex-ec2` loses every note and vector.
-There is no snapshot, no dump, no replica.
+root volume, so losing that volume loses every note and vector.
 
-- **Fix:** an AWS Data Lifecycle Manager policy taking a daily EBS snapshot of the
-  root volume, with a short retention (7 days is plenty). A few dollars a month,
-  no change to the app or the stack. A `mongodump`/qdrant-snapshot to S3 is the
-  more selective alternative but is more moving parts.
-- **Until then:** treat the data as disposable. Do not put anything in prod you
-  would mind re-creating.
+A Data Lifecycle Manager policy now snapshots the whole instance daily (targeted
+by the `Name=cortex-ec2` tag, boot volume included, 7-day retention). Recovery is
+`create-volume` from a snapshot, not a rebuild from nothing.
+
+    aws ec2 describe-snapshots --owner-ids self \
+      --filters "Name=tag:created-by,Values=dlm-cortex-daily" \
+      --query 'sort_by(Snapshots,&StartTime)[-1].{id:SnapshotId,started:StartTime,state:State}'
+
+Still open, and worth doing once: **restore a snapshot to a scratch volume and
+confirm the Mongo and Qdrant directories are really in it.** An untested backup is
+a hypothesis. A selective `mongodump`/qdrant-snapshot to S3 remains the more
+granular alternative if per-collection recovery is ever needed.
 
 ### App home under `/home/ssm-user`
 
