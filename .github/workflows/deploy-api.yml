@@ -1,0 +1,165 @@
+name: deploy-api
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_sha:
+        description: 'Full 40-character git SHA to deploy (must already be built by build-image)'
+        required: true
+
+concurrency:
+  group: deploy-api
+  # Never interrupt a deploy mid-flight — a cancelled run can leave the stack
+  # half-applied with nothing watching it.
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate the SHA
+        id: tag
+        run: |
+          SHA="${{ inputs.git_sha }}"
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::git_sha must be a full 40-character SHA (got '$SHA'). The build-image run summary prints the right value."
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      # Check out the deployed commit, not main: the compose file shipped to the
+      # box must come from the same commit as the image it references.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.sha }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_DEPLOY }}
+          role-session-name: gha-deploy-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Preflight
+        id: pre
+        env:
+          SHA: ${{ steps.tag.outputs.sha }}
+        run: |
+          set -euo pipefail
+          REGISTRY="${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          IMAGE="$REGISTRY/${{ vars.ECR_REPO }}:$SHA"
+
+          if ! aws ecr describe-images --repository-name "${{ vars.ECR_REPO }}" \
+                 --image-ids imageTag="$SHA" >/dev/null 2>&1; then
+            echo "::error::No image tagged $SHA in ECR. Run build-image for that commit first."
+            exit 1
+          fi
+
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${{ vars.EC2_NAME_TAG }}" \
+                      "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' --output text)
+          if [ "$(printf '%s' "$INSTANCE_ID" | wc -w)" -ne 1 ]; then
+            echo "::error::expected exactly one running instance tagged ${{ vars.EC2_NAME_TAG }}, got '$INSTANCE_ID'"
+            exit 1
+          fi
+
+          PING=$(aws ssm describe-instance-information \
+            --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+            --query 'InstanceInformationList[0].PingStatus' --output text)
+          if [ "$PING" != "Online" ]; then
+            echo "::error::SSM agent on $INSTANCE_ID is '$PING', not Online"
+            exit 1
+          fi
+
+          echo "image=$IMAGE"             >> "$GITHUB_OUTPUT"
+          echo "instance=$INSTANCE_ID"    >> "$GITHUB_OUTPUT"
+          echo "prefix=s3://${{ vars.DEPLOY_BUCKET }}/releases/$SHA" >> "$GITHUB_OUTPUT"
+          echo "instance $INSTANCE_ID is Online; image $IMAGE exists"
+
+      - name: Stage release artifacts
+        run: |
+          set -euo pipefail
+          aws s3 cp deploy/docker-compose.prod.yml "${{ steps.pre.outputs.prefix }}/docker-compose.prod.yml"
+          aws s3 cp deploy/remote-deploy.sh        "${{ steps.pre.outputs.prefix }}/remote-deploy.sh"
+
+      - name: Send deploy command
+        id: send
+        env:
+          SHA: ${{ steps.tag.outputs.sha }}
+          IMAGE: ${{ steps.pre.outputs.image }}
+          PREFIX: ${{ steps.pre.outputs.prefix }}
+          INSTANCE_ID: ${{ steps.pre.outputs.instance }}
+        run: |
+          set -euo pipefail
+          # Built with jq, never shell concatenation — the parameters are JSON
+          # and hand-quoting them is where this kind of step goes wrong.
+          PARAMS=$(jq -n --arg sha "$SHA" --arg img "$IMAGE" --arg prefix "$PREFIX" '{
+            executionTimeout: ["900"],
+            commands: [
+              "set -euo pipefail",
+              "aws s3 cp \($prefix)/remote-deploy.sh /tmp/remote-deploy.\($sha).sh --region us-east-1 --quiet",
+              "chmod +x /tmp/remote-deploy.\($sha).sh",
+              "CORTEX_IMAGE=\($img) RELEASE_PREFIX=\($prefix) GIT_SHA=\($sha) /tmp/remote-deploy.\($sha).sh"
+            ]
+          }')
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy ${SHA:0:7} (run ${{ github.run_id }})" \
+            --parameters "$PARAMS" \
+            --query 'Command.CommandId' --output text)
+
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command $CMD_ID sent to $INSTANCE_ID"
+
+      - name: Wait for the deploy to finish
+        env:
+          CMD_ID: ${{ steps.send.outputs.command_id }}
+          INSTANCE_ID: ${{ steps.pre.outputs.instance }}
+        run: |
+          # Deliberately not `aws ssm wait command-executed`: its built-in waiter
+          # gives up after about 100 seconds, which a normal pull-and-restart
+          # exceeds. Poll for up to 10 minutes instead.
+          STATUS=Pending
+          for _ in $(seq 1 120); do
+            sleep 5
+            # The invocation does not exist for the first few seconds after send.
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+          done
+
+          echo "::group::remote stdout"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text || true
+          echo "::endgroup::"
+
+          echo "::group::remote stderr"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardErrorContent --output text || true
+          echo "::endgroup::"
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::remote deploy finished with status $STATUS"
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### deploy-api"
+            echo
+            echo "- commit: \`${{ steps.tag.outputs.sha }}\`"
+            echo "- image: \`${{ steps.pre.outputs.image }}\`"
+            echo "- instance: \`${{ steps.pre.outputs.instance }}\`"
+            echo "- result: **${{ job.status }}**"
+          } >> "$GITHUB_STEP_SUMMARY"
