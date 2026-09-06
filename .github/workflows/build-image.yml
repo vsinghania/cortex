@@ -1,0 +1,68 @@
+name: build-image
+
+on:
+  push:
+    branches: [main]
+  # Lets you rebuild an existing main commit without pushing an empty one.
+  workflow_dispatch:
+
+concurrency:
+  group: build-image
+  # Never cancel a run that may already be uploading layers to ECR.
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_BUILD }}
+          role-session-name: gha-build-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        run: |
+          REGISTRY="${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          IMAGE="$REGISTRY/${{ vars.ECR_REPO }}"
+          echo "sha_tag=$IMAGE:${GITHUB_SHA}"      >> "$GITHUB_OUTPUT"
+          echo "short_tag=$IMAGE:${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Runners are x86_64, same as cortex-ec2 — no QEMU emulation involved.
+          platforms: linux/amd64
+          push: true
+          # The full 40-char SHA is canonical: deploy-api checks out that exact
+          # commit for the matching compose file. The short tag is only a
+          # convenience alias for reading `docker ps` on the box.
+          tags: |
+            ${{ steps.meta.outputs.sha_tag }}
+            ${{ steps.meta.outputs.short_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Without this, buildx also pushes an attestation manifest and the
+          # result becomes a manifest list rather than a plain image.
+          provenance: false
+
+      - run: |
+          {
+            echo "### Image pushed"
+            echo
+            echo '```'
+            echo "${GITHUB_SHA}"
+            echo '```'
+            echo
+            echo "Promote with: Actions -> deploy-api -> Run workflow -> paste the SHA above."
+          } >> "$GITHUB_STEP_SUMMARY"
