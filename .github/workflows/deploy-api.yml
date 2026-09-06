@@ -3,9 +3,10 @@ name: deploy-api
 on:
   workflow_dispatch:
     inputs:
-      git_sha:
-        description: 'Full 40-character git SHA to deploy (must already be built by build-image)'
-        required: true
+      git_ref:
+        description: 'Branch, tag or SHA to deploy (resolved to a full SHA; must already be built by build-image)'
+        required: false
+        default: main
 
 concurrency:
   group: deploy-api
@@ -21,21 +22,30 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate the SHA
-        id: tag
-        run: |
-          SHA="${{ inputs.git_sha }}"
-          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::git_sha must be a full 40-character SHA (got '$SHA'). The build-image run summary prints the right value."
-            exit 1
-          fi
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-
-      # Check out the deployed commit, not main: the compose file shipped to the
-      # box must come from the same commit as the image it references.
+      # Full history so any branch, tag or SHA the caller names can be resolved.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.sha }}
+          fetch-depth: 0
+
+      # Resolve whatever was asked for to one immutable SHA, then check that out.
+      # Everything downstream — the image tag, the S3 prefix, the compose file
+      # shipped to the box — is keyed off this single value, so image and
+      # configuration can never come from different commits.
+      - name: Resolve ref to a commit
+        id: resolve
+        run: |
+          set -euo pipefail
+          REF="${{ inputs.git_ref }}"
+          SHA=$(git rev-parse --verify --quiet "${REF}^{commit}" \
+             || git rev-parse --verify --quiet "origin/${REF}^{commit}" || true)
+          if [ -z "$SHA" ]; then
+            echo "::error::could not resolve '$REF' to a commit"
+            exit 1
+          fi
+          git checkout --detach "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "$REF -> $SHA"
+          git log -1 --format='%s' "$SHA"
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -46,7 +56,7 @@ jobs:
       - name: Preflight
         id: pre
         env:
-          SHA: ${{ steps.tag.outputs.sha }}
+          SHA: ${{ steps.resolve.outputs.sha }}
         run: |
           set -euo pipefail
           REGISTRY="${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
@@ -89,7 +99,7 @@ jobs:
       - name: Send deploy command
         id: send
         env:
-          SHA: ${{ steps.tag.outputs.sha }}
+          SHA: ${{ steps.resolve.outputs.sha }}
           IMAGE: ${{ steps.pre.outputs.image }}
           PREFIX: ${{ steps.pre.outputs.prefix }}
           INSTANCE_ID: ${{ steps.pre.outputs.instance }}
@@ -158,7 +168,8 @@ jobs:
           {
             echo "### deploy-api"
             echo
-            echo "- commit: \`${{ steps.tag.outputs.sha }}\`"
+            echo "- requested: \`${{ inputs.git_ref }}\`"
+            echo "- commit: \`${{ steps.resolve.outputs.sha }}\`"
             echo "- image: \`${{ steps.pre.outputs.image }}\`"
             echo "- instance: \`${{ steps.pre.outputs.instance }}\`"
             echo "- result: **${{ job.status }}**"
