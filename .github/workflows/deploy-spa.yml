@@ -1,0 +1,70 @@
+name: deploy-spa
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: 'Branch, tag or SHA to build and publish'
+        required: false
+        default: main
+
+concurrency:
+  group: deploy-spa
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm --prefix web ci
+
+      # No --mode flag: `vite build` defaults to production, which loads the
+      # committed web/.env.production (VITE_API_BASE_URL -> api.cortexapp.me).
+      # Nothing secret is involved; that URL ships inside the public bundle.
+      - run: npm --prefix web run build
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_DEPLOY }}
+          role-session-name: gha-spa-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Sync to S3
+        run: aws s3 sync web/dist "s3://${{ vars.SPA_BUCKET }}" --delete
+
+      - name: Invalidate CloudFront and wait for it
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudfront create-invalidation \
+                 --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+                 --paths '/*' --query 'Invalidation.Id' --output text)
+          echo "invalidation $ID"
+          # Wait, so a green run means the edge is actually serving the new
+          # bundle rather than merely having accepted the request.
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --id "$ID"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### deploy-spa"
+            echo
+            echo "- ref: \`${{ inputs.git_ref }}\`"
+            echo "- bucket: \`${{ vars.SPA_BUCKET }}\`"
+            echo "- result: **${{ job.status }}**"
+          } >> "$GITHUB_STEP_SUMMARY"
