@@ -38,7 +38,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_BUILD }}
-          role-session-name: oidc-check-build-${{ github.run_id }}
+          role-session-name: oidc-check-build-${{ github.run_id }}-${{ github.run_attempt }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Who am I
@@ -60,7 +60,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_DEPLOY }}
-          role-session-name: oidc-check-deploy-${{ github.run_id }}
+          role-session-name: oidc-check-deploy-${{ github.run_id }}-${{ github.run_attempt }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Who am I
