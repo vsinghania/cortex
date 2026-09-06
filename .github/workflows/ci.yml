@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# No `id-token` permission on purpose. This is the workflow that runs code from
+# pull request branches, so it must be structurally incapable of assuming an AWS
+# role — not merely configured not to.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - run: npm ci
+      - run: npm --prefix web ci
+
+      - run: npm run typecheck
+      - run: npm --prefix web run typecheck
+
+      # `tsc -b` plus the vite bundle can fail in ways `tsc --noEmit` does not reach.
+      - run: npm --prefix web run build
+
+      - run: npm test
