@@ -9,7 +9,11 @@ x-logging: &default_logging
 
 services:
   mongodb:
-    image: mongo:7
+    # Pinned by digest, not by tag: `mongo:7` moves on every 7.x patch, and a
+    # `docker compose pull` that re-resolved it would change this service's
+    # config hash and recreate the database as a side effect of an app deploy.
+    # Digest taken from the running container on 2026-09-06.
+    image: mongo@sha256:b6421fd6d1c5ded6377b397d8983e2f82e2100dc5123332dcfda2065a472be5b
     restart: unless-stopped
     logging: *default_logging
     volumes:
@@ -28,7 +32,11 @@ services:
       start_period: 10s
 
   qdrant:
-    image: qdrant/qdrant:latest
+    # Pinned by digest — see the note on mongodb above. `qdrant/qdrant:latest`
+    # moved on every upstream release, which on a box with one copy of the
+    # vectors is the more dangerous of the two.
+    # Digest taken from the running container on 2026-09-06.
+    image: qdrant/qdrant@sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc
     restart: unless-stopped
     logging: *default_logging
     volumes:
