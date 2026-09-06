@@ -50,6 +50,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --enable-source-maps dist/web-server/server.js",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test scripts/*.test.ts",
     "mcp:smoke": "tsx scripts/mcp_http_smoke.ts",
     "ai:smoke": "tsx scripts/ai_smoke.ts",
     "agent:smoke": "tsx scripts/agent_smoke.ts",
@@ -60,5 +61,8 @@
     "mcp:notes:start": "node --enable-source-maps dist/mcp/server/notes/server.js",
     "qdrant:up": "docker compose up -d qdrant",
     "qdrant:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=22 <23"
   }
 }
