@@ -2,29 +2,44 @@
 
 Compose stacks and manifests for running Cortex outside local dev.
 
-- [aws.md](aws.md) — the current Phase 1 AWS deployment: architecture, access, and the build/push/deploy flow.
-- [docker-compose.prod.yml](docker-compose.prod.yml) — the production stack (web-server, mcp-notes, mongodb, qdrant) that runs on the EC2 instance.
+- [aws.md](aws.md) — the current Phase 1 AWS deployment: architecture, access, and the CI/CD flow.
+- [docker-compose.prod.yml](docker-compose.prod.yml) — the production stack (web-server, mcp-notes, mongodb, qdrant). Shipped to the instance by `deploy-api`, where it lands as `compose.yaml`.
+- [remote-deploy.sh](remote-deploy.sh) — runs on the instance under SSM to apply a release; not intended to be run by hand.
 - [docker-compose.debug.yml](docker-compose.debug.yml) — overlay that adds a Node inspector; never run on its own.
 - [k8s/](k8s/) and [kind/](kind/) — Kubernetes manifests and a local kind cluster (Phase 3+, not the current deployment).
 
 ## Running the production stack
 
-From the app directory on the instance (`$CORTEX_IMAGE` and the secrets come from `.env`):
+Normally you don't — **Actions → deploy-api** does it. See [aws.md §8](aws.md).
+
+On the box, `compose.yaml` is auto-discovered and `/etc/profile.d/cortex.sh`
+supplies the project name and env files, so read-only commands work from anywhere:
 
 ```sh
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose ps
+docker compose logs -f --tail=50 web-server
 ```
 
-No inspector is running in this mode — the debug ports 9229/9230 do not exist.
+State-changing commands need the app directory, and both env files:
+
+```sh
+cd /home/ssm-user/cortex
+docker compose --env-file .env --env-file deploy.env pull web-server mcp-notes
+docker compose --env-file .env --env-file deploy.env up -d
+```
+
+Pull the app services by name, never bare — the intent of a deploy is to update
+the app, not the datastores. No inspector is running in this mode; the debug ports
+9229/9230 do not exist.
 
 ## Attaching a debugger
 
 Layer the debug overlay on top; it adds `NODE_OPTIONS=--inspect` and publishes the
-inspector on the instance's loopback only:
+inspector on the instance's loopback only. The overlay is not shipped by CI, so
+copy it to the box first:
 
 ```sh
-docker compose -f docker-compose.prod.yml -f docker-compose.debug.yml up -d
+docker compose -f compose.yaml -f docker-compose.debug.yml up -d
 ```
 
 Then, from your laptop, forward the port over SSM (never open 9229/9230 in the
@@ -72,7 +87,9 @@ different SSM identity can move or reset it, taking the volumes' bind context
 with it.
 
 - **Fix:** relocate to `/opt/cortex` (root-owned, purpose-neutral, survives SSM
-  changes). One-time move of `compose.yml`, `.env` and the volume directory.
+  changes). One-time move of `compose.yaml`, `.env`, `deploy.env` and the volume
+  directory — plus `APP_DIR` in [remote-deploy.sh](remote-deploy.sh) and the paths
+  in `/etc/profile.d/cortex.sh`, or deploys break silently after the move.
 
 ### ALB idle timeout vs. long agent runs
 
@@ -85,15 +102,33 @@ slow synchronous call.
   60s and make sure no agent endpoint blocks that long. Revisit if streaming is
   added.
 
-### Image tagging and ECR hygiene
+### ECR hygiene — half closed
 
-`CORTEX_IMAGE` currently resolves to whatever tag the deploy pushes. If that is
-`:latest`, rollback means rebuilding, and `docker compose pull` can be ambiguous
-about what is actually running.
+Image tagging is solved: `build-image` tags every image with the full commit SHA,
+`deploy.env` records which one is running, and rollback is a `deploy-api` dispatch
+with an older SHA. No `:latest` anywhere.
 
-- **Fix:** tag images with the git SHA (`cortex-app:<sha>`) so a rollback is a
-  one-line `CORTEX_IMAGE` change to a known-good digest, and add an ECR lifecycle
-  policy to expire untagged layers so the repo does not grow without bound.
+What remains is growth. Every push to `main` pushes an image, and nothing expires.
+
+- **Fix:** an ECR lifecycle policy expiring **untagged** images after ~7 days. Safe
+  by construction — an image only becomes untagged when a tag moves off it, so
+  nothing deployable is ever removed.
+- **Do not** add an `imageCountMoreThan` rule casually: it evaluates by push date,
+  not by what is running, so a long-lived deployment plus a burst of builds can
+  delete the image production was created from — breaking both container recreation
+  after a reboot and rollback to that SHA.
+
+### No tests gating production
+
+The only CI gates are `tsc` on both trees, the SPA build, and one unit test. A
+deploy's health gate is `/healthz`, which returns `ok` without touching Mongo,
+Qdrant or OpenAI — so a deploy that breaks the database connection still passes.
+
+- **Until then:** manual promotion is the real gate. Smoke-test after deploying
+  anything non-trivial (`npm run mcp:smoke`, the Bruno collection against
+  `api.cortexapp.me`).
+- **Fix:** a `/readyz` that pings Mongo and Qdrant, used by both the compose
+  healthcheck and the deploy gate; then real tests worth blocking on.
 
 ### MCP notes perimeter is a single shared token
 
