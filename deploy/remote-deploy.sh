@@ -14,7 +14,12 @@
 set -euo pipefail
 
 APP_DIR=/home/ssm-user/cortex
-COMPOSE_FILE=docker-compose.prod.yml
+# On the box the file is named compose.yaml, one of the names `docker compose`
+# discovers automatically — so an interactive `docker compose ps` works with no
+# -f flag. In the repo it keeps the qualified name, where it has to be told
+# apart from the dev and debug compose files.
+COMPOSE_FILE=compose.yaml
+RELEASE_COMPOSE=docker-compose.prod.yml
 PROJECT=cortex
 REGION=us-east-1
 APP_SERVICES=(web-server mcp-notes)
@@ -40,7 +45,7 @@ log "image     $CORTEX_IMAGE"
 
 # --- Stage the release -------------------------------------------------------
 # Write-then-rename so a failed download never leaves a truncated compose file.
-aws s3 cp "$RELEASE_PREFIX/$COMPOSE_FILE" "$COMPOSE_FILE.new" --region "$REGION" --quiet
+aws s3 cp "$RELEASE_PREFIX/$RELEASE_COMPOSE" "$COMPOSE_FILE.new" --region "$REGION" --quiet
 mv "$COMPOSE_FILE.new" "$COMPOSE_FILE"
 
 printf 'CORTEX_IMAGE=%s\n' "$CORTEX_IMAGE" > deploy.env.new
