@@ -21,9 +21,9 @@ http:
 runtime:
   variables:
     - name: login_email
-      value: vishals+1@cortex.com
+      value:
     - name: login_password
-      value: Password@123
+      value:
   scripts:
     - type: after-response
       code: |-
@@ -35,3 +35,4 @@ settings:
   timeout: 0
   followRedirects: true
   maxRedirects: 5
+  forwardAuthorizationHeader: true

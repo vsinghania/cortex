@@ -18,6 +18,63 @@ request:
   headers:
     - name: Authorization
       value: Bearer {{access_token}}
+  scripts:
+    - type: after-response
+      code: |-
+        const AUTH_PATHS = ['/auth/login', '/auth/register', '/auth/refresh'];
+        const REFRESH_IN_FLIGHT = 'refresh_in_flight';
+
+        class TokenRefresh {
+          static isRetryable() {
+            if (res.getStatus() !== 401) {
+              return false;
+            }
+            if (bru.getVar(REFRESH_IN_FLIGHT)) {
+              return false;
+            }
+            return !AUTH_PATHS.some((path) => req.getUrl().includes(path));
+          }
+
+          static authorizedHeaders() {
+            const headers = {};
+            for (const [name, value] of Object.entries(req.getHeaders() || {})) {
+              if (name.toLowerCase() !== 'authorization') {
+                headers[name] = value;
+              }
+            }
+            headers.Authorization = `Bearer ${bru.getEnvVar('access_token')}`;
+            return headers;
+          }
+
+          static async replayOriginalRequest() {
+            return bru.sendRequest({
+              method: req.getMethod(),
+              url: req.getUrl(),
+              headers: TokenRefresh.authorizedHeaders(),
+              data: req.getBody()
+            });
+          }
+
+          static async run() {
+            if (!TokenRefresh.isRetryable()) {
+              return;
+            }
+
+            // Guards against recursion: the refresh request runs this same collection-level script.
+            bru.setVar(REFRESH_IN_FLIGHT, true);
+            try {
+              await bru.runRequest('auth/refresh-token');
+              const replay = await TokenRefresh.replayOriginalRequest();
+              res.setBody(replay.data);
+            } catch (err) {
+              console.log(`401 refresh-and-retry failed: ${err.message}`);
+            } finally {
+              bru.deleteVar(REFRESH_IN_FLIGHT);
+            }
+          }
+        }
+
+        await TokenRefresh.run();
 bundled: false
 extensions:
   bruno:

@@ -1,0 +1,12 @@
+name: Production
+variables:
+  - name: base_url
+    value: https://api.cortexapp.me/api/v1
+  - secret: true
+    name: access_token
+  - name: conversation_id
+    value: 019e06d2-68b5-737e-9a48-31dd838c316c
+  - name: agent_id
+    value: smoke-notes-agent
+  - name: note_id
+    value: ""
