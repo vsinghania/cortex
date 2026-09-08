@@ -114,8 +114,23 @@ Two rules the whole design enforces:
   it publicly. The bucket is not itself public.
 - **Domain:** `https://cortexapp.me`, a Route 53 apex Alias → CloudFront.
 - **Cert:** ACM in **us-east-1** (CloudFront only reads certs from that region).
-- Default root object `index.html`; SPA fallback returns `index.html` for
-  client-side routes.
+- Default root object `index.html`, which covers `/` and nothing else.
+- **SPA fallback** is the CloudFront Function `cortex-spa-router`
+  ([cloudfront/spa_router.js](cloudfront/spa_router.js)), attached to the default
+  cache behaviour on **viewer-request**. It rewrites any path whose last segment
+  has no dot — `/notes`, `/notes/:id`, `/chat` — to `/index.html`, so a refresh or
+  a pasted deep link reaches the router instead of S3.
+
+  Without it those paths are missing keys, and because the bucket is private
+  behind OAC with `s3:GetObject` but no `s3:ListBucket`, S3 returns **403
+  AccessDenied**, not 404 — CloudFront passed that error XML straight to the
+  browser. The distribution deliberately has **no `CustomErrorResponses`**: the
+  usual 403/404 → `index.html` recipe would also mask genuinely missing assets,
+  handing a stale tab an HTML document where it asked for a JS chunk.
+
+  The function is console/CLI-managed, not IaC. `spa_router.js` is the source of
+  truth for its code; changing it means `aws cloudfront update-function` plus
+  `publish-function` (Terraform is a Phase 2 item).
 - `VITE_API_BASE_URL` is **baked into the bundle at build time**, selected by Vite
   mode: `vite build` reads the committed [web/.env.production](../web/.env.production)
   (the prod API), while `npm run dev` reads [web/.env.development](../web/.env.development)
