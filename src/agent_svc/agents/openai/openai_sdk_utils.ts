@@ -133,11 +133,10 @@ export class OpenAiSdkUtils {
       } else if (item instanceof RunToolCallOutputItem) {
         const raw = item.rawItem as any;
         const call_id: string = raw?.callId ?? raw?.id ?? '';
-        const output_text = OpenAiSdkUtils.outputToText((item as any).output ?? raw?.output);
         messages.push({
           role: Role.Tool,
           tool_call_id: call_id,
-          content: MessageContent.text(output_text),
+          content: OpenAiSdkUtils.toToolContent((item as any).output ?? raw?.output),
         });
       }
     }
@@ -214,14 +213,44 @@ export class OpenAiSdkUtils {
       .join('');
   }
 
+  /**
+   * Normalizes a tool result into one canonical content shape.
+   *
+   * The agents SDK hands MCP results back as a `{type:'text', text}` content item (or an
+   * array of them when a tool returns several), having already discarded the MCP
+   * envelope's `structuredContent`. Nothing is lost - our MCP modules duplicate the same
+   * payload into the text - so the JSON is parsed once here rather than leaving every
+   * downstream consumer to unwrap and re-parse a stringified blob.
+   */
+  static toToolContent(output: unknown): Content {
+    const text = OpenAiSdkUtils.outputToText(output);
+    const parsed = OpenAiSdkUtils.tryParseJson(text);
+    if (parsed !== undefined) return [{ type: 'json', data: parsed }];
+    return MessageContent.text(text);
+  }
+
   private static outputToText(output: unknown): string {
     if (output == null) return '';
     if (typeof output === 'string') return output;
+    if (Array.isArray(output)) {
+      return output.map((entry) => OpenAiSdkUtils.outputToText(entry)).join('');
+    }
     if (typeof output === 'object' && 'type' in (output as any)) {
       const o = output as any;
       if (o.type === 'text' && typeof o.text === 'string') return o.text;
     }
     return OpenAiSdkUtils.stringifyJson(output);
+  }
+
+  /** Only objects and arrays become JSON parts; plain-text tool output stays text. */
+  private static tryParseJson(text: string): unknown | undefined {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return undefined;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return undefined;
+    }
   }
 
   private static stringifyArgs(args: unknown): string {
