@@ -55,6 +55,7 @@
     "ai:smoke": "tsx scripts/ai_smoke.ts",
     "agent:smoke": "tsx scripts/agent_smoke.ts",
     "agent:smoke:notes-mcp": "tsx scripts/notes_mcp_agent_smoke.ts",
+    "notes:backfill-offsets": "tsx scripts/backfill_chunk_offsets.ts",
     "mcp:dev": "tsx src/mcp/server/notes/server.ts",
     "mcp:start": "node --enable-source-maps dist/mcp/server/notes/server.js",
     "mcp:notes:dev": "tsx src/mcp/server/notes/server.ts",

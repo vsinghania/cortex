@@ -28,6 +28,8 @@ export class NoteChunkModelFactory extends BaseModelFactory<NoteChunk> {
         token_count: { type: Number, required: true },
         hash: { type: String, required: true, index: true },
         heading_path: { type: [String], default: undefined },
+        start_offset: { type: Number, default: undefined },
+        end_offset: { type: Number, default: undefined },
 
         vectorization: { type: VectorizationSchema, default: undefined }
       },

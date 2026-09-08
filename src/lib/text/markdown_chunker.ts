@@ -1,17 +1,33 @@
 import { createHash } from 'node:crypto';
 import { Tokenizer } from './tokenizer.js';
 
+export type CharRange = {
+  /** Inclusive char index into the source body. */
+  start: number;
+  /** Exclusive char index into the source body. */
+  end: number;
+};
+
 export type ChunkSpec = {
   content: string;
   token_count: number;
   hash: string;
   heading_path?: string[];
+  start_offset: number;
+  end_offset: number;
+};
+
+type Line = {
+  text: string;
+  start: number;
+  /** Exclusive; excludes the line separator. */
+  end: number;
 };
 
 type Block = {
   text: string;
   heading_path: string[];
-};
+} & CharRange;
 
 export type ChunkOptions = {
   target_tokens: number;
@@ -29,22 +45,42 @@ export class MarkdownChunker {
     return MarkdownChunker.packBlocks(blocks, opts);
   }
 
+  /**
+   * Splits on newlines while keeping each line's char range, so chunks can carry
+   * offsets back into the original body. Ranges are computed from the source
+   * separators rather than the rejoined text, which keeps them accurate for CRLF
+   * bodies even though the rejoined block text normalizes to LF.
+   */
+  private static toLines(body: string): Line[] {
+    const lines: Line[] = [];
+    const separator = /\r?\n/g;
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    while ((match = separator.exec(body)) !== null) {
+      lines.push({ text: body.slice(cursor, match.index), start: cursor, end: match.index });
+      cursor = match.index + match[0].length;
+    }
+    lines.push({ text: body.slice(cursor), start: cursor, end: body.length });
+    return lines;
+  }
+
   private static toBlocks(body: string): Block[] {
-    const lines = body.split(/\r?\n/);
     const blocks: Block[] = [];
     const heading_stack: string[] = [];
-    let buffer: string[] = [];
+    let buffer: Line[] = [];
 
     const flush = () => {
       if (!buffer.length) return;
-      const text = buffer.join('\n').trim();
+      const buffered = buffer;
       buffer = [];
+      const text = buffered.map((l) => l.text).join('\n').trim();
       if (!text) return;
-      blocks.push({ text, heading_path: [...heading_stack] });
+      const range = MarkdownChunker.trimmedRange(buffered);
+      blocks.push({ text, heading_path: [...heading_stack], ...range });
     };
 
-    for (const line of lines) {
-      const heading_match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    for (const line of MarkdownChunker.toLines(body)) {
+      const heading_match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line.text);
       if (heading_match) {
         flush();
         const depth = heading_match[1].length;
@@ -54,7 +90,7 @@ export class MarkdownChunker {
         continue;
       }
 
-      if (line.trim() === '') {
+      if (line.text.trim() === '') {
         flush();
         continue;
       }
@@ -65,6 +101,15 @@ export class MarkdownChunker {
     return blocks;
   }
 
+  /** Mirrors the `.trim()` applied to the rejoined block text. Buffered lines are never blank. */
+  private static trimmedRange(lines: Line[]): CharRange {
+    const first = lines[0];
+    const last = lines[lines.length - 1];
+    const leading_ws = first.text.length - first.text.trimStart().length;
+    const trailing_ws = last.text.length - last.text.trimEnd().length;
+    return { start: first.start + leading_ws, end: last.end - trailing_ws };
+  }
+
   private static packBlocks(blocks: Block[], opts: ChunkOptions): ChunkSpec[] {
     const target = Math.max(64, opts.target_tokens);
     const overlap = Math.max(0, Math.min(opts.overlap_tokens, Math.floor(target / 2)));
@@ -73,10 +118,11 @@ export class MarkdownChunker {
     let current_text = '';
     let current_tokens = 0;
     let current_heading: string[] = [];
+    let current_range: CharRange = { start: 0, end: 0 };
 
     const finalize = () => {
       if (!current_text.trim()) return;
-      out.push(MarkdownChunker.toSpec(current_text, current_tokens, current_heading));
+      out.push(MarkdownChunker.toSpec(current_text, current_tokens, current_heading, current_range));
     };
 
     for (const block of blocks) {
@@ -88,8 +134,8 @@ export class MarkdownChunker {
           current_text = '';
           current_tokens = 0;
         }
-        for (const piece of MarkdownChunker.splitOversizedBlock(block.text, target, overlap)) {
-          out.push(MarkdownChunker.toSpec(piece.text, piece.token_count, block.heading_path));
+        for (const piece of MarkdownChunker.splitOversizedBlock(block, target, overlap)) {
+          out.push(MarkdownChunker.toSpec(piece.text, piece.token_count, block.heading_path, piece.range));
         }
         current_heading = block.heading_path;
         continue;
@@ -103,9 +149,15 @@ export class MarkdownChunker {
         const tail = MarkdownChunker.tailForOverlap(current_text, overlap);
         current_text = tail ? `${tail}\n\n${block.text}` : block.text;
         current_tokens = Tokenizer.countTokens(current_text);
+        // The overlap tail is embedding context borrowed from the previous chunk; the
+        // offsets describe only this chunk's own material so highlights don't overlap.
+        current_range = { start: block.start, end: block.end };
       } else {
+        const is_first_block = current_text === '';
         current_text = current_text ? `${current_text}\n\n${block.text}` : block.text;
         current_tokens = candidate_tokens;
+        if (is_first_block) current_range = { start: block.start, end: block.end };
+        else current_range = { start: current_range.start, end: block.end };
       }
       current_heading = block.heading_path;
     }
@@ -114,22 +166,45 @@ export class MarkdownChunker {
   }
 
   private static splitOversizedBlock(
-    text: string,
+    block: Block,
     target_tokens: number,
     overlap_tokens: number
-  ): { text: string; token_count: number }[] {
-    const tokens = Tokenizer.encode(text);
-    const out: { text: string; token_count: number }[] = [];
+  ): { text: string; token_count: number; range: CharRange }[] {
+    const tokens = Tokenizer.encode(block.text);
+    const out: { text: string; token_count: number; range: CharRange }[] = [];
     const stride = Math.max(1, target_tokens - overlap_tokens);
+    const stride_offsets = MarkdownChunker.strideCharOffsets(tokens, stride);
     let start = 0;
+    let stride_index = 0;
     while (start < tokens.length) {
       const end = Math.min(tokens.length, start + target_tokens);
       const slice = tokens.slice(start, end);
-      out.push({ text: Tokenizer.decode(slice), token_count: slice.length });
+      const text = Tokenizer.decode(slice);
+      const piece_start = Math.min(block.end, block.start + stride_offsets[stride_index]);
+      out.push({
+        text,
+        token_count: slice.length,
+        range: { start: piece_start, end: Math.min(block.end, piece_start + text.length) }
+      });
       if (end >= tokens.length) break;
       start += stride;
+      stride_index += 1;
     }
     return out;
+  }
+
+  /**
+   * Cumulative char length of the decoded text preceding each stride boundary.
+   * Decodes every token exactly once instead of re-decoding growing prefixes.
+   */
+  private static strideCharOffsets(tokens: number[], stride: number): number[] {
+    const offsets: number[] = [];
+    let chars = 0;
+    for (let i = 0; i < tokens.length; i += stride) {
+      offsets.push(chars);
+      chars += Tokenizer.decode(tokens.slice(i, Math.min(tokens.length, i + stride))).length;
+    }
+    return offsets;
   }
 
   private static tailForOverlap(text: string, overlap_tokens: number): string {
@@ -145,13 +220,20 @@ export class MarkdownChunker {
     return true;
   }
 
-  private static toSpec(text: string, token_count: number, heading_path: string[]): ChunkSpec {
+  private static toSpec(
+    text: string,
+    token_count: number,
+    heading_path: string[],
+    range: CharRange
+  ): ChunkSpec {
     const trimmed = text.trim();
     return {
       content: trimmed,
       token_count,
       hash: MarkdownChunker.hashContent(trimmed),
-      heading_path: heading_path.length ? [...heading_path] : undefined
+      heading_path: heading_path.length ? [...heading_path] : undefined,
+      start_offset: range.start,
+      end_offset: range.end
     };
   }
 

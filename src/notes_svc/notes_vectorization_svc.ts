@@ -69,9 +69,13 @@ export class NotesVectorizationSvc {
         const spec = specs[i];
         const ex = existing_by_index.get(i);
         if (ex && ex.hash === spec.hash && ex.vectorization?.status === 'embedded') {
+          // Offsets are not part of the content hash, so a reused chunk still needs
+          // them refreshed - this is what lets the backfill run without re-embedding.
           reused_chunks.push({
             ...ex,
             heading_path: spec.heading_path,
+            start_offset: spec.start_offset,
+            end_offset: spec.end_offset,
             updated_at: new Date()
           });
         } else {
@@ -104,6 +108,8 @@ export class NotesVectorizationSvc {
         token_count: draft.spec.token_count,
         hash: draft.spec.hash,
         heading_path: draft.spec.heading_path,
+        start_offset: draft.spec.start_offset,
+        end_offset: draft.spec.end_offset,
         vectorization: {
           status: 'embedded',
           last_embedded_at: now,
