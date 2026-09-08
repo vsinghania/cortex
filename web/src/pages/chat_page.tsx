@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiClient } from '../lib/api_client';
 import { NOTES_RECALL_AGENT_ID } from '../lib/agent.types';
-import type { Conversation, ConversationMessage } from '../lib/agent.types';
+import type { Citation, Conversation, ConversationMessage } from '../lib/agent.types';
 import { ChatMessage } from '../components/chat_message';
 import { Spinner } from '../components/spinner';
 
-type Turn = { role: 'user' | 'assistant'; text: string };
+type Turn = { role: 'user' | 'assistant'; text: string; citations?: Citation[] };
 
 function contentToText(parts: ConversationMessage['content']): string {
   return parts
@@ -18,7 +18,7 @@ function toDisplayTurns(messages: ConversationMessage[]): Turn[] {
     .filter((m): m is ConversationMessage & { role: 'user' | 'assistant' } =>
       m.role === 'user' || m.role === 'assistant'
     )
-    .map((m) => ({ role: m.role, text: contentToText(m.content) }))
+    .map((m) => ({ role: m.role, text: contentToText(m.content), citations: m.citations }))
     .filter((t) => t.text.trim() !== '');
 }
 
@@ -97,7 +97,7 @@ export function ChatPage() {
       }
 
       const reply = res.final_output_text ?? '(no response)';
-      set_messages((m) => [...m, { role: 'assistant', text: reply }]);
+      set_messages((m) => [...m, { role: 'assistant', text: reply, citations: res.citations }]);
     } catch (err) {
       set_error(err instanceof Error ? err.message : 'Failed to reach the agent.');
     } finally {
@@ -140,7 +140,9 @@ export function ChatPage() {
           ) : messages.length === 0 && !pending ? (
             <p className="empty-state">Ask the agent something about your notes.</p>
           ) : (
-            messages.map((m, i) => <ChatMessage key={i} role={m.role} text={m.text} />)
+            messages.map((m, i) => (
+              <ChatMessage key={i} role={m.role} text={m.text} citations={m.citations} />
+            ))
           )}
           {pending && (
             <div className="chat-message chat-message-assistant">

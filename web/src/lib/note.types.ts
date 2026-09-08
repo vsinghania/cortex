@@ -47,3 +47,14 @@ export type NoteListResponse = {
   items: Note[];
   total: number;
 };
+
+/** Mirrors NoteChunkRef in src/notes_svc/types/note_chunk.types.ts */
+export type NoteChunkRef = {
+  id: string;
+  note_id: string;
+  chunk_index: number;
+  heading_path?: string[];
+  start_offset?: number;
+  end_offset?: number;
+  content: string;
+};

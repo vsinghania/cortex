@@ -350,6 +350,79 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   background: var(--accent);
   color: white;
 }
+
+.chat-citation {
+  display: inline-block;
+  vertical-align: super;
+  font-size: 10px;
+  line-height: 1;
+  min-width: 15px;
+  padding: 2px 4px;
+  margin: 0 1px;
+  border-radius: 999px;
+  text-align: center;
+  background: var(--accent);
+  color: white;
+  text-decoration: none;
+}
+.chat-citation:hover {
+  background: var(--accent-hover);
+  text-decoration: none;
+}
+.chat-citation-dead {
+  background: var(--border);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.chat-sources {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.chat-sources-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.chat-sources ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-source-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+}
+.chat-source-index {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 12px;
+}
+.chat-source-row-dead {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.chat-source-heading {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.note-highlight {
+  background: #fff3bf;
+  border-radius: 2px;
+  padding: 1px 0;
+}
 .chat-input {
   display: flex;
   gap: 8px;

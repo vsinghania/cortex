@@ -2,6 +2,7 @@ import { AuthStore } from './auth_store';
 import type { AuthResponse, RefreshResponse, User } from './auth.types';
 import type {
   Note,
+  NoteChunkRef,
   NoteCreateBody,
   NoteListResponse,
   NotePatchBody,
@@ -168,6 +169,12 @@ export class ApiClient {
 
   static async getNote(id: string): Promise<{ note: Note }> {
     return ApiClient.request<{ note: Note }>(`/notes/${encodeURIComponent(id)}`);
+  }
+
+  static async getNoteChunk(note_id: string, chunk_id: string): Promise<{ chunk: NoteChunkRef }> {
+    return ApiClient.request<{ chunk: NoteChunkRef }>(
+      `/notes/${encodeURIComponent(note_id)}/chunks/${encodeURIComponent(chunk_id)}`,
+    );
   }
 
   static async createNote(body: NoteCreateBody): Promise<{ note: Note }> {
