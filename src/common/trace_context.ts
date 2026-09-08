@@ -13,6 +13,16 @@ export class TraceContext {
     TraceContext.als.enterWith(store);
   }
 
+  /**
+   * Scoped alternative to enter(). enter() uses enterWith(), which mutates the
+   * ambient context in place and cannot be unwound, so two logical operations
+   * started in the same tick clobber each other's store. Use this whenever
+   * operations run concurrently - the job worker running N jobs, for example.
+   */
+  static async run<T>(store: TraceStore, fn: () => Promise<T>): Promise<T> {
+    return TraceContext.als.run(store, fn);
+  }
+
   static enterBackground(task: string): void {
     TraceContext.als.enterWith({
       trace_id: `bg:${task}:${Id.generateRandom(BG_TRACE_ID_LEN)}`,
