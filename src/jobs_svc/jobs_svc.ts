@@ -1,4 +1,4 @@
-import type { EnqueueInput, EnqueueResult, Job } from './types/job.types.js';
+import type { EnqueueInput, EnqueueResult, Job, JobPayload } from './types/job.types.js';
 import { JobStatus } from './types/job.types.js';
 import type { JobsSvcInterface, ListJobsInput } from './jobs_svc_interface.js';
 import type { JobRepository } from './repositories/job_repository_interface.js';
@@ -101,7 +101,10 @@ export class JobsSvc implements JobsSvcInterface {
     return {
       id: Id.generateUuidV7(),
       name: input.name,
-      payload: input.payload,
+      // Undefined keys are dropped rather than stored: BSON serializes undefined to
+      // null, so leaving them in would hand handlers a null where their schema
+      // expects an absent field.
+      payload: JobsSvc.stripUndefined(input.payload),
       user_id: input.user_id,
 
       status: JobStatus.Queued,
@@ -134,5 +137,9 @@ export class JobsSvc implements JobsSvcInterface {
       created_at: now,
       updated_at: now
     };
+  }
+
+  private static stripUndefined(payload: JobPayload): JobPayload {
+    return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
   }
 }

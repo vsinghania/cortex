@@ -312,6 +312,8 @@ export class JobWorker {
       });
       logger.warn(
         {
+          err: params.err,
+          reason: failure.message,
           job_id: job.id,
           job_name: job.name,
           attempt: job.attempts,
@@ -334,10 +336,12 @@ export class JobWorker {
     this.failed_total++;
     logger.error(
       {
+        err: params.err,
+        reason: decision.reason,
+        message: failure.message,
         job_id: job.id,
         job_name: job.name,
         attempt: job.attempts,
-        reason: decision.reason,
         duration_ms,
         ...progress
       },

@@ -34,7 +34,7 @@ export class MongooseJobRepository implements JobRepository {
 
     if (!job.dedup_key) {
       const created = await this.model.create(job);
-      return { job: MongooseUtils.toDomain<Job>(created), created: true };
+      return { job: MongooseJobRepository.toDomainJob(created), created: true };
     }
 
     // Upsert against uniq_job_dedup_active. The returned document is ours only when
@@ -55,21 +55,21 @@ export class MongooseJobRepository implements JobRepository {
         { upsert: true, returnDocument: 'after', lean: true }
       );
 
-      const domain = MongooseUtils.toDomain<Job>(upserted);
+      const domain = MongooseJobRepository.toDomainJob(upserted);
       return { job: domain, created: domain.id === job.id };
     } catch (err) {
       if (!MongooseJobRepository.isDuplicateKeyError(err)) throw err;
       // Lost an upsert race against the unique index; the winner holds the key.
       const existing = await this.model.findOne(filter).lean();
       if (!existing) throw err;
-      return { job: MongooseUtils.toDomain<Job>(existing), created: false };
+      return { job: MongooseJobRepository.toDomainJob(existing), created: false };
     }
   }
 
   async claimNext(params: ClaimParams): Promise<Job | null> {
     const { filter, update, options } = JobClaimQuery.build(params);
     const claimed = await this.model.findOneAndUpdate(filter, update, options);
-    return claimed ? MongooseUtils.toDomain<Job>(claimed) : null;
+    return claimed ? MongooseJobRepository.toDomainJob(claimed) : null;
   }
 
   async heartbeat(
@@ -179,7 +179,7 @@ export class MongooseJobRepository implements JobRepository {
 
   async getById(job_id: string): Promise<Job | null> {
     const found = await this.model.findOne({ id: job_id }).lean();
-    return found ? MongooseUtils.toDomain<Job>(found) : null;
+    return found ? MongooseJobRepository.toDomainJob(found) : null;
   }
 
   async list(params: JobListParams): Promise<Job[]> {
@@ -190,7 +190,7 @@ export class MongooseJobRepository implements JobRepository {
 
     const limit = Math.max(1, Math.min(MAX_LIST_LIMIT, params.limit ?? DEFAULT_LIST_LIMIT));
     const docs = await this.model.find(filter).sort({ created_at: -1 }).limit(limit).lean();
-    return docs.map((doc: unknown) => MongooseUtils.toDomain<Job>(doc));
+    return docs.map((doc: unknown) => MongooseJobRepository.toDomainJob(doc));
   }
 
   async requestCancel(params: { job_id: string; now: Date; retention_sec: number }): Promise<Job | null> {
@@ -216,7 +216,7 @@ export class MongooseJobRepository implements JobRepository {
       )
       .exec();
 
-    if (cancelled) return MongooseUtils.toDomain<Job>(cancelled);
+    if (cancelled) return MongooseJobRepository.toDomainJob(cancelled);
 
     // A running job is only flagged; its worker notices on the next heartbeat.
     const flagged = await this.model
@@ -227,7 +227,7 @@ export class MongooseJobRepository implements JobRepository {
       )
       .exec();
 
-    return flagged ? MongooseUtils.toDomain<Job>(flagged) : null;
+    return flagged ? MongooseJobRepository.toDomainJob(flagged) : null;
   }
 
   async countByStatus(params?: { name?: JobName }): Promise<Record<JobStatus, number>> {
@@ -285,6 +285,18 @@ export class MongooseJobRepository implements JobRepository {
   private static withoutTimestamps(job: Job): Omit<Job, 'created_at' | 'updated_at'> {
     const { created_at, updated_at, ...rest } = job;
     return rest;
+  }
+
+  /**
+   * An upsert applies its filter's equality fields to the inserted document, so a
+   * system-wide job (no user_id) materializes the field as an explicit null. Both
+   * index identically, but `Job.user_id` is `string | undefined`, so drop it back
+   * out rather than hand callers a null the type says cannot exist.
+   */
+  private static toDomainJob(doc: unknown): Job {
+    const job = MongooseUtils.toDomain<Job>(doc);
+    if (job.user_id === null) delete (job as { user_id?: string | null }).user_id;
+    return job;
   }
 
   private static isDuplicateKeyError(err: unknown): boolean {

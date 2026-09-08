@@ -33,6 +33,9 @@ services:
       context: .
       dockerfile: Dockerfile
     image: cortex:dev
+    # Matches deploy/docker-compose.prod.yml: the in-process job worker needs
+    # longer than Compose's 10s default to flush checkpoints and release leases.
+    stop_grace_period: 30s
     command: ["node", "--enable-source-maps", "dist/web-server/server.js"]
     restart: unless-stopped
     depends_on:

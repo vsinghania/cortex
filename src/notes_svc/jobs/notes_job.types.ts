@@ -17,11 +17,24 @@ export const MAX_REINDEX_NOTE_IDS = 1000;
  * refreshing. `reembed` deletes chunks first, so every chunk is re-embedded - real
  * OpenAI spend.
  */
+/**
+ * `nullish`, not `optional`: a payload round-trips through Mongo, which serializes
+ * `undefined` to `null`, so an absent filter comes back as null on a resumed or
+ * re-read job. Normalizing here keeps the handler's type honest.
+ */
+const optionalIdList = (max: number) =>
+  z
+    .array(z.string().min(1))
+    .min(1)
+    .max(max)
+    .nullish()
+    .transform((value) => value ?? undefined);
+
 export const NotesReindexPayloadSchema = z
   .object({
     mode: z.enum(['rechunk', 'reembed']),
-    user_ids: z.array(z.string().min(1)).min(1).max(MAX_REINDEX_USER_IDS).optional(),
-    note_ids: z.array(z.string().min(1)).min(1).max(MAX_REINDEX_NOTE_IDS).optional(),
+    user_ids: optionalIdList(MAX_REINDEX_USER_IDS),
+    note_ids: optionalIdList(MAX_REINDEX_NOTE_IDS),
     dry_run: z.boolean().default(false)
   })
   .strict();
