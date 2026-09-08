@@ -46,6 +46,8 @@ Why it is a service and not a helper: indexing and querying must use the same mo
 
 The module's central idea is **two chunk shapes**: `RawRetrievedChunk` is what retrieval returns (chunk and vector stores only — `document_id` and `source` are opaque strings), and `RetrievedChunk` adds `document_title`, supplied by the owning domain service. Retrieval deliberately stops at the chunk level; resolving a document id into a title or a permission check is the domain's job. That seam is what makes a second corpus cheap.
 
+[citation_svc](citation_svc.md) mirrors that seam for display: it keeps its own `Map<Corpus, DocumentResolver>` so a cited chunk can be turned back into a current title without retrieval knowing anything about documents. A new corpus needs a retriever here and a resolver there.
+
 **Qdrant ranks, Mongo supplies text.** The vector store holds only `{user_id, note_id, source}` payload, so a hit is joined back to its chunk row for content; a hit whose row is missing is skipped rather than returned empty. `top_k` is clamped to `[1, 20]`.
 
 ## 5. Gotchas

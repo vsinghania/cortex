@@ -28,9 +28,13 @@ This is the part worth reading twice.
 
 [src/mcp/server/notes/](../src/mcp/server/notes/) — its own process (`npm run mcp:notes:dev`), with its own Mongo connection and Qdrant bootstrap. It shares databases with the web server, not memory.
 
-Tools, all backed by `NotesSvc` and all user-scoped: `notes_list`, `notes_get`, `notes_create`, `notes_update`, `notes_delete`, `notes_search` (lexical), `notes_search_semantic` (vector; returns ranked chunks with the `chunk_id` used for `[c:…]` citations).
+Tools, all backed by `NotesSvc` and all user-scoped: `notes_list`, `notes_get`, `notes_create`, `notes_update`, `notes_delete`, `notes_search` (lexical), `notes_search_semantic` (vector; returns ranked chunks whose `chunk_id` is what [citations](citation_svc.md) reference).
+
+Note what the semantic tool's description deliberately does **not** say: it states that `chunk_id` is stable and safe to reference, but never prescribes the `[c:…]` marker format. That syntax belongs to citation_svc and is taught by the agent's prompt, so a second agent calling the same tool does not silently inherit a citation convention it never asked for. A tool describes its data; the agent decides what referencing means.
 
 Every handler is the same three steps — `requireUserId()`, parse args with Zod, call `NotesSvc` — and returns both `content` (pretty JSON text) and `structuredContent`. Tool *descriptions* are the only documentation the model gets: write them for an LLM, saying when to call and what the fields mean.
+
+**`structuredContent` does not survive the agent path.** `@openai/agents-core`'s `callTool` keeps only `parsed.content` and discards `structuredContent` and `isError`, so for agent runs the text copy is the payload and the duplication in `toStructuredTextResult` is what makes it lossless. Two consequences: the model sees the payload double-encoded as `{"type":"text","text":"{…}"}`, and a tool that throws arrives as ordinary tool output with no error signal. `OpenAiSdkUtils.toToolContent` normalizes the result back into a single `{ type: 'json', data }` content part before it is persisted, so consumers read the payload directly instead of re-parsing a string — keep the text copy in any new tool, or that normalization has nothing to parse.
 
 ## 4. Client side
 

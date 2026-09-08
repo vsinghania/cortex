@@ -108,7 +108,7 @@ SPA ─POST /api/v1/agent/run─► AgentSvc ─► OpenAiAgent ─MCP, x-user-i
               answer citing [c:<chunk_id>] ◄────────────────────┘  → ConversationStore.appendTurn
 ```
 
-The seeded `notes-recall` agent is instructed to make exactly one `notes_search_semantic` call before answering and to cite every load-bearing claim as `[c:<chunk_id>]`. Grounding is enforced by prompt, but the cited ids are verifiable against the tool result.
+The seeded `notes-recall` agent is instructed to make exactly one `notes_search_semantic` call before answering and to cite every load-bearing claim as `[c:<chunk_id>]`. Grounding is enforced by prompt, but the cited ids are *verified*: [citation_svc](citation_svc.md) intersects the markers with the chunks that turn actually retrieved, so a fabricated id never becomes a citation. Only `{index, chunk_id, document_id, corpus}` is persisted — titles are resolved from live documents on every read.
 
 ### Capture by voice
 

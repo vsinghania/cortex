@@ -54,6 +54,8 @@ AgentSvc ──► AgentRegistry ──► BaseAgent (OpenAiAgent)
 - **Two MCP modes.** `SelfHosted` — we open the streamable-HTTP connection and own its lifecycle. `PublicHosted` — registered as a hosted MCP tool, no connection from us. Auth comes from `http.auth_token_env` read at refresh time; a missing env var skips that server with a warning.
 - **Cross-engine sub-agents are not supported** — mismatched engines are skipped with a warning.
 - **Conversation continuity rides on `previous_response_id`.** `appendTurn` stores the user and assistant messages plus the response id that the next call replays. A new conversation also gets a title from [ai_svc](ai_svc.md).
+- **Tool results are normalized on the way in.** `OpenAiSdkUtils.toToolContent` parses the result once and stores it as a `{type:'json'}` content part, because the agents SDK discards MCP `structuredContent` and hands back a stringified blob (see [mcp.md](mcp.md)). Consumers read the payload; they do not re-parse strings.
+- **Citations are extracted here but owned elsewhere.** `runByAgentId` hands this turn's tool payloads and the answer text to [citation_svc](citation_svc.md), persists the returned ids on the assistant message, and resolves them before returning. `getConversation` resolves the whole transcript in one pass. The boundary is plain data — `AgentSvc.toolPayloads` does the message-shape work — so agent_svc stays free of any domain module, an invariant [scripts/layering.test.ts](../scripts/layering.test.ts) enforces.
 
 ## 4. Tools
 
