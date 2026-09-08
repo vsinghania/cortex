@@ -181,8 +181,13 @@ export class NotesMcpModule extends McpModule {
       {
         title: 'Semantic Search Notes',
         description:
-          'Vector-search the user\'s notes for chunks relevant to a natural-language question. ' +
-          'Returns ranked chunks with stable chunk_id, parent note title/source, and snippet so callers can ground answers and cite chunks inline as [c:<chunk_id>].',
+          'Search note CONTENT by semantic similarity when the user is trying to recall ' +
+          'ideas, facts, decisions, opinions, or topics and their wording may differ from ' +
+          'the wording in the notes. Returns ranked content chunks for grounded answers. ' +
+          'Use notes_search instead when literal words or phrases matter. ' +
+          'Do NOT use this tool for listing notes, counting notes, browsing recent notes, ' +
+          'or retrieving an already-known note; use notes_list or notes_get instead. ' +
+          'Returned chunks include stable chunk_id values for citations as [c:<chunk_id>].',
         inputSchema: zSearchSemanticInput.shape,
         outputSchema: {
           chunks: z.array(z.any())
@@ -208,7 +213,12 @@ export class NotesMcpModule extends McpModule {
       'notes_list',
       {
         title: 'List Notes',
-        description: 'List notes for a user with optional text query, pagination.',
+        description: 'List and browse notes for the authenticated user, with optional filtering and pagination. ' +
+          'Use this for collection-level questions such as how many notes exist, recent notes, ' +
+          'listing notes, or browsing notes by source/filter. The response includes `total`, which ' +
+          'is the authoritative count for the matching collection. ' +
+          'Do NOT use this to answer questions about the meaning or contents of unknown notes; ' +
+          'use notes_search or notes_search_semantic instead.',
         inputSchema: zListInput.shape,
         outputSchema: {
           total: z.number(),
@@ -230,7 +240,9 @@ export class NotesMcpModule extends McpModule {
       'notes_get',
       {
         title: 'Get Note',
-        description: 'Get a note by locator: { id } or { source, external_id }, scoped to the authenticated user.',
+        description: 'Retrieve one specific note by a known locator: { id } or { source, external_id }. ' +
+          'Use this when the target note has already been identified. Do not search again when ' +
+          'a valid locator for the intended note is already available.',
         inputSchema: zGetInput.shape,
         outputSchema: {
           found: z.boolean(),
@@ -253,8 +265,9 @@ export class NotesMcpModule extends McpModule {
       {
         title: 'Create Note',
         description:
-          'Create a note. Omit source and external_id for a native (in-app) note; ' +
-          'pass both to create-or-update by composite key for a source-keyed note.',
+          'Create a new note. Use only when the user intends to create or save a note. ' +
+          'Omit source and external_id for a native in-app note; pass both for a ' +
+          'source-keyed create-or-update operation.',
         inputSchema: zCreateInputBase.shape,
         outputSchema: { note: z.any() }
       },
@@ -273,7 +286,9 @@ export class NotesMcpModule extends McpModule {
       'notes_update',
       {
         title: 'Update Note (partial)',
-        description: 'Update a note by locator with a partial patch.',
+        description: 'Partially update one existing note identified by locator. Use only when the user ' +
+          'intends to modify a note. If the intended note is not yet identified, first resolve ' +
+          'it using notes_list, notes_search, or notes_search_semantic as appropriate.',
         inputSchema: zUpdateInput.shape,
         outputSchema: {
           found: z.boolean(),
@@ -295,7 +310,9 @@ export class NotesMcpModule extends McpModule {
       'notes_delete',
       {
         title: 'Delete Note',
-        description: 'Delete a note by locator.',
+        description: 'Delete one existing note identified by locator. Use only when the user intends to ' +
+          'delete a note. If the intended note is ambiguous or its locator is unknown, first ' +
+          'resolve the target note.',
         inputSchema: zDeleteInput.shape,
         outputSchema: { success: z.boolean() }
       },
@@ -314,7 +331,11 @@ export class NotesMcpModule extends McpModule {
       'notes_search',
       {
         title: 'Search Notes',
-        description: 'Full-text search across title/body for the authenticated user.',
+        description: 'Full-text lexical search across note titles and bodies for the authenticated user. ' +
+          'Use this when the user provides words, phrases, names, titles, code symbols, or other ' +
+          'text expected to appear literally in a note. Prefer this over semantic search when ' +
+          'exact wording matters. Use notes_search_semantic instead for conceptual recall where ' +
+          'the wording may differ.',
         inputSchema: zSearchInput.shape,
         outputSchema: {
           total: z.number(),
