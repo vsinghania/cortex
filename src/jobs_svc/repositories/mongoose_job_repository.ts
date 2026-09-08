@@ -1,4 +1,3 @@
-import type { Connection } from 'mongoose';
 import type { Job, JobCheckpoint, JobName, JobProgress, JobSummary } from '../types/job.types.js';
 import { JobStatus } from '../types/job.types.js';
 import type {
@@ -21,17 +20,13 @@ const MAX_LIST_LIMIT = 200;
 export class MongooseJobRepository implements JobRepository {
   private static readonly factory = new JobModelFactory();
 
-  private constructor(
-    private readonly conn: Connection,
-    private readonly model: any
-  ) {}
+  private constructor(private readonly model: any) {}
 
   static async create(params?: { db?: string; host?: string; port?: number }): Promise<MongooseJobRepository> {
     const db = params?.db ?? DbNameResolver.resolve('jobs');
     const mgr = await MongooseConnectionManager.getInstance();
     const conn = await mgr.getDbConnection({ db, host: params?.host, port: params?.port });
-    const model = MongooseJobRepository.factory.getModel(conn);
-    return new MongooseJobRepository(conn, model);
+    return new MongooseJobRepository(MongooseJobRepository.factory.getModel(conn));
   }
 
   async enqueue(params: { job: Job }): Promise<{ job: Job; created: boolean }> {
@@ -42,11 +37,8 @@ export class MongooseJobRepository implements JobRepository {
       return { job: MongooseUtils.toDomain<Job>(created), created: true };
     }
 
-    // Upsert against uniq_job_dedup_active. A matched (rather than inserted)
-    // result means an active job already holds the key.
-    //
-    // run_at/visible_at live only in $setOnInsert: $setOnInsert and $min on the
-    // same path is a conflicting-path error.
+    // Upsert against uniq_job_dedup_active. The returned document is ours only when
+    // this call inserted; otherwise an active job already holds the key.
     const filter = {
       name: job.name,
       user_id: job.user_id ?? null,
@@ -55,19 +47,19 @@ export class MongooseJobRepository implements JobRepository {
     };
 
     try {
-      const before = await this.model.findOneAndUpdate(
+      const upserted = await this.model.findOneAndUpdate(
         filter,
-        { $setOnInsert: job },
-        { upsert: true, returnDocument: 'before', lean: true }
+        // Mongoose's timestamps plugin writes created_at/updated_at on an upsert, so
+        // carrying our own would be a conflicting-path error on the same field.
+        { $setOnInsert: MongooseJobRepository.withoutTimestamps(job) },
+        { upsert: true, returnDocument: 'after', lean: true }
       );
 
-      if (before) return { job: MongooseUtils.toDomain<Job>(before), created: false };
-
-      const inserted = await this.model.findOne({ id: job.id }).lean();
-      return { job: MongooseUtils.toDomain<Job>(inserted), created: true };
+      const domain = MongooseUtils.toDomain<Job>(upserted);
+      return { job: domain, created: domain.id === job.id };
     } catch (err) {
       if (!MongooseJobRepository.isDuplicateKeyError(err)) throw err;
-      // Lost an upsert race against the unique index; the winner is the active job.
+      // Lost an upsert race against the unique index; the winner holds the key.
       const existing = await this.model.findOne(filter).lean();
       if (!existing) throw err;
       return { job: MongooseUtils.toDomain<Job>(existing), created: false };
@@ -288,6 +280,11 @@ export class MongooseJobRepository implements JobRepository {
   /** locked_by is the fence: a stalled worker's write matches zero documents. */
   private static buildLeaseFilter(params: LeaseKey): Record<string, unknown> {
     return { id: params.job_id, locked_by: params.worker_id, status: JobStatus.Running };
+  }
+
+  private static withoutTimestamps(job: Job): Omit<Job, 'created_at' | 'updated_at'> {
+    const { created_at, updated_at, ...rest } = job;
+    return rest;
   }
 
   private static isDuplicateKeyError(err: unknown): boolean {
