@@ -1,4 +1,7 @@
 import { Link } from 'react-router-dom';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import type { Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Citation } from '../lib/agent.types';
 import { CitationText } from '../lib/citation_text';
 
@@ -29,31 +32,66 @@ function citationTitle(citation: Citation): string {
   return heading ? `${citation.document_title} — ${heading}` : citation.document_title;
 }
 
-export function ChatMessage({ role, text, citations }: Props) {
-  const segments = CitationText.parse(text, citations);
+function CitationChip({ citation }: { citation: Citation }) {
+  const href = citation.document_available ? citationHref(citation) : null;
+  if (!href) {
+    return (
+      <span className="chat-citation chat-citation-dead" title={citationTitle(citation)}>
+        {citation.index}
+      </span>
+    );
+  }
+  return (
+    <Link to={href} className="chat-citation" title={citationTitle(citation)}>
+      {citation.index}
+    </Link>
+  );
+}
 
+function markdownComponents(citations: Citation[]): Components {
+  const by_chunk_id = new Map(citations.map((c) => [c.chunk_id, c]));
+
+  return {
+    a({ href, children }) {
+      const chunk_id = CitationText.chunkIdFromHref(href);
+      const citation = chunk_id ? by_chunk_id.get(chunk_id) : undefined;
+      if (citation) return <CitationChip citation={citation} />;
+      return (
+        <a href={href} target="_blank" rel="noreferrer noopener">
+          {children}
+        </a>
+      );
+    },
+  };
+}
+
+function markdownUrlTransform(url: string): string {
+  return CitationText.isCitationHref(url) ? url : defaultUrlTransform(url);
+}
+
+function MessageBody({ role, text, citations }: Props) {
+  // User input is typed prose, not markdown - rendering it would mangle stray asterisks.
+  if (role === 'user') return <div className="chat-message-body">{text}</div>;
+
+  const resolved = citations ?? [];
+  return (
+    <div className="chat-message-body chat-message-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={markdownUrlTransform}
+        components={markdownComponents(resolved)}
+      >
+        {CitationText.toMarkdown(text, resolved)}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+export function ChatMessage({ role, text, citations }: Props) {
   return (
     <div className={`chat-message chat-message-${role}`}>
       <div className="chat-message-role">{role === 'user' ? 'You' : 'Assistant'}</div>
-      <div className="chat-message-body">
-        {segments.map((segment, i) => {
-          if (segment.type === 'text') return <span key={i}>{segment.text}</span>;
-          const { citation } = segment;
-          const href = citation.document_available ? citationHref(citation) : null;
-          if (!href) {
-            return (
-              <span key={i} className="chat-citation chat-citation-dead" title={citationTitle(citation)}>
-                {citation.index}
-              </span>
-            );
-          }
-          return (
-            <Link key={i} to={href} className="chat-citation" title={citationTitle(citation)}>
-              {citation.index}
-            </Link>
-          );
-        })}
-      </div>
+      <MessageBody role={role} text={text} citations={citations} />
       {citations && citations.length > 0 && (
         <div className="chat-sources">
           <div className="chat-sources-label">Sources</div>

@@ -45,6 +45,8 @@ React 18 + React Router, Vite, no state library. `/login` and `/register` are pu
 
 [api_client.ts](../web/src/lib/api_client.ts) is the only place `fetch` hits the API, and it owns the whole token dance: bearer from an in-memory `AuthStore`, `credentials: 'include'` for the refresh cookie, and **on a 401 it refreshes once and replays the request**, sharing one in-flight refresh across concurrent failures. Login, register and refresh are excluded from that path. It unwraps the envelope and throws a typed `ApiError`.
 
+Assistant turns render through react-markdown + `remark-gfm` (the model writes markdown whether or not the prompt asks for it); user turns stay literal `pre-wrap` text, so a typed `**` is not eaten. See [citation_svc.md](citation_svc.md) for how citation chips survive the markdown pass.
+
 Voice is the one exception to "talks only to the API" — the browser opens WebRTC straight to OpenAI. See [voice.md](voice.md).
 
 ## 5. Gotchas

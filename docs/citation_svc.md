@@ -95,6 +95,7 @@ Numbering stays dense in every case, because `index` was fixed at extraction tim
 - **Resolution needs a `user_id`.** Without one, `AgentRunResponse.citations` is `undefined` rather than views with everything marked unavailable.
 - **The persist path is best-effort.** `persistTurn` swallows write failures, so a caller can receive citations that were never saved and would vanish on reload. The response is not a receipt for the write.
 - **`(deleted)` is corpus-neutral** by necessity — the service cannot assume "note". A corpus-specific label belongs in the client, where the corpus is known.
+- **The SPA renders markers as markdown links, not as split text.** `CitationText.toMarkdown` rewrites each `[c:<id>]` into `[<index>](citation:<id>)` so the answer stays *one* markdown document, and `chat_message.tsx` swaps those links back into chips via a react-markdown `a` override. A marker with no matching citation is rewritten to the empty string. Anything that touches the marker syntax must keep the two in step.
 - **The SPA links only corpora it has a route for.** `CORPUS_ROUTES` in [chat_message.tsx](../web/src/components/chat_message.tsx) maps `notes → /notes`; an unmapped corpus renders as a dead reference. Adding a corpus means adding a resolver *and* a route.
 
 ## 7. Extending: a second corpus
