@@ -5,7 +5,8 @@ import type {
   NoteListParams,
   NoteListResult,
   NoteByIdKey,
-  NoteBySourceKey
+  NoteBySourceKey,
+  NoteMaintenanceParams
 } from './note_repository_interface.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
 import { NoteModelFactory, NoteTrashModelFactory } from '../models/index.js';
@@ -152,6 +153,43 @@ export class MongooseNoteRepository implements NoteRepository {
       items: items.map((i: any) => MongooseUtils.toDomain<Note>(i)),
       total
     };
+  }
+
+  async listNotesForMaintenance(params: NoteMaintenanceParams): Promise<Note[]> {
+    const docs = await this.model
+      .find(MongooseNoteRepository.buildMaintenanceFilter(params))
+      .sort({ id: 1 })
+      .limit(Math.max(1, params.limit))
+      .lean();
+    return docs.map((d: any) => MongooseUtils.toDomain<Note>(d));
+  }
+
+  async countNotesForMaintenance(
+    params: Omit<NoteMaintenanceParams, 'after_id' | 'limit'>
+  ): Promise<number> {
+    return this.model.countDocuments(MongooseNoteRepository.buildMaintenanceFilter(params));
+  }
+
+  /**
+   * Unscoped by design - a maintenance sweep may target every note. An empty
+   * user_ids/note_ids means "everything", which is the actual backfill case.
+   */
+  private static buildMaintenanceFilter(params: {
+    user_ids?: string[];
+    note_ids?: string[];
+    after_id?: string;
+  }): Record<string, unknown> {
+    const filter: Record<string, unknown> = {};
+
+    if (params.user_ids?.length) filter.user_id = { $in: params.user_ids };
+    if (params.note_ids?.length) filter.id = { $in: params.note_ids };
+    if (params.after_id) {
+      filter.id = params.note_ids?.length
+        ? { $in: params.note_ids, $gt: params.after_id }
+        : { $gt: params.after_id };
+    }
+
+    return filter;
   }
 
   private async snapshotThenDelete(filter: Record<string, unknown>): Promise<boolean> {

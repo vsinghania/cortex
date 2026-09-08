@@ -1,11 +1,15 @@
 /*
  * Enforces the module dependency directions the citation design rests on.
  *
- *   agent_svc ──→ citation_svc ──→ notes_svc
+ *   agent_svc ──→ citation_svc ──→ notes_svc ──→ jobs_svc
  *
  * agent_svc stays domain-agnostic, and citation_svc must never import agent_svc or the
  * chain becomes a cycle. These are conventions that are easy to breach one import at a
  * time, so they are asserted rather than documented.
+ *
+ * jobs_svc is the strictest of them: it is a generic queue, so it must not name a
+ * domain concept at all. Handlers are registered into it from the composition root
+ * (web-server), which is why the dependency runs notes_svc -> jobs_svc and never back.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -21,6 +25,18 @@ const RULES: Rule[] = [
   { module: 'agent_svc', forbidden: ['notes_svc', 'retrieval_svc'] },
   { module: 'citation_svc', forbidden: ['agent_svc'] },
   { module: 'notes_svc', forbidden: ['agent_svc', 'citation_svc'] },
+  {
+    module: 'jobs_svc',
+    forbidden: [
+      'agent_svc',
+      'ai_svc',
+      'citation_svc',
+      'embeddings_svc',
+      'notes_svc',
+      'retrieval_svc',
+      'voice_svc'
+    ]
+  },
 ];
 
 function tsFilesUnder(dir: string): string[] {
