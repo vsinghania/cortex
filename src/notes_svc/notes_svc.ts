@@ -1,7 +1,10 @@
 import type { Note, NoteContainer, NoteLocator, NoteMetadata, NoteVectorization } from './types/note.types.js';
 import { NoteSource, SyncStatus } from './types/note.types.js';
 import type { NoteRepository, NoteListParams as RepoListParams, NoteListResult as RepoListResult } from './repositories/note_repository_interface.js';
+import type { NoteChunkRepository } from './repositories/note_chunk_repository_interface.js';
+import type { NoteChunk } from './types/note_chunk.types.js';
 import { MongooseNoteRepository } from './repositories/mongoose_note_repository.js';
+import { MongooseNoteChunkRepository } from './repositories/mongoose_note_chunk_repository.js';
 import { NotesVectorizationSvc } from './notes_vectorization_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
 import type { RawRetrievedChunk, RetrievedChunk, RetrieveParams } from '../retrieval_svc/types/retrieval.types.js';
@@ -50,6 +53,7 @@ export type NotePatch = Partial<Omit<Note, 'id' | 'user_id' | 'source' | 'extern
 export class NotesSvc {
 
   private vectorization_svc?: NotesVectorizationSvc;
+  private chunk_repo?: NoteChunkRepository;
 
   constructor(private readonly notes_repo: NoteRepository) {}
 
@@ -179,6 +183,27 @@ export class NotesSvc {
     return chunks;
   }
 
+  async getNotesByIds(params: { user_id: string; ids: string[] }): Promise<Note[]> {
+    if (params.ids.length === 0) return [];
+    return this.notes_repo.getNotesByIds(params);
+  }
+
+  async getChunksByIds(params: { user_id: string; ids: string[] }): Promise<NoteChunk[]> {
+    if (params.ids.length === 0) return [];
+    const repo = await this.chunkRepo();
+    return repo.getChunksByIds(params);
+  }
+
+  /**
+   * Resolves a single chunk for citation deep-links. Scoped by user in the repo query
+   * and additionally checked against the note it is claimed to belong to.
+   */
+  async getChunk(params: { user_id: string; note_id: string; chunk_id: string }): Promise<NoteChunk | null> {
+    const [chunk] = await this.getChunksByIds({ user_id: params.user_id, ids: [params.chunk_id] });
+    if (!chunk || chunk.note_id !== params.note_id) return null;
+    return chunk;
+  }
+
   async revectorizeNote(params: { user_id: string; note_id: string }): Promise<NoteVectorization | null> {
     const svc = await this.vectorizationSvc();
     return svc.revectorizeNote(params);
@@ -200,6 +225,13 @@ export class NotesSvc {
     } catch (err) {
       logger.warn({ err, note_id }, 'note vector cleanup failed');
     }
+  }
+
+  private async chunkRepo(): Promise<NoteChunkRepository> {
+    if (!this.chunk_repo) {
+      this.chunk_repo = await MongooseNoteChunkRepository.create({ db: DbNameResolver.resolve('notes') });
+    }
+    return this.chunk_repo;
   }
 
   private async vectorizationSvc(): Promise<NotesVectorizationSvc> {

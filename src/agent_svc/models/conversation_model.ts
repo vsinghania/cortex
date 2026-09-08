@@ -64,6 +64,7 @@ export class ConversationMessageModelFactory extends BaseModelFactory<Conversati
         tool_call_id: { type: String, default: undefined },
         tool_calls: { type: [ToolCallSchema], default: undefined },
         provider_response_id: { type: String, default: undefined },
+        citations: { type: Schema.Types.Mixed, default: undefined },
         usage: { type: UsageSchema, default: undefined },
         model: { type: String, default: undefined },
       },

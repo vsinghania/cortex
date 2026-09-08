@@ -5,7 +5,9 @@ import type {
   AgentUpdatePatch,
 } from './types/agent.types.js';
 import { AgentEngine } from './types/agent.types.js';
-import type { Message } from './types/message.types.js';
+import { Role, type Message } from './types/message.types.js';
+import type { Citation, CitationView } from '../citation_svc/types/citation.types.js';
+import { CitationSvc } from '../citation_svc/citation_svc.js';
 import type {
   AgentSvcInterface,
   ConversationWithMessages,
@@ -16,7 +18,7 @@ import type {
   RunByAgentIdInput,
   UpdateAgentInput,
 } from './agent_svc_interface.js';
-import type { Conversation } from './types/conversation.types.js';
+import type { Conversation, ConversationMessage, ConversationMessageView } from './types/conversation.types.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../common/errors.js';
 import { AgentRegistry } from './registry/agent_registry.js';
 import { ToolRegistry } from './tools/tool_registry.js';
@@ -149,7 +151,13 @@ export class AgentSvc implements AgentSvcInterface {
     const response = await agent.run(req);
     const duration_ms = Time.elapsedMs(start_ms);
 
-    await this.persistTurn(agent, req, response);
+    const citations = CitationSvc.extract({
+      tool_payloads: AgentSvc.toolPayloads(AgentSvc.diffNewMessages(req, response)),
+      answer_text: response.final_output_text,
+    });
+
+    await this.persistTurn(agent, req, response, citations);
+    response.citations = await AgentSvc.resolveCitations(input.user_id, citations);
     await title_promise;
 
     logger.info(
@@ -158,6 +166,7 @@ export class AgentSvc implements AgentSvcInterface {
         conversation_id: response.conversation_id,
         model: response.model,
         message_count: response.message_history.length,
+        citation_count: citations.length,
         usage: response.usage,
         stop_reason: response.stop_reason,
         duration_ms,
@@ -215,6 +224,7 @@ export class AgentSvc implements AgentSvcInterface {
       throw new NotFoundError(`Conversation not found: ${input.conversation_id}`);
     }
     const messages = await conversation_store.listMessages(conversation.conversation_id);
+    const resolved = await AgentSvc.resolveMessageCitations(input.user_id, messages);
     logger.info(
       {
         user_id: input.user_id,
@@ -223,7 +233,7 @@ export class AgentSvc implements AgentSvcInterface {
       },
       'fetched conversation'
     );
-    return { conversation, messages };
+    return { conversation, messages: resolved };
   }
 
   private async generateAndPersistTitle(
@@ -245,11 +255,15 @@ export class AgentSvc implements AgentSvcInterface {
   private async persistTurn(
     agent: BaseAgent,
     req: AgentRunRequest,
-    response: AgentRunResponse
+    response: AgentRunResponse,
+    citations: Citation[]
   ): Promise<void> {
     if (!response.conversation_id) return;
 
-    const new_messages = AgentSvc.diffNewMessages(req, response);
+    const new_messages = AgentSvc.withCitations(
+      AgentSvc.diffNewMessages(req, response),
+      citations
+    );
     if (!new_messages.length) return;
 
     try {
@@ -282,6 +296,107 @@ export class AgentSvc implements AgentSvcInterface {
   ): Message[] {
     const prior_count = req.message_history?.length ?? 0;
     return response.message_history.slice(prior_count);
+  }
+
+  /**
+   * Pulls retrieval payloads out of this turn's tool messages. Message shape is agent_svc's
+   * business; citation_svc takes plain data so it never has to import these types.
+   *
+   * Tool results are normalized to a single JSON part by OpenAiSdkUtils.toToolContent; the
+   * text branch covers non-JSON output and transcripts written before that normalization.
+   */
+  private static toolPayloads(messages: Message[]): unknown[] {
+    const out: unknown[] = [];
+    for (const message of messages) {
+      if (message.role !== Role.Tool) continue;
+      for (const part of message.content) {
+        if (part.type === 'json') out.push(part.data);
+        else if (part.type === 'text') {
+          const parsed = AgentSvc.tryParseJson(part.text);
+          if (parsed !== undefined) out.push(parsed);
+        }
+      }
+    }
+    return out;
+  }
+
+  private static tryParseJson(text: string): unknown {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('{')) return undefined;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolves every assistant message's citations in one pass, so a transcript costs the
+   * same query budget as a single message.
+   */
+  private static async resolveMessageCitations(
+    user_id: string,
+    messages: ConversationMessage[]
+  ): Promise<ConversationMessageView[]> {
+    const carriers = messages.filter(
+      (m): m is ConversationMessage & { citations: Citation[] } =>
+        m.role === Role.Assistant && !!m.citations?.length
+    );
+    if (carriers.length === 0) return messages.map((m) => AgentSvc.stripCitations(m));
+
+    const citation_svc = await CitationSvc.getInstance();
+    const resolved = await citation_svc.resolveGroups({
+      user_id,
+      groups: carriers.map((m) => m.citations),
+    });
+
+    const views_by_message = new Map(carriers.map((m, i) => [m, resolved[i]]));
+    return messages.map((message) => {
+      const views = views_by_message.get(message as never);
+      const stripped = AgentSvc.stripCitations(message);
+      return views ? { ...stripped, citations: views } : stripped;
+    });
+  }
+
+  private static stripCitations(message: ConversationMessage): ConversationMessageView {
+    if (message.role !== Role.Assistant) return message;
+    const { citations: _stored, ...rest } = message;
+    return rest;
+  }
+
+  /** Resolution is user-scoped; without a user there is nothing honest to return. */
+  private static async resolveCitations(
+    user_id: string | undefined,
+    citations: Citation[]
+  ): Promise<CitationView[] | undefined> {
+    if (!user_id) return undefined;
+    if (citations.length === 0) return [];
+    const citation_svc = await CitationSvc.getInstance();
+    return citation_svc.resolve({ user_id, citations });
+  }
+
+  /**
+   * Attaches citations to the answer-bearing assistant message so a reopened
+   * conversation renders them without re-parsing tool output. Returns a new array;
+   * the response's own message_history is left untouched.
+   */
+  private static withCitations(messages: Message[], citations?: Citation[]): Message[] {
+    if (!citations?.length) return messages;
+
+    const target_index = AgentSvc.findLastAssistantTextIndex(messages);
+    if (target_index === -1) return messages;
+
+    const out = [...messages];
+    out[target_index] = { ...out[target_index], citations } as Message;
+    return out;
+  }
+
+  private static findLastAssistantTextIndex(messages: Message[]): number {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === Role.Assistant && m.content.length > 0) return i;
+    }
+    return -1;
   }
 
   private static async resolveCreateAgentId(

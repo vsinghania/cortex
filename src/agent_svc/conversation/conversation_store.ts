@@ -154,6 +154,7 @@ export class ConversationStore {
           content: m.content,
           tool_calls: m.tool_calls,
           provider_response_id: m.provider_response_id,
+          citations: m.citations,
         };
       case Role.Tool:
         return {

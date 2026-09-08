@@ -5,6 +5,7 @@ import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js'
 import { NotesSvc } from '../../notes_svc/notes_svc.js';
 import { NotFoundError } from '../../common/errors.js';
 import type { NoteContainer } from '../../notes_svc/types/note.types.js';
+import type { NoteChunk, NoteChunkRef } from '../../notes_svc/types/note_chunk.types.js';
 
 const NoteContainerSchema: z.ZodType<NoteContainer> = z.object({
   container_type: z.enum(['notebook', 'database', 'folder', 'page', 'section', 'collection', 'other']),
@@ -49,6 +50,11 @@ const NoteParamsSchema = z.object({
   id: z.string().min(1)
 });
 
+const NoteChunkParamsSchema = z.object({
+  id: z.string().min(1),
+  chunk_id: z.string().min(1)
+});
+
 type NoteCreateBody = z.infer<typeof NoteCreateBodySchema>;
 type NotePatchBody = z.infer<typeof NotePatchBodySchema>;
 
@@ -69,6 +75,7 @@ export class NotesController {
     this.router.use(RequireAuthMiddleware.requireAuth);
     this.router.post('/', this.createNote.bind(this));
     this.router.get('/', this.listNotes.bind(this));
+    this.router.get('/:id/chunks/:chunk_id', this.getNoteChunk.bind(this));
     this.router.get('/:id', this.getNote.bind(this));
     this.router.patch('/:id', this.updateNote.bind(this));
     this.router.delete('/:id', this.deleteNote.bind(this));
@@ -115,6 +122,33 @@ export class NotesController {
     } catch (e) {
       next(e);
     }
+  }
+
+  @validateRequest({ params: NoteChunkParamsSchema })
+  private async getNoteChunk(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { id, chunk_id } = req.params as { id: string; chunk_id: string };
+      const user_id = req.auth!.user_id;
+      const notes_svc = await NotesSvc.create();
+      const chunk = await notes_svc.getChunk({ user_id, note_id: id, chunk_id });
+      if (!chunk) throw new NotFoundError('Note chunk not found');
+      res.status(200).json({ response: { chunk: NotesController.toChunkRef(chunk) } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  /** Trims embedding bookkeeping (hash, vectorization) off the wire shape. */
+  private static toChunkRef(chunk: NoteChunk): NoteChunkRef {
+    return {
+      id: chunk.id,
+      note_id: chunk.note_id,
+      chunk_index: chunk.chunk_index,
+      heading_path: chunk.heading_path,
+      start_offset: chunk.start_offset,
+      end_offset: chunk.end_offset,
+      content: chunk.content
+    };
   }
 
   @validateRequest({ params: NoteParamsSchema, body: NotePatchBodySchema })

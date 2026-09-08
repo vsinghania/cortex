@@ -187,7 +187,7 @@ export class NotesMcpModule extends McpModule {
           'Use notes_search instead when literal words or phrases matter. ' +
           'Do NOT use this tool for listing notes, counting notes, browsing recent notes, ' +
           'or retrieving an already-known note; use notes_list or notes_get instead. ' +
-          'Returned chunks include stable chunk_id values for citations as [c:<chunk_id>].',
+          'Returned chunks include stable chunk_id values that are safe to reference.',
         inputSchema: zSearchSemanticInput.shape,
         outputSchema: {
           chunks: z.array(z.any())

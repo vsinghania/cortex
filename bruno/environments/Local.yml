@@ -10,3 +10,5 @@ variables:
     value: smoke-notes-agent
   - name: note_id
     value: ""
+  - name: chunk_id
+    value: ""

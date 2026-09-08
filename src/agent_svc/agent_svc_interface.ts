@@ -10,7 +10,7 @@ import type {
 import type { Message } from './types/message.types.js';
 import type {
   Conversation,
-  ConversationMessage,
+  ConversationMessageView,
 } from './types/conversation.types.js';
 
 export type RunByAgentIdInput = {
@@ -59,7 +59,7 @@ export type GetConversationInput = {
 
 export type ConversationWithMessages = {
   conversation: Conversation;
-  messages: ConversationMessage[];
+  messages: ConversationMessageView[];
 };
 
 export interface AgentSvcInterface {

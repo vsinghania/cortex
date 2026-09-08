@@ -1,5 +1,6 @@
 import { AgentEngine } from '../types/agent.types.js';
 import { MongooseAgentRepository } from '../repositories/mongoose_agent_repository.js';
+import { CitationExtractor } from '../../citation_svc/citation_extractor.js';
 import { logger } from '../../common/logger.js';
 
 const AGENT_ID = 'notes-recall';
@@ -15,7 +16,8 @@ const SYSTEM_PROMPT = [
   '',
   'Grounding and citation rules:',
   '- Ground your answer ONLY in the chunks returned by notes_search_semantic. Do not invent facts.',
-  '- Cite each load-bearing claim inline with the marker [c:<chunk_id>] using the exact chunk_id from the tool result.',
+  // The marker syntax is citation_svc's to define; the prompt is the only place it is taught.
+  `- Cite each load-bearing claim inline with the marker ${CitationExtractor.MARKER_SYNTAX} using the exact chunk_id from the tool result.`,
   '- Group multiple citations like [c:abc][c:def] when several chunks support the same claim.',
   '- Keep answers concise and quote sparingly; prefer paraphrase + citation over long verbatim quotes.',
   '',

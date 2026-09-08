@@ -1,5 +1,6 @@
 import type { AgentUsage } from './agent.types.js';
 import type { Message } from './message.types.js';
+import type { CitationView } from '../../citation_svc/types/citation.types.js';
 
 export type Conversation = {
   conversation_id: string;
@@ -20,6 +21,20 @@ export type ConversationMessageMeta = {
 };
 
 export type ConversationMessage = Message & ConversationMessageMeta;
+
+/**
+ * A message on its way out, with stored citations swapped for resolved ones.
+ *
+ * Distributes over the message union so each member keeps its own discriminant and fields;
+ * a plain Omit would collapse them to their common properties.
+ */
+type WithCitationView<T> = T extends unknown
+  ? 'citations' extends keyof T
+    ? Omit<T, 'citations'> & { citations?: CitationView[] }
+    : T
+  : never;
+
+export type ConversationMessageView = WithCitationView<ConversationMessage>;
 
 export type AppendTurnInput = {
   conversation_id: string;

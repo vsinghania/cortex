@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CitationSchema } from '../../citation_svc/types/citation.types.js';
 
 export enum Role {
   System = 'system',
@@ -51,6 +52,7 @@ export const AssistantMessageSchema = z.object({
   content: ContentSchema,
   tool_calls: z.array(ToolCallSchema).optional(),
   provider_response_id: z.string().optional(),
+  citations: z.array(CitationSchema).optional(),
 });
 
 export const ToolMessageSchema = z.object({

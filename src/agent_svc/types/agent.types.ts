@@ -2,6 +2,7 @@ import type { AnyZodObject } from 'zod';
 import type { Logger } from 'pino';
 import type { JsonSchemaDefinition } from '@openai/agents';
 import type { Message } from './message.types.js';
+import type { CitationView } from '../../citation_svc/types/citation.types.js';
 
 export type AgentOutputSchema = JsonSchemaDefinition['schema'];
 
@@ -96,4 +97,6 @@ export type AgentRunResponse = {
   model?: string;
   conversation_id?: string;
   stop_reason: AgentStopReason;
+  /** Citations from final_output_text, already joined with live document data. */
+  citations?: CitationView[];
 };
