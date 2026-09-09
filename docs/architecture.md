@@ -65,6 +65,7 @@ The user id travels: JWT claim → `req.auth.user_id` → `TraceContext` → `x-
 | [agent_svc.md](agent_svc.md) | Agent manifests, registries, tools, MCP wiring, conversations |
 | [ai_svc.md](ai_svc.md) | Single-shot text and structured generation |
 | [recall.md](recall.md) | Notes, chunking, embeddings, semantic retrieval |
+| [jobs_svc.md](jobs_svc.md) | Durable background work: claiming, leases, resumable sweeps |
 | [mcp.md](mcp.md) | MCP server framework, notes tools, client, reverse proxy |
 | [auth.md](auth.md) | JWT access tokens, rotating refresh sessions, users |
 | [voice.md](voice.md) | Ephemeral OpenAI Realtime sessions |
@@ -80,7 +81,8 @@ web-server ──► auth ──► user
            │              └► mcp client ──────────► notes MCP server
            ├─► notes ─┬► embeddings ──────────────► OpenAI
            │          └► retrieval ──► embeddings + Qdrant
-           └─► voice ──────────────────────────────► OpenAI Realtime
+           ├─► voice ──────────────────────────────► OpenAI Realtime
+           └─► jobs_svc ◄── notes (handlers registered at bootstrap)
 
 common/ · lib/ · db/   — used by all, depend on none
 ```
@@ -130,19 +132,21 @@ Audio never touches our servers. The browser gets a short-lived secret; the inst
 | `user` / `auth` | users / refresh-token sessions |
 | `notes` | notes, note chunks, note trash |
 | `agent` | agent + MCP server manifests, conversations, messages |
+| `jobs` | background jobs (claim, lease, checkpoint, TTL'd history) |
 
 **Qdrant** holds `note_chunks_vec` — cosine, sized from the embedding model, payload-indexed on `user_id`. Point ids are chunk ids: Mongo owns chunk text, Qdrant owns vectors plus `{user_id, note_id, source}`.
 
 ## 7. Startup and lifecycle
 
-`Server.start()` runs, in order: Mongo connect (**fatal**), Qdrant collection bootstrap, `RetrievalSvc.create()`, `NotesRecallAgentSeed.ensure()`, `AgentSvc.create()` (warms tool/agent/MCP registries and compiles the agent graph), `AiSvc.getInstance()`. Everything after Mongo is warn-only.
+`Server.start()` runs, in order: Mongo connect (**fatal**), Qdrant collection bootstrap, `RetrievalSvc.create()`, `NotesRecallAgentSeed.ensure()`, `AgentSvc.create()` (warms tool/agent/MCP registries and compiles the agent graph), `AiSvc.getInstance()`, job-handler registration (**fatal** — a handler that fails to register means its jobs stop being claimed with no error anywhere), then the job worker. Everything else after Mongo is warn-only.
 
-The rule is **degrade, don't crash**: only the database is required to boot; every other failure logs a warning and surfaces on the request that needs it. `AgentRegistry` and `McpServerRegistry` then refresh themselves every 10 minutes. `SIGINT`/`SIGTERM` closes Mongo, then the HTTP server.
+The rule is **degrade, don't crash**: only the database is required to boot; every other failure logs a warning and surfaces on the request that needs it. `AgentRegistry` and `McpServerRegistry` then refresh themselves every 10 minutes. `SIGINT`/`SIGTERM` stops accepting, drains the job worker, *then* closes Mongo — in that order, because the drain needs the database alive to flush checkpoints and release leases — with a forced exit at 28s inside the 30s compose `stop_grace_period`.
 
 ## 8. Known rough edges
 
 - **MCP server manifests are not seeded.** `NotesRecallAgentSeed` references `mcp_server_id: 'notes'`, but nothing inserts that `McpServerManifest` row and there is no admin route for it — on a fresh database the recall agent silently has no tools.
 - **Semantic search has no REST route.** `notes_search_semantic` is MCP-only; the HTTP notes API is CRUD plus lexical search.
-- **Vectorization is synchronous with the write.** A slow embedding call slows the note response, and there is no queue or retry beyond an explicit `revectorizeNote`.
+- **Vectorization is still synchronous with the write.** A slow embedding call slows the note response. [jobs_svc](jobs_svc.md) now exists and is the obvious home for it, but nothing has moved yet — the only repair remains an explicit `revectorizeNote`, or the admin re-index sweep.
+- **Background jobs have no routing.** One undifferentiated pool, global FIFO, so a bulk sweep can occupy every worker while a cheap job waits behind it. See [jobs_svc.md](jobs_svc.md) §9.
 - **The MCP proxy does not authenticate.** It forwards whatever `Authorization` header it gets; the notes MCP server's bearer check is the only gate.
 - **`NotesSvc` and `AuthSvc` are constructed per request** while every other service is a singleton — cheap, but two conventions for one thing.
