@@ -48,11 +48,7 @@ export class JobWorker {
    * misconfiguration: JOBS_WORKER_ENABLED=false is the explicit way to run a
    * process that does not work jobs.
    */
-  static async create(params?: {
-    /** Point the worker at another database - used by the smoke scripts. */
-    repo?: JobRepository;
-    config?: Partial<JobWorkerConfig>;
-  }): Promise<JobWorker> {
+  static async create(): Promise<JobWorker> {
     const registry = JobHandlerRegistry.getInstance();
     if (registry.registeredNames().length === 0) {
       throw new Error(
@@ -60,9 +56,13 @@ export class JobWorker {
       );
     }
 
-    const config = { ...JobWorkerConfigLoader.fromEnv(), ...params?.config };
-    const repo = params?.repo ?? (await MongooseJobRepository.create());
-    return new JobWorker(repo, registry, config);
+    // Every knob is already an env var by design, so there is nothing to override
+    // here: JOBS_* for the worker, MONGO_DB_JOBS for the database.
+    return new JobWorker(
+      await MongooseJobRepository.create(),
+      registry,
+      JobWorkerConfigLoader.fromEnv()
+    );
   }
 
   start(): void {

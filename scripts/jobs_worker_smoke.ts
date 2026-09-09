@@ -12,6 +12,14 @@ import { Time } from '../src/lib/time.js';
 
 const DB = 'cortex_jobs_worker_smoke_db';
 
+// Configure through the real env path rather than constructor overrides, so this
+// also exercises DbNameResolver and JobWorkerConfigLoader.fromEnv. Set before any
+// repository or worker is created - both read process.env at construction time.
+process.env.MONGO_DB_JOBS = DB;
+process.env.JOBS_POLL_INTERVAL_MS = '100';
+process.env.JOBS_CONCURRENCY = '2';
+process.env.JOBS_LEASE_MS = String(Time.secondsToMs(30));
+
 let passed = 0;
 let failed = 0;
 
@@ -87,7 +95,7 @@ async function main(): Promise<void> {
   const port = Number(process.env.MONGO_PORT ?? 27017);
   await MongooseConnectionManager.getInstance({ host, port });
 
-  const repo = await MongooseJobRepository.create({ db: DB });
+  const repo = await MongooseJobRepository.create();
   const mgr = await MongooseConnectionManager.getInstance();
   const conn = await mgr.getDbConnection({ db: DB });
   await conn.collection('jobs').deleteMany({});
@@ -125,10 +133,7 @@ async function main(): Promise<void> {
 
   registry.registerMany([ok_handler, flaky_handler, permanent_handler, slow_handler]);
 
-  const worker = await JobWorker.create({
-    repo,
-    config: { poll_interval_ms: 100, concurrency: 2, lease_ms: Time.secondsToMs(30) }
-  });
+  const worker = await JobWorker.create();
   worker.start();
 
   console.log('\nhappy path');
@@ -217,10 +222,7 @@ async function main(): Promise<void> {
     const resumed_from = (stale!.checkpoint as any).after_id as string;
     const progress_before = stale!.progress.processed as number;
 
-    const worker_two = await JobWorker.create({
-      repo,
-      config: { poll_interval_ms: 100, concurrency: 1, lease_ms: Time.secondsToMs(30) }
-    });
+    const worker_two = await JobWorker.create();
     worker_two.start();
 
     await waitFor(async () => {
