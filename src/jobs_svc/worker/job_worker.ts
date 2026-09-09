@@ -56,8 +56,6 @@ export class JobWorker {
       );
     }
 
-    // Every knob is already an env var by design, so there is nothing to override
-    // here: JOBS_* for the worker, MONGO_DB_JOBS for the database.
     return new JobWorker(
       await MongooseJobRepository.create(),
       registry,
