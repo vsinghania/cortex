@@ -127,7 +127,6 @@ async function main(): Promise<void> {
 
   const worker = await JobWorker.create({
     repo,
-    registry,
     config: { poll_interval_ms: 100, concurrency: 2, lease_ms: Time.secondsToMs(30) }
   });
   worker.start();
@@ -220,7 +219,6 @@ async function main(): Promise<void> {
 
     const worker_two = await JobWorker.create({
       repo,
-      registry,
       config: { poll_interval_ms: 100, concurrency: 1, lease_ms: Time.secondsToMs(30) }
     });
     worker_two.start();

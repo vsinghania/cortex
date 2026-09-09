@@ -2,11 +2,6 @@ import type { JobName } from '../types/job.types.js';
 import type { JobHandler } from '../types/job_handler.types.js';
 import { NotFoundError } from '../../common/errors.js';
 
-/**
- * Mirrors ToolRegistry. Handlers are registered from OUTSIDE jobs_svc at bootstrap,
- * which is what keeps this module free of domain imports and lets layering.test.ts
- * forbid jobs_svc -> notes_svc outright.
- */
 export class JobHandlerRegistry {
   private static instance: JobHandlerRegistry | null = null;
 

@@ -49,11 +49,11 @@ export class JobWorker {
    * process that does not work jobs.
    */
   static async create(params?: {
+    /** Point the worker at another database - used by the smoke scripts. */
     repo?: JobRepository;
-    registry?: JobHandlerRegistry;
     config?: Partial<JobWorkerConfig>;
   }): Promise<JobWorker> {
-    const registry = params?.registry ?? JobHandlerRegistry.getInstance();
+    const registry = JobHandlerRegistry.getInstance();
     if (registry.registeredNames().length === 0) {
       throw new Error(
         'JobWorker.create: no job handlers registered. Register handlers at bootstrap, or set JOBS_WORKER_ENABLED=false.'
