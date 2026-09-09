@@ -12,3 +12,5 @@ variables:
     value: ""
   - name: chunk_id
     value: ""
+  - name: job_id
+    value: ""
