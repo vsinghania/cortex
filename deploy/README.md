@@ -1,12 +1,11 @@
 # deploy
 
-Compose stacks and manifests for running Cortex outside local dev.
+Compose stacks for running Cortex outside local dev.
 
 - [aws.md](aws.md) — the current Phase 1 AWS deployment: architecture, access, and the CI/CD flow.
 - [docker-compose.prod.yml](docker-compose.prod.yml) — the production stack (web-server, mcp-notes, mongodb, qdrant). Shipped to the instance by `deploy-api`, where it lands as `compose.yaml`.
 - [remote-deploy.sh](remote-deploy.sh) — runs on the instance under SSM to apply a release; not intended to be run by hand.
 - [docker-compose.debug.yml](docker-compose.debug.yml) — overlay that adds a Node inspector; never run on its own.
-- [k8s/](k8s/) and [kind/](kind/) — Kubernetes manifests and a local kind cluster (Phase 3+, not the current deployment).
 
 ## Running the production stack
 

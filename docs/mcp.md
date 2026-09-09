@@ -49,6 +49,6 @@ Every handler is the same three steps — `requireUserId()`, parse args with Zod
 ## 6. Extending
 
 - **New tool** → a Zod schema and a `registerXTool(server)` method in the module, registered via the inherited wrapper.
-- **New MCP server** → subclass `McpModule` and `BaseMcpHttpServer`, add an entry point, npm scripts and a compose/k8s service; then insert an `McpServerManifest` row to let agents use it.
+- **New MCP server** → subclass `McpModule` and `BaseMcpHttpServer`, add an entry point, npm scripts and a compose service; then insert an `McpServerManifest` row to let agents use it.
 
 Smoke tests: `npm run mcp:smoke` (client against the server) and `npm run agent:smoke:notes-mcp` (an agent run through the tools).

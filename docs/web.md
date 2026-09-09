@@ -54,5 +54,5 @@ Voice is the one exception to "talks only to the API" — the browser opens WebR
 - **A page reload logs the user out.** `AuthStore` is memory-only and nothing calls `/auth/refresh` on mount, so a valid `rt` cookie goes unused.
 - **Client types are copies, not imports.** `web/src/lib/*.types.ts` mirrors server shapes by hand; a changed payload fails at runtime, not at build. Update both in one change.
 - **CORS.** `CORS_ORIGINS` must list the SPA origin, since every request is credentialed; unset means reflect any origin.
-- **The SPA is not built or deployed by the Node image** — compose and k8s ship the API and MCP server only.
+- **The SPA is not built or deployed by the Node image** — compose ships the API and MCP server only.
 - **`/ai/*` handlers do not call `next(e)`**, relying on Express 5 promise handling, unlike every other controller.
