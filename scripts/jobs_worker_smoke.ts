@@ -171,6 +171,28 @@ async function main(): Promise<void> {
     assert.match(done!.last_error ?? '', /bad payload/);
   });
 
+  console.log('\ndeadlines');
+  const before_runs = ok_handler.runs;
+  await check('a job claimed past its deadline is skipped, not run', async () => {
+    // The lateness could come from anywhere - a late scheduler, a backlog, a
+    // worker that was down. The worker is the only component present at the
+    // moment work starts, so it is the one that decides.
+    const job = buildJob('smoke_ok', { deadline_at: new Date(Date.now() - 1000) });
+    await repo.enqueue({ job });
+
+    await waitFor(async () => (await repo.getById(job.id))?.status === JobStatus.Cancelled);
+    const skipped = await repo.getById(job.id);
+    assert.equal(skipped!.result?.skipped, 'deadline_exceeded');
+    assert.equal(ok_handler.runs, before_runs, 'the handler must never have been invoked');
+  });
+
+  await check('a job inside its deadline runs normally', async () => {
+    const job = buildJob('smoke_ok', { deadline_at: new Date(Date.now() + Time.minutesToMs(5)) });
+    await repo.enqueue({ job });
+
+    await waitFor(async () => (await repo.getById(job.id))?.status === JobStatus.Succeeded);
+  });
+
   console.log('\nunknown handler');
   await check('a job with no registered handler is released, not failed', async () => {
     const job = buildJob('smoke_unregistered');

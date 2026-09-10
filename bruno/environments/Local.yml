@@ -14,3 +14,5 @@ variables:
     value: ""
   - name: job_id
     value: ""
+  - name: schedule_id
+    value: ""

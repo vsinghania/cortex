@@ -1,0 +1,41 @@
+info:
+  name: upsert-job-schedule
+  type: http
+  seq: 5
+
+http:
+  method: PUT
+  url: "{{base_url}}/admin/jobs/schedules"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "id": "nightly-prune",
+        "name": "refresh_token_prune",
+        "label": "Prune expired refresh sessions",
+        "schedule": { "kind": "cron", "expression": "0 3 * * *", "timezone": "UTC" },
+        "dedup_key": "refresh_token_prune"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        // 201 on create, 200 on re-send: the id is caller-supplied and the write
+        // is an upsert, so repeating this request is not a second schedule.
+        const body = res.getBody();
+        const schedule = body && body.response && body.response.schedule;
+        // No persist - see run-job-now.
+        if (schedule && schedule.id) {
+          bru.setEnvVar('schedule_id', schedule.id);
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

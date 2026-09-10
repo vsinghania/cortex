@@ -74,6 +74,20 @@ async function main(): Promise<void> {
     }
   });
 
+  await check('an empty payload survives the round trip', async () => {
+    // Mongoose minimize strips empty objects on save, after validation, so this
+    // silently lost `payload` on the create() path while the upsert path kept it.
+    await conn.collection('jobs').deleteMany({});
+    const job = buildJob({ payload: {} });
+    await repo.enqueue({ job });
+
+    const stored = await repo.getById(job.id);
+    assert.deepEqual(stored!.payload, {}, 'payload must not vanish');
+
+    const raw = await conn.collection('jobs').findOne({ id: job.id });
+    assert.ok('payload' in raw!, 'the field itself must be present, not merely empty');
+  });
+
   console.log('\nclaim');
   await check('two workers racing claim different jobs, never the same one', async () => {
     await conn.collection('jobs').deleteMany({});

@@ -11,6 +11,9 @@ import { JobHandlerRegistry } from '../jobs_svc/handlers/job_handler_registry.js
 import { JobWorker } from '../jobs_svc/worker/job_worker.js';
 import { JobWorkerConfigLoader } from '../jobs_svc/worker/job_worker_config.js';
 import { NotesReindexHandler } from '../notes_svc/jobs/notes_reindex_handler.js';
+import { RefreshTokenPruneHandler } from '../auth_svc/jobs/refresh_token_prune_handler.js';
+import { AuthJobName } from '../auth_svc/jobs/auth_job.types.js';
+import { JobScheduler } from '../jobs_svc/job_scheduler.js';
 import { logger } from '../common/logger.js';
 import { Time } from '../lib/time.js';
 
@@ -20,6 +23,7 @@ const FORCE_EXIT_MS = Time.secondsToMs(28);
 
 class Server {
   private static job_worker: JobWorker | null = null;
+  private static job_scheduler: JobScheduler | null = null;
 
   private constructor() {}
 
@@ -52,6 +56,7 @@ class Server {
         // close Mongo - the worker's drain needs the database alive to flush
         // checkpoints and release leases.
         await new Promise<void>((resolve) => http_server.close(() => resolve()));
+        Server.job_scheduler?.stop();
         if (Server.job_worker) await Server.job_worker.stop();
 
         const mgr = MongooseConnectionManager.getExistingInstance();
@@ -78,6 +83,7 @@ class Server {
     await Server.loadAiSvc();
     await Server.registerJobHandlers();
     await Server.startJobWorker();
+    await Server.startJobScheduler();
   }
 
   /**
@@ -88,7 +94,37 @@ class Server {
   private static async registerJobHandlers(): Promise<void> {
     const registry = JobHandlerRegistry.getInstance();
     registry.register(await NotesReindexHandler.create());
+    registry.register(await RefreshTokenPruneHandler.create());
     logger.info({ job_names: registry.registeredNames() }, 'Job handlers registered');
+  }
+
+  /**
+   * Schedules are data, so registering them at boot is an upsert on a stable id -
+   * idempotent across restarts, and the source of truth stays in code rather than
+   * in whatever someone once inserted by hand.
+   */
+  private static async startJobScheduler(): Promise<void> {
+    if (!JobWorkerConfigLoader.fromEnv().scheduler_enabled) {
+      logger.info('Job scheduler disabled for this process');
+      return;
+    }
+    try {
+      const scheduler = await JobScheduler.create();
+      await scheduler.upsertSchedule({
+        id: 'refresh-token-prune-daily',
+        name: AuthJobName.RefreshTokenPrune,
+        label: 'Prune expired refresh sessions',
+        payload: {},
+        schedule: { kind: 'cron', expression: '0 3 * * *', timezone: 'UTC' },
+        dedup_key: AuthJobName.RefreshTokenPrune,
+        // No max_delay_ms: housekeeping that was missed should still happen, so
+        // a run delayed by a backlog or an outage is still worth doing.
+      });
+      scheduler.start();
+      Server.job_scheduler = scheduler;
+    } catch (err) {
+      logger.error({ err }, 'Job scheduler failed to start; recurring jobs will not fire');
+    }
   }
 
   private static async startJobWorker(): Promise<void> {

@@ -54,6 +54,7 @@ The module's central idea is **two chunk shapes**: `RawRetrievedChunk` is what r
 
 - **`ensureCollection` returns early when the collection exists** and does not check vector size. Changing `OPENAI_EMBEDDING_MODEL` across dimensions means dropping `note_chunks_vec` and re-vectorizing every note — nothing detects the mismatch.
 - **A note with `vectorization.status = 'error'` saved fine but is not semantically searchable.** `revectorizeNote` is the repair.
+- **Chunk ids are stable across re-indexing, and must stay that way.** `vectorizeNote` reuses the id at each chunk index rather than minting a new one, because stored citations reference chunk ids ([citation_svc.md](citation_svc.md)). `revectorizeNote` forces a full re-embed via `force_embed` instead of deleting the chunks first — deleting would regenerate every id and orphan the citations pointing at them.
 - **Vectorization is inline with the write**, so note writes wait on OpenAI.
 - **Deletes snapshot to trash first** — the note is copied to a TTL'd trash collection (30 days) before removal, but there is no restore path in the service, and chunks and vectors are dropped immediately.
 - **`retrieveAcross` merges by score alone**, which assumes every corpus shares an embedding model and distance metric.

@@ -47,8 +47,15 @@ export class NotesVectorizationSvc {
     );
   }
 
+  /**
+   * `force_embed` re-embeds every chunk instead of reusing those whose content
+   * hash is unchanged. It exists so a full re-embed does not have to delete the
+   * chunks first: chunk ids are reused per index, and stored citations point at
+   * them, so deleting to force the work would silently orphan every citation
+   * into this note.
+   */
   @logExecTime({ threshold_in_ms: 5000 })
-  async vectorizeNote(note: Note): Promise<NoteVectorization> {
+  async vectorizeNote(note: Note, opts?: { force_embed?: boolean }): Promise<NoteVectorization> {
     const start_ms = performance.now();
     const { target_tokens, overlap_tokens } = NotesVectorizationSvc.readChunkOpts();
     const specs = MarkdownChunker.chunk(note.body ?? '', { target_tokens, overlap_tokens });
@@ -68,7 +75,8 @@ export class NotesVectorizationSvc {
       for (let i = 0; i < specs.length; i++) {
         const spec = specs[i];
         const ex = existing_by_index.get(i);
-        if (ex && ex.hash === spec.hash && ex.vectorization?.status === 'embedded') {
+        const reusable = !opts?.force_embed && ex?.hash === spec.hash && ex?.vectorization?.status === 'embedded';
+        if (ex && reusable) {
           // Offsets are not part of the content hash, so a reused chunk still needs
           // them refreshed - this is what lets the backfill run without re-embedding.
           reused_chunks.push({
@@ -184,8 +192,12 @@ export class NotesVectorizationSvc {
   async revectorizeNote(params: { user_id: string; note_id: string }): Promise<NoteVectorization | null> {
     const note = await this.notes_repo.getNoteById({ user_id: params.user_id, id: params.note_id });
     if (!note) return null;
-    await this.removeNoteVectors(params);
-    return this.vectorizeNote(note);
+    // Deliberately NOT removeNoteVectors first: that would drop the chunk rows,
+    // and with them the ids that stored citations reference. Forcing the embed
+    // does the same work while keeping identity stable. Surplus chunks are still
+    // pruned by the `obsolete` sweep in vectorizeNote, and vectors are upserted
+    // over the same point ids.
+    return this.vectorizeNote(note, { force_embed: true });
   }
 
   async removeNoteVectors(params: { user_id: string; note_id: string }): Promise<void> {

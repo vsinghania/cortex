@@ -182,6 +182,17 @@ export class JobWorker {
       return;
     }
 
+    // The upper half of the timing contract. Checked here rather than in the
+    // claim filter because comparing deadline_at to `now` inside the query would
+    // need $expr, which takes no index bounds - the same reason attempts is
+    // checked post-claim. Lateness is a property of the moment work starts, and
+    // this is that moment: whatever caused the delay - a late scheduler, a
+    // backlog, a stalled worker - it is caught here.
+    if (job.deadline_at && job.deadline_at.getTime() < Date.now()) {
+      await this.skipPastDeadline(job);
+      return;
+    }
+
     const handler = this.registry.get(job.name);
     if (!handler) {
       // Claimed a job this worker cannot run. Hand it back unrun and unpenalised so
@@ -344,6 +355,31 @@ export class JobWorker {
         ...progress
       },
       'job failed'
+    );
+  }
+
+  /** Not a failure: the work was fine, its window closed. */
+  private async skipPastDeadline(job: Job): Promise<void> {
+    const now = new Date();
+    await this.repo.cancel({
+      job_id: job.id,
+      worker_id: this.config.worker_id,
+      now,
+      retention_sec: this.config.succeeded_retention_sec,
+      result: {
+        skipped: 'deadline_exceeded',
+        deadline_at: job.deadline_at!.toISOString(),
+        late_by_ms: now.getTime() - job.deadline_at!.getTime()
+      }
+    });
+    logger.warn(
+      {
+        job_id: job.id,
+        job_name: job.name,
+        deadline_at: job.deadline_at,
+        late_by_ms: now.getTime() - job.deadline_at!.getTime()
+      },
+      'job started past its deadline; skipped rather than run late'
     );
   }
 
