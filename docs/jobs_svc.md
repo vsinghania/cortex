@@ -95,7 +95,21 @@ Smoke suites against a real Mongo: `npm run jobs:smoke` (repository — claim ex
 
 Payloads carry references (ids), never snapshots, so a job re-reads current state when it runs. And **re-parse the payload even though the controller already validated it**: it round-trips through `Schema.Types.Mixed` and can outlive a schema change while sitting in the queue, which makes storage an untrusted boundary like any other. That is not theoretical — BSON serializes `undefined` to `null`, so an absent optional filter comes back as `null` and a bare `.optional()` rejects it. Use `.nullish()`.
 
-## 8. Gotchas
+## 8. Recurring work
+
+A second collection, `job_schedules`, holds recurring *definitions*; `JobScheduler` ticks every 30s and materializes due ones into `jobs`. Nothing downstream can tell a scheduled run from a one-shot enqueue — it is an ordinary row carrying a `schedule_id`.
+
+Two rules do most of the work:
+
+**Advance before inserting.** The tick advances `next_run_at` first, in a compare-and-swap against the value it read, and only then enqueues. That is what makes a window materialize at most once when two containers overlap during a deploy — the loser no longer matches the filter. It also means a failed insert *skips* a run rather than retrying it forever, which is the safer direction to fail. The swap cannot be folded into the read as one atomic op, because the new `next_run_at` depends on the schedule's own kind and expression, which is not known until the document is read.
+
+**Advance forward from now, never from the stale value.** A container down for six hours therefore fires at most *one* run rather than one per missed window. Whether even that one fires is `catchup`: true suits cleanup that simply needs to happen; false suits work timed to run off-peak, where a "midnight" sweep starting at 09:00 is worse than a skipped night. A tick within two scheduler intervals of its target counts as punctual jitter, not a missed window.
+
+Overrun needs no separate guard: a schedule carrying a `dedup_key` spawns runs that collide on `uniq_job_dedup_active` (§4) while the previous one is still active, so the window is skipped and logged — and `next_run_at` has already moved, so the following window is unaffected.
+
+Schedules are registered at boot by upserting a stable id, so the source of truth stays in code and restarts are idempotent. Re-enabling a disabled schedule takes a fresh `next_run_at`, or one disabled for a week would fire the instant it came back. `ScheduleClock` holds the whole decision as pure functions, so the catch-up rules are unit-tested without a database; `npm run jobs:smoke:scheduler` covers the concurrency and overrun cases that need a real one.
+
+## 9. Gotchas
 
 - **`TraceContext.enter()` is unusable here.** It wraps `enterWith`, which mutates ambient context and cannot be unwound, so two jobs starting in one tick silently swap each other's `user_id` on every log line. Each job runs inside `TraceContext.run()` with a fresh `trace_id` per *attempt* and `upstream_trace_id` linking back to the request that enqueued it.
 - **A job whose handler is not registered is released, not failed** — handed back unrun and unpenalised, so a job name can ship before the code that runs it. The cost is that a permanently unregistered name loops quietly; queue-depth sampling should watch for names with queued rows and no handler.
@@ -103,8 +117,7 @@ Payloads carry references (ids), never snapshots, so a job re-reads current stat
 - **Handler registration rethrows** at bootstrap, unlike most startup steps which warn and continue. A handler that silently fails to register means its jobs stop being claimed with no error anywhere.
 - **A cancel is not immediate.** `requestCancel` flags a running job; its worker notices on the next heartbeat, so the route returns 202 before the job has stopped. A *queued* job cancels outright.
 
-## 9. Deliberately deferred
+## 10. Deliberately deferred
 
-- **Recurring/cron jobs.** Designed but not built: a `job_schedules` collection whose due rows a scheduler materializes into `jobs`. `pruneExpired()` in [refresh_token_repository.ts](../src/auth_svc/repositories/refresh_token_repository.ts) still has zero callers because nothing schedules it.
 - **Routing.** There is one undifferentiated pool and global FIFO, so a bulk import can occupy every worker and a cheap job queued behind it waits. Three designs were costed — lanes, capability filtering, tags — and each inserts a field into `job_claim` between `status` and `visible_at`, so adding one later is an index rebuild rather than a redesign. Tags are the nicest model and the most expensive query: an array field ahead of the sort key makes the index multikey, and the claim gains a blocking in-memory sort.
 - **Vectorization still runs inline with note writes.** It is the obvious second handler, but nothing has moved yet.
