@@ -4,6 +4,8 @@ import type {
   NoteRepository,
   NoteListParams,
   NoteListResult,
+  NoteListFilter,
+  NoteTagCount,
   NoteByIdKey,
   NoteBySourceKey,
   NoteMaintenanceParams
@@ -11,12 +13,15 @@ import type {
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
 import { NoteModelFactory, NoteTrashModelFactory } from '../models/index.js';
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
+import { Regex } from '../../lib/regex.js';
+import { logExecTime } from '../../lib/decorators/logging_decorators.js';
 import { logger } from '../../common/logger.js';
 
 
 export class MongooseNoteRepository implements NoteRepository {
   private static readonly factory = new NoteModelFactory();
   private static readonly trash_factory = new NoteTrashModelFactory();
+  private static readonly MAX_TAG_FACET_ROWS = 200;
 
   private constructor(
     private readonly conn: Connection,
@@ -66,11 +71,8 @@ export class MongooseNoteRepository implements NoteRepository {
   async listNotes(params: NoteListParams): Promise<NoteListResult> {
     const { limit, offset } = MongooseNoteRepository.normalizePagination(params);
 
-    const filter: any = { user_id: params.user_id };
     const useText = !!params.query && !!params.query.trim();
-    if (useText) {
-      filter.$text = { $search: params.query!.trim() };
-    }
+    const filter = MongooseNoteRepository.buildListFilter({ ...params, use_text: useText });
 
     let cursor = this.model.find(filter);
     if (useText) {
@@ -79,15 +81,45 @@ export class MongooseNoteRepository implements NoteRepository {
       cursor = cursor.sort({ updated_at: -1 });
     }
 
+    // Only the non-text path can ask for the collated index: text indexes support simple
+    // binary comparison only, so $text with a non-simple collation cannot use one. The
+    // text path gets the same case-insensitivity from anchored regexes instead.
+    const collation = useText ? undefined : MongooseNoteRepository.tagCollationFor(params.filter);
+    if (collation) cursor = cursor.collation(collation);
+
     const [items, total] = await Promise.all([
       cursor.skip(offset).limit(limit).lean(),
-      this.model.countDocuments(filter)
+      // Must carry the same collation as the find, or total disagrees with items.
+      collation ? this.model.countDocuments(filter, { collation }) : this.model.countDocuments(filter)
     ]);
 
     return {
       items: items.map((i: any) => MongooseUtils.toDomain<Note>(i)),
       total
     };
+  }
+
+  @logExecTime({ threshold_in_ms: 200 })
+  async listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]> {
+    const limit = MongooseNoteRepository.normalizeTagFacetLimit(params.limit);
+
+    const rows = await this.model
+      .aggregate([
+        { $match: { user_id: params.user_id } },
+        { $project: { _id: 0, tags: 1 } },
+        { $unwind: '$tags' },
+        // Fold casing variants together, then keep the most-used spelling as the label so
+        // facet chips read the same as the chips rendered on the notes themselves.
+        { $group: { _id: { folded: { $toLower: '$tags' }, label: '$tags' }, count: { $sum: 1 } } },
+        { $sort: { count: -1, '_id.label': 1 } },
+        { $group: { _id: '$_id.folded', tag: { $first: '$_id.label' }, count: { $sum: '$count' } } },
+        { $sort: { count: -1, _id: 1 } },
+        { $limit: limit },
+        { $project: { _id: 0, tag: 1, count: 1 } }
+      ])
+      .collation(NoteModelFactory.CASE_INSENSITIVE_COLLATION);
+
+    return rows as NoteTagCount[];
   }
 
   async updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null> {
@@ -212,6 +244,39 @@ export class MongooseNoteRepository implements NoteRepository {
     }
 
     return true;
+  }
+
+  private static buildListFilter(params: NoteListParams & { use_text: boolean }): Record<string, unknown> {
+    const filter: Record<string, unknown> = { user_id: params.user_id };
+
+    if (params.use_text) {
+      filter.$text = { $search: params.query!.trim() };
+    }
+
+    const tags = MongooseNoteRepository.normalizeTags(params.filter?.tags);
+    if (tags.length > 0) {
+      filter.tags = {
+        $all: params.use_text ? tags.map((t) => Regex.exactCaseInsensitive(t)) : tags
+      };
+    }
+
+    return filter;
+  }
+
+  /** The collated index only applies when tags are actually being filtered on. */
+  private static tagCollationFor(filter: NoteListFilter | undefined) {
+    return MongooseNoteRepository.normalizeTags(filter?.tags).length > 0
+      ? NoteModelFactory.CASE_INSENSITIVE_COLLATION
+      : undefined;
+  }
+
+  private static normalizeTags(tags: string[] | undefined): string[] {
+    return (tags ?? []).map((t) => t.trim()).filter((t) => t.length > 0);
+  }
+
+  private static normalizeTagFacetLimit(limit: number | undefined): number {
+    const max_rows = MongooseNoteRepository.MAX_TAG_FACET_ROWS;
+    return Math.max(1, Math.min(max_rows, limit ?? max_rows));
   }
 
   private static normalizePagination(params: { limit?: number; offset?: number }): { limit: number; offset: number } {

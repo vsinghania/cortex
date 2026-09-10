@@ -6,6 +6,7 @@ import type {
   NoteCreateBody,
   NoteListResponse,
   NotePatchBody,
+  NoteTagCount,
 } from './note.types';
 import type { AgentRunRequest, AgentRunResponse, Conversation, ConversationWithMessages } from './agent.types';
 import type { MintTokenResponse } from './voice.types';
@@ -159,12 +160,20 @@ export class ApiClient {
     return ApiClient.request<User>('/auth/me');
   }
 
-  static async listNotes(params: { limit?: number; offset?: number } = {}): Promise<NoteListResponse> {
+  static async listNotes(
+    params: { limit?: number; offset?: number; tags?: string[] } = {},
+  ): Promise<NoteListResponse> {
     const query = new URLSearchParams();
     if (params.limit != null) query.set('limit', String(params.limit));
     if (params.offset != null) query.set('offset', String(params.offset));
+    // append, not set - the server reads tags as a repeated query param.
+    params.tags?.forEach((tag) => query.append('tags', tag));
     const qs = query.toString();
     return ApiClient.request<NoteListResponse>(`/notes${qs ? `?${qs}` : ''}`);
+  }
+
+  static async listNoteTags(): Promise<{ tags: NoteTagCount[] }> {
+    return ApiClient.request<{ tags: NoteTagCount[] }>('/notes/tags');
   }
 
   static async getNote(id: string): Promise<{ note: Note }> {

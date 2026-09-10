@@ -38,10 +38,17 @@ const zNoteLocator: z.ZodType<NoteLocator> = z.union([
   z.object({ source: zNoteSource, external_id: z.string().min(1) }).strict()
 ]);
 
+const MAX_TAG_FILTER_COUNT = 10;
+
 const zListInput = z.object({
   query: z.string().optional(),
+  tags: z.array(z.string().min(1)).max(MAX_TAG_FILTER_COUNT).optional(),
   limit: z.number().int().positive().max(100).optional().default(20),
   offset: z.number().int().min(0).optional().default(0)
+});
+
+const zTagsInput = z.object({
+  limit: z.number().int().positive().max(200).optional().default(200)
 });
 
 const zSearchInput = z.object({
@@ -166,6 +173,7 @@ export class NotesMcpModule extends McpModule {
 
   protected override async registerTools(server: McpServer): Promise<void> {
     this.registerListTool(server);
+    this.registerTagsTool(server);
     this.registerGetTool(server);
     this.registerCreateTool(server);
     this.registerUpdateTool(server);
@@ -217,6 +225,9 @@ export class NotesMcpModule extends McpModule {
           'Use this for collection-level questions such as how many notes exist, recent notes, ' +
           'listing notes, or browsing notes by source/filter. The response includes `total`, which ' +
           'is the authoritative count for the matching collection. ' +
+          'Pass `tags` to narrow to notes carrying ALL of the listed tags; tag matching ignores case. ' +
+          'When a tag value is not already known to be valid, call notes_tags first to get the ' +
+          'real tag list rather than guessing a spelling. ' +
           'Do NOT use this to answer questions about the meaning or contents of unknown notes; ' +
           'use notes_search or notes_search_semantic instead.',
         inputSchema: zListInput.shape,
@@ -227,9 +238,37 @@ export class NotesMcpModule extends McpModule {
       },
       async (raw: unknown) => {
         const user_id = NotesMcpModule.requireUserId();
-        const args = zListInput.parse(raw ?? {});
-        const result = await this.requireNotesSvc().listNotes({ ...args, user_id });
+        const { tags, ...args } = zListInput.parse(raw ?? {});
+        const result = await this.requireNotesSvc().listNotes({
+          ...args,
+          user_id,
+          filter: tags?.length ? { tags } : undefined
+        });
         return NotesMcpModule.toStructuredTextResult(result);
+      }
+    );
+  }
+
+  private registerTagsTool(server: McpServer): void {
+    this.registerTool(
+      server,
+      'notes_tags',
+      {
+        title: 'List Note Tags',
+        description: 'List every tag the authenticated user has, with the number of notes carrying each. ' +
+          'Use this to answer questions about which tags exist or how many notes are tagged a ' +
+          'certain way, and to resolve a valid tag value before calling notes_list with `tags`. ' +
+          'Tags differing only by case are folded into a single row.',
+        inputSchema: zTagsInput.shape,
+        outputSchema: {
+          tags: z.array(z.object({ tag: z.string(), count: z.number() }))
+        }
+      },
+      async (raw: unknown) => {
+        const user_id = NotesMcpModule.requireUserId();
+        const args = zTagsInput.parse(raw ?? {});
+        const tags = await this.requireNotesSvc().listTags({ ...args, user_id });
+        return NotesMcpModule.toStructuredTextResult({ tags });
       }
     );
   }

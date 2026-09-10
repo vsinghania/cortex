@@ -7,9 +7,11 @@ type Props = {
   note: Note;
   onUpdate: (id: string, body: NotePatchBody) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onTagClick?: (tag: string) => void;
+  active_tags?: string[];
 };
 
-export function NoteRow({ note, onUpdate, onDelete }: Props) {
+export function NoteRow({ note, onUpdate, onDelete, onTagClick, active_tags = [] }: Props) {
   const [editing, set_editing] = useState(false);
   const [deleting, set_deleting] = useState(false);
 
@@ -57,9 +59,23 @@ export function NoteRow({ note, onUpdate, onDelete }: Props) {
       {preview && <p className="note-row-preview">{preview}</p>}
       {note.tags.length > 0 && (
         <div className="note-row-tags">
-          {note.tags.map((t) => (
-            <span key={t} className="tag-chip">{t}</span>
-          ))}
+          {note.tags.map((t) => {
+            const is_active = active_tags.some((a) => a.toLowerCase() === t.toLowerCase());
+            const class_name = `tag-chip${is_active ? ' tag-chip-active' : ''}`;
+            return onTagClick ? (
+              <button
+                key={t}
+                type="button"
+                className={class_name}
+                aria-pressed={is_active}
+                onClick={() => onTagClick(t)}
+              >
+                {t}
+              </button>
+            ) : (
+              <span key={t} className={class_name}>{t}</span>
+            );
+          })}
         </div>
       )}
       <footer className="note-row-meta">
