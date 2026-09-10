@@ -32,7 +32,7 @@ Verification is stateless, which has one important consequence: **revoking a ref
 ## 3. Gotchas
 
 - **`JWT_ACCESS_SECRET` is required**; `TokenUtils` throws `missing_env:JWT_ACCESS_SECRET` on first use. Rotating it invalidates every access token in flight.
-- **Expired sessions are pruned nightly, but revoked ones still accumulate.** The collection has a plain index on `expires_at`, not a TTL index; a `refresh_token_prune` job runs at 03:00 UTC via [jobs_svc](jobs_svc.md) and deletes anything past `expires_at`. `revokeAllForUser` still has no caller, so there is no "log out everywhere", and a session revoked before its expiry sticks around until that expiry passes.
+- **Expired sessions are pruned nightly, but revoked ones still accumulate.** The collection has a plain index on `expires_at`, not a TTL index; a `refresh_token_prune` handler is registered with [jobs_svc](jobs_svc.md) and deletes anything past `expires_at`, but it only runs if a schedule exists for it - create one under `/api/v1/admin/jobs/schedules` (a nightly cron is the intended shape). Nothing is seeded automatically. `revokeAllForUser` still has no caller, so there is no "log out everywhere", and a session revoked before its expiry sticks around until that expiry passes.
 - **Issuer/audience claims are commented out** in `token_utils.ts`; enable signing and verification together if you turn them on.
 - **Cross-site SPA setups need `COOKIE_SAMESITE=none` + `COOKIE_SECURE=true`** plus the SPA origin in `CORS_ORIGINS`, since the client sends credentials.
 - **Auth failures log a `reason`** (`email_taken`, `bad_password`, `session_revoked`, `rotation_failed`, …) and never the email or password.

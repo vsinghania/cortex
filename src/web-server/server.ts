@@ -12,7 +12,6 @@ import { JobWorker } from '../jobs_svc/worker/job_worker.js';
 import { JobWorkerConfigLoader } from '../jobs_svc/worker/job_worker_config.js';
 import { NotesReindexHandler } from '../notes_svc/jobs/notes_reindex_handler.js';
 import { RefreshTokenPruneHandler } from '../auth_svc/jobs/refresh_token_prune_handler.js';
-import { AuthJobName } from '../auth_svc/jobs/auth_job.types.js';
 import { JobScheduler } from '../jobs_svc/job_scheduler.js';
 import { logger } from '../common/logger.js';
 import { Time } from '../lib/time.js';
@@ -99,9 +98,10 @@ class Server {
   }
 
   /**
-   * Schedules are data, so registering them at boot is an upsert on a stable id -
-   * idempotent across restarts, and the source of truth stays in code rather than
-   * in whatever someone once inserted by hand.
+   * Starts the ticker only. Schedules themselves are data, created and removed
+   * through /api/v1/admin/jobs/schedules - deliberately NOT seeded here, because
+   * a boot-time upsert would recreate anything an operator had deleted, so the
+   * API could add a schedule but never durably remove one.
    */
   private static async startJobScheduler(): Promise<void> {
     if (!JobWorkerConfigLoader.fromEnv().scheduler_enabled) {
@@ -110,16 +110,6 @@ class Server {
     }
     try {
       const scheduler = await JobScheduler.create();
-      await scheduler.upsertSchedule({
-        id: 'refresh-token-prune-daily',
-        name: AuthJobName.RefreshTokenPrune,
-        label: 'Prune expired refresh sessions',
-        payload: {},
-        schedule: { kind: 'cron', expression: '0 3 * * *', timezone: 'UTC' },
-        dedup_key: AuthJobName.RefreshTokenPrune,
-        // No max_delay_ms: housekeeping that was missed should still happen, so
-        // a run delayed by a backlog or an outage is still worth doing.
-      });
       scheduler.start();
       Server.job_scheduler = scheduler;
     } catch (err) {
