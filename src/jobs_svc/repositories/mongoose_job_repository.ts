@@ -2,6 +2,8 @@ import type { Job, JobCheckpoint, JobName, JobProgress, JobSummary } from '../ty
 import { JobStatus } from '../types/job.types.js';
 import type {
   ClaimParams,
+  ConflictField,
+  EnqueueOutcome,
   HeartbeatResult,
   JobListParams,
   JobRepository,
@@ -29,41 +31,36 @@ export class MongooseJobRepository implements JobRepository {
     return new MongooseJobRepository(MongooseJobRepository.factory.getModel(conn));
   }
 
-  async enqueue(params: { job: Job }): Promise<{ job: Job; created: boolean }> {
+  /**
+   * Insert, letting the unique indexes refuse a duplicate. Two constraints can
+   * reject: uniq_schedule_window (this recurrence window already materialized)
+   * and uniq_job_dedup_active (a run with this key is still active). Both mean
+   * "do not create another", so both return created: false - `conflict_on` says
+   * which, because they mean different things to an operator.
+   */
+  async enqueue(params: { job: Job }): Promise<EnqueueOutcome> {
     const { job } = params;
 
-    if (!job.dedup_key) {
+    try {
       const created = await this.model.create(job);
       return { job: MongooseJobRepository.toDomainJob(created), created: true };
-    }
-
-    // Upsert against uniq_job_dedup_active. The returned document is ours only when
-    // this call inserted; otherwise an active job already holds the key.
-    const filter = {
-      name: job.name,
-      user_id: job.user_id ?? null,
-      dedup_key: job.dedup_key,
-      dedup_active: true
-    };
-
-    try {
-      const upserted = await this.model.findOneAndUpdate(
-        filter,
-        // Mongoose's timestamps plugin writes created_at/updated_at on an upsert, so
-        // carrying our own would be a conflicting-path error on the same field.
-        { $setOnInsert: MongooseJobRepository.withoutTimestamps(job) },
-        { upsert: true, returnDocument: 'after', lean: true }
-      );
-
-      const domain = MongooseJobRepository.toDomainJob(upserted);
-      return { job: domain, created: domain.id === job.id };
     } catch (err) {
       if (!MongooseJobRepository.isDuplicateKeyError(err)) throw err;
-      // Lost an upsert race against the unique index; the winner holds the key.
-      const existing = await this.model.findOne(filter).lean();
-      if (!existing) throw err;
-      return { job: MongooseJobRepository.toDomainJob(existing), created: false };
+
+      const conflict_on = MongooseJobRepository.conflictField(err);
+      const existing = await this.findConflicting(job, conflict_on);
+      return { job: existing ?? job, created: false, conflict_on };
     }
+  }
+
+  private async findConflicting(job: Job, conflict_on: ConflictField): Promise<Job | null> {
+    const filter =
+      conflict_on === 'scheduled_for'
+        ? { schedule_id: job.schedule_id, scheduled_for: job.scheduled_for }
+        : { name: job.name, user_id: job.user_id ?? null, dedup_key: job.dedup_key, dedup_active: true };
+
+    const found = await this.model.findOne(filter).lean();
+    return found ? MongooseJobRepository.toDomainJob(found) : null;
   }
 
   async claimNext(params: ClaimParams): Promise<Job | null> {
@@ -127,8 +124,13 @@ export class MongooseJobRepository implements JobRepository {
     });
   }
 
-  async cancel(params: LeaseKey & { progress?: JobProgress; retention_sec: number }): Promise<boolean> {
-    return this.finalize(params, JobStatus.Cancelled, { progress: params.progress });
+  async cancel(
+    params: LeaseKey & { progress?: JobProgress; retention_sec: number; result?: JobSummary }
+  ): Promise<boolean> {
+    return this.finalize(params, JobStatus.Cancelled, {
+      progress: params.progress,
+      result: params.result
+    });
   }
 
   async retryLater(
@@ -301,5 +303,11 @@ export class MongooseJobRepository implements JobRepository {
 
   private static isDuplicateKeyError(err: unknown): boolean {
     return !!err && typeof err === 'object' && (err as { code?: number }).code === DUPLICATE_KEY_ERROR;
+  }
+
+  /** Mongo reports the offending index's keys, which is how the two are told apart. */
+  private static conflictField(err: unknown): ConflictField {
+    const keys = Object.keys((err as { keyPattern?: Record<string, unknown> })?.keyPattern ?? {});
+    return keys.includes('scheduled_for') ? 'scheduled_for' : 'dedup_key';
   }
 }

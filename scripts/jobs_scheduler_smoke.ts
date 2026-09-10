@@ -158,29 +158,62 @@ async function main(): Promise<void> {
     assert.ok(final!.next_run_at > next_due, 'next_run_at must still advance past a skipped window');
   });
 
-  console.log('\ncatch-up after downtime');
-  await check('catchup:true fires one run for a long outage, not one per window', async () => {
-    const s = await seed({ catchup: true });
-    // Pretend the container was down for two hours.
-    const long_after = new Date(s.next_run_at.getTime() + Time.hoursToMs(2));
+  console.log('\nexactly-once per window');
+  await check('a crash between insert and advance loses nothing', async () => {
+    const sched = await seed();
+    const due_at = new Date(sched.next_run_at.getTime() + 1000);
 
-    assert.equal(await scheduler.tick(long_after), 1);
-    assert.equal(await conn.collection('jobs').countDocuments({}), 1, 'exactly one, not 120');
+    // First tick inserts the job, then "crashes" before advancing: simulate by
+    // rewinding next_run_at to what it was.
+    assert.equal(await scheduler.tick(due_at), 1);
+    await conn.collection('job_schedules').updateOne(
+      { id: 'smoke-schedule' },
+      { $set: { next_run_at: sched.next_run_at } }
+    );
+
+    // The retry re-inserts the same window, collides, and advances anyway.
+    await scheduler.tick(due_at);
+    assert.equal(
+      await conn.collection('jobs').countDocuments({}),
+      1,
+      'the retry must not create a second job for the same window'
+    );
 
     const after = await repo.getById('smoke-schedule');
-    const expected = ScheduleClock.nextRunAt({ schedule: EVERY_MIN, from: long_after });
-    assert.deepEqual(after!.next_run_at, expected, 'must advance forward from now, not from the stale value');
+    assert.ok(after!.next_run_at > due_at, 'the retry must still advance past the window');
   });
 
-  await check('catchup:false skips the missed window but still advances', async () => {
-    const s = await seed({ catchup: false });
-    const long_after = new Date(s.next_run_at.getTime() + Time.hoursToMs(2));
+  await check('the job records which window it is', async () => {
+    const sched = await seed();
+    await scheduler.tick(new Date(sched.next_run_at.getTime() + 1000));
 
-    assert.equal(await scheduler.tick(long_after), 0, 'must not fire late');
-    assert.equal(await conn.collection('jobs').countDocuments({}), 0);
+    const job = await conn.collection('jobs').findOne({});
+    assert.deepEqual(job!.scheduled_for, sched.next_run_at, 'scheduled_for must freeze the window');
+    assert.deepEqual(job!.run_at, sched.next_run_at, 'run_at is the window, not the tick time');
+  });
 
-    const after = await repo.getById('smoke-schedule');
-    assert.ok(after!.next_run_at > long_after, 'a skipped window must not stall the schedule');
+  console.log('\ndeadlines');
+  await check('no max_delay_ms leaves the job with no deadline', async () => {
+    const sched = await seed();
+    await scheduler.tick(new Date(sched.next_run_at.getTime() + 1000));
+
+    const job = await conn.collection('jobs').findOne({});
+    assert.equal(job!.deadline_at, undefined, 'housekeeping should run whenever');
+  });
+
+  await check('max_delay_ms becomes deadline_at, measured from the window', async () => {
+    const sched = await seed({ max_delay_ms: Time.minutesToMs(30) });
+    // Fire late on purpose: the deadline must still be window + 30m, not now + 30m.
+    const late = new Date(sched.next_run_at.getTime() + Time.hoursToMs(2));
+    await scheduler.tick(late);
+
+    const job = await conn.collection('jobs').findOne({});
+    assert.deepEqual(
+      job!.deadline_at,
+      new Date(sched.next_run_at.getTime() + Time.minutesToMs(30)),
+      'the deadline anchors to the window'
+    );
+    assert.ok(job!.deadline_at < late, 'so a run this late is already past it - the worker will skip it');
   });
 
   console.log(`\n${passed} passed, ${failed} failed\n`);

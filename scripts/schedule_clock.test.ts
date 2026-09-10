@@ -9,80 +9,23 @@ const MIDNIGHT_UTC = { kind: 'cron', expression: '0 0 * * *', timezone: 'UTC' } 
 const EVERY_15_MIN = { kind: 'interval', every_ms: Time.minutesToMs(15) } as const;
 
 test('interval schedules advance by their period from the given instant', () => {
-  const next = ScheduleClock.nextRunAt({ schedule: EVERY_15_MIN, from: NOW });
-  assert.equal(next.toISOString(), '2026-09-10T08:15:00.000Z');
+  assert.equal(
+    ScheduleClock.nextRunAt({ schedule: EVERY_15_MIN, from: NOW }).toISOString(),
+    '2026-09-10T08:15:00.000Z'
+  );
 });
 
 test('cron schedules advance to the next matching instant', () => {
+  assert.equal(
+    ScheduleClock.nextRunAt({ schedule: MIDNIGHT_UTC, from: NOW }).toISOString(),
+    '2026-09-11T00:00:00.000Z'
+  );
+});
+
+test('advancing after a long outage skips the missed windows rather than queueing them', () => {
+  // next_run_at is three days stale; the next firing is tomorrow, not three days ago.
   const next = ScheduleClock.nextRunAt({ schedule: MIDNIGHT_UTC, from: NOW });
   assert.equal(next.toISOString(), '2026-09-11T00:00:00.000Z');
-});
-
-test('a punctual tick fires and advances one window', () => {
-  const decision = ScheduleClock.resolveDue({
-    schedule: MIDNIGHT_UTC,
-    next_run_at: new Date('2026-09-10T00:00:00.000Z'),
-    now: new Date('2026-09-10T00:00:12.000Z'),
-    catchup: true,
-    stale_after_ms: Time.secondsToMs(60)
-  });
-
-  assert.equal(decision.spawn, true);
-  assert.equal(decision.next_run_at.toISOString(), '2026-09-11T00:00:00.000Z');
-  assert.equal(decision.lateness_ms, 12_000);
-});
-
-test('catch-up after downtime fires exactly one run, not one per missed window', () => {
-  // Down for three days: next_run_at is 09-07, now is 09-10.
-  const decision = ScheduleClock.resolveDue({
-    schedule: MIDNIGHT_UTC,
-    next_run_at: new Date('2026-09-07T00:00:00.000Z'),
-    now: NOW,
-    catchup: true,
-    stale_after_ms: Time.secondsToMs(60)
-  });
-
-  assert.equal(decision.spawn, true, 'the missed window should still run');
-  // Computed forward from now, so the three missed nights do not queue up.
-  assert.equal(decision.next_run_at.toISOString(), '2026-09-11T00:00:00.000Z');
-});
-
-test('catchup:false skips a missed window rather than firing it late', () => {
-  const decision = ScheduleClock.resolveDue({
-    schedule: MIDNIGHT_UTC,
-    next_run_at: new Date('2026-09-07T00:00:00.000Z'),
-    now: NOW,
-    catchup: false,
-    stale_after_ms: Time.secondsToMs(60)
-  });
-
-  assert.equal(decision.spawn, false, 'a midnight sweep must not start at 08:00');
-  assert.equal(decision.next_run_at.toISOString(), '2026-09-11T00:00:00.000Z', 'but it must still advance');
-});
-
-test('catchup:false still fires a merely-jittery tick', () => {
-  // Within tolerance: this is ordinary scheduler jitter, not downtime.
-  const decision = ScheduleClock.resolveDue({
-    schedule: EVERY_15_MIN,
-    next_run_at: new Date('2026-09-10T07:59:30.000Z'),
-    now: NOW,
-    catchup: false,
-    stale_after_ms: Time.secondsToMs(60)
-  });
-
-  assert.equal(decision.spawn, true);
-  assert.equal(decision.lateness_ms, 30_000);
-});
-
-test('the stale boundary is exclusive, so exactly-tolerance still fires', () => {
-  const decision = ScheduleClock.resolveDue({
-    schedule: EVERY_15_MIN,
-    next_run_at: new Date('2026-09-10T07:59:00.000Z'),
-    now: NOW,
-    catchup: false,
-    stale_after_ms: Time.secondsToMs(60)
-  });
-  assert.equal(decision.spawn, true);
 });
 
 test('a cron timezone shifts the firing instant', () => {
@@ -92,6 +35,22 @@ test('a cron timezone shifts the firing instant', () => {
   });
   // Midnight IST is 18:30 UTC the previous day.
   assert.equal(ist.toISOString(), '2026-09-10T18:30:00.000Z');
+});
+
+test('no max_delay_ms means no deadline - run it whenever', () => {
+  assert.equal(ScheduleClock.deadlineFor({ window: NOW }), undefined);
+});
+
+test('the deadline is measured from the window, not from now', () => {
+  // "no more than 30 minutes after the 08:00 slot" must mean the same thing
+  // whether the scheduler was punctual or an hour late.
+  const deadline = ScheduleClock.deadlineFor({ window: NOW, max_delay_ms: Time.minutesToMs(30) });
+  assert.equal(deadline!.toISOString(), '2026-09-10T08:30:00.000Z');
+});
+
+test('a zero delay is still a deadline, not an absent one', () => {
+  const deadline = ScheduleClock.deadlineFor({ window: NOW, max_delay_ms: 0 });
+  assert.deepEqual(deadline, NOW);
 });
 
 test('assertValid rejects a nonsense cron and a non-positive interval', () => {

@@ -68,6 +68,24 @@ export interface Job {
    */
   visible_at: Date | null;
 
+  /**
+   * Not after this. The upper half of the job's timing contract, checked once the
+   * job is claimed - `run_at` says "not before", this says "not after".
+   *
+   * It exists because lateness is a question about the moment work *starts*, and
+   * only the worker is present for that. Anything deciding it earlier - a
+   * scheduler at enqueue time - can only guess, and is blind to lateness caused
+   * by backlog or a stalled worker.
+   */
+  deadline_at?: Date;
+
+  /**
+   * Which recurrence window this job is, frozen at materialization. Paired with
+   * `schedule_id` it identifies a run uniquely, which is what makes materializing
+   * a window idempotent - see uniq_schedule_window. Absent on ad-hoc jobs.
+   */
+  scheduled_for?: Date;
+
   locked_by: string | null;
   locked_at: Date | null;
   lease_expires_at: Date | null;
@@ -114,6 +132,10 @@ export type EnqueueInput = {
   schedule_id?: string;
   delay_ms?: number;
   run_at?: Date;
+  /** Not after this; the worker cancels rather than starting a job past it. */
+  deadline_at?: Date;
+  /** The recurrence window this run represents. Scheduler-only. */
+  scheduled_for?: Date;
   max_attempts?: number;
 };
 

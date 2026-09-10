@@ -80,7 +80,7 @@ export class JobScheduler {
       enabled: input.enabled ?? true,
       schedule: input.schedule,
       max_attempts: input.max_attempts ?? 1,
-      catchup: input.catchup ?? true,
+      max_delay_ms: input.max_delay_ms,
       // Seeded only on insert; an existing schedule keeps the firing it is
       // already counting down to.
       next_run_at: ScheduleClock.nextRunAt({ schedule: input.schedule, from: now }),
@@ -174,68 +174,69 @@ export class JobScheduler {
     return spawned;
   }
 
+  /**
+   * Insert first, then advance.
+   *
+   * The insert is idempotent - uniq_schedule_window makes (schedule_id,
+   * scheduled_for) unique - so a crash between the two steps is recoverable: the
+   * next tick reads the same next_run_at, re-inserts, collides harmlessly, and
+   * advances. Advancing first, as this used to, meant a crash in the gap lost the
+   * window silently with nothing to retry from.
+   *
+   * Note what is NOT here any more: whether a late window deserves to run. That
+   * is a question about the moment work starts, so it travels on the job as
+   * `deadline_at` and the worker answers it.
+   */
   private async materialize(schedule: JobSchedule, now: Date): Promise<boolean> {
-    const resolution = ScheduleClock.resolveDue({
-      schedule: schedule.schedule,
-      next_run_at: schedule.next_run_at,
-      now,
-      catchup: schedule.catchup,
-      stale_after_ms: STALE_AFTER_MS
-    });
+    const window = schedule.next_run_at;
+    const next_run_at = ScheduleClock.nextRunAt({ schedule: schedule.schedule, from: now });
 
-    // Advance first. Losing this race means another container owns the run.
-    const claimed = await this.repo.claimDue({
-      id: schedule.id,
-      expected_next_run_at: schedule.next_run_at,
-      next_run_at: resolution.next_run_at,
-      now
-    });
-    if (!claimed) return false;
-
-    if (!resolution.spawn) {
-      logger.warn(
-        {
-          schedule_id: schedule.id,
-          job_name: schedule.name,
-          lateness_ms: resolution.lateness_ms,
-          next_run_at: resolution.next_run_at
-        },
-        'job schedule window missed; skipped rather than fired late (catchup disabled)'
-      );
-      return false;
-    }
-
+    let job_id: string | null = null;
     try {
-      const { job_id } = await this.jobs_svc.enqueue({
+      const result = await this.jobs_svc.enqueue({
         name: schedule.name,
         payload: schedule.payload,
         user_id: schedule.user_id,
         dedup_key: schedule.dedup_key,
         schedule_id: schedule.id,
+        scheduled_for: window,
+        // The window itself, not `now`: a job materialized early waits, and a
+        // late one is claimable at once with its deadline deciding its fate.
+        run_at: window,
+        deadline_at: ScheduleClock.deadlineFor({ window, max_delay_ms: schedule.max_delay_ms }),
         max_attempts: schedule.max_attempts
       });
-
-      await this.repo.recordRun({ id: schedule.id, last_job_id: job_id });
-      logger.info(
-        { schedule_id: schedule.id, job_name: schedule.name, job_id, lateness_ms: resolution.lateness_ms },
-        'job schedule fired'
-      );
-      return true;
+      job_id = result.job_id;
     } catch (err) {
-      if (err instanceof ConflictError) {
-        // The previous run is still active. Overrun is refused by the job queue's
-        // own single-flight index, so this needs no separate guard - and
-        // next_run_at has already advanced, so the following window is unaffected.
-        logger.warn(
-          { schedule_id: schedule.id, job_name: schedule.name },
-          'job schedule overran its previous run; this window skipped'
-        );
+      if (!(err instanceof ConflictError)) {
+        // next_run_at has NOT advanced, so the next tick retries this window.
+        logger.error({ err, schedule_id: schedule.id, job_name: schedule.name }, 'job schedule failed to enqueue');
         return false;
       }
-      // next_run_at is already advanced, so this skips a run rather than retrying
-      // forever - the safer direction to fail.
-      logger.error({ err, schedule_id: schedule.id, job_name: schedule.name }, 'job schedule failed to enqueue');
-      return false;
+      // Either this window is already materialized (a retry after a crash, or
+      // another container beat us) or the previous run is still active. Both mean
+      // "do not create another" - and both still want next_run_at moved on.
+      logger.debug(
+        { schedule_id: schedule.id, job_name: schedule.name, conflict: (err.details as any)?.conflict_on },
+        'job schedule window already accounted for'
+      );
     }
+
+    const advanced = await this.repo.claimDue({
+      id: schedule.id,
+      expected_next_run_at: window,
+      next_run_at,
+      now
+    });
+    if (!advanced) return false;
+
+    if (job_id) {
+      await this.repo.recordRun({ id: schedule.id, last_job_id: job_id });
+      logger.info(
+        { schedule_id: schedule.id, job_name: schedule.name, job_id, scheduled_for: window },
+        'job schedule fired'
+      );
+    }
+    return !!job_id;
   }
 }

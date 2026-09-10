@@ -35,7 +35,8 @@ export class JobScheduleModelFactory extends BaseModelFactory<JobSchedule> {
         schedule: { type: ScheduleSchema, required: true },
 
         max_attempts: { type: Number, required: true, default: 1 },
-        catchup: { type: Boolean, required: true, default: true },
+        // Absent = no deadline. Becomes deadline_at on each spawned job.
+        max_delay_ms: { type: Number, default: undefined },
 
         next_run_at: { type: Date, required: true },
         last_run_at: { type: Date, default: undefined },

@@ -117,8 +117,8 @@ class Server {
         payload: {},
         schedule: { kind: 'cron', expression: '0 3 * * *', timezone: 'UTC' },
         dedup_key: AuthJobName.RefreshTokenPrune,
-        // Housekeeping: a missed night should still run, so catch up.
-        catchup: true
+        // No max_delay_ms: housekeeping that was missed should still happen, so
+        // a run delayed by a backlog or an outage is still worth doing.
       });
       scheduler.start();
       Server.job_scheduler = scheduler;

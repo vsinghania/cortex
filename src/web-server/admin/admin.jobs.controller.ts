@@ -66,7 +66,8 @@ const ScheduleBodySchema = z
     dedup_key: z.string().min(1).optional(),
     user_id: z.string().min(1).optional(),
     enabled: z.boolean().optional(),
-    catchup: z.boolean().optional(),
+    // Absent = no deadline. Becomes deadline_at on every spawned run.
+    max_delay_ms: z.number().int().positive().optional(),
     max_attempts: z.number().int().positive().max(50).optional()
   })
   .strict();

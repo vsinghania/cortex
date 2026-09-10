@@ -26,12 +26,22 @@ export type JobListParams = {
 
 export type HeartbeatResult = Pick<Job, 'id' | 'cancel_requested'>;
 
+/** Which unique constraint refused an insert - they mean different things. */
+export type ConflictField = 'scheduled_for' | 'dedup_key';
+
+export type EnqueueOutcome = {
+  job: Job;
+  created: boolean;
+  /** Set only when created is false. */
+  conflict_on?: ConflictField;
+};
+
 export interface JobRepository {
   /**
-   * Insert, or refuse when an active job already holds (name, user_id, dedup_key).
-   * `created: false` means the key was taken; callers translate that to ConflictError.
+   * Insert, or refuse when a unique constraint rejects it: the recurrence window
+   * is already materialized, or a run with this dedup key is still active.
    */
-  enqueue(params: { job: Job }): Promise<{ job: Job; created: boolean }>;
+  enqueue(params: { job: Job }): Promise<EnqueueOutcome>;
 
   /**
    * Atomically dequeues one due job OR reclaims one whose lease expired.
@@ -65,7 +75,7 @@ export interface JobRepository {
     params: LeaseKey & { message: string; errors?: Job['errors']; progress?: JobProgress; retention_sec: number }
   ): Promise<boolean>;
 
-  cancel(params: LeaseKey & { progress?: JobProgress; retention_sec: number }): Promise<boolean>;
+  cancel(params: LeaseKey & { progress?: JobProgress; retention_sec: number; result?: JobSummary }): Promise<boolean>;
 
   /**
    * Hand an unfinished job straight back as queued, flushing what it learned.

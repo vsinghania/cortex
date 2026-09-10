@@ -48,11 +48,15 @@ export class JobsSvc implements JobsSvcInterface {
     const now = new Date();
     const job = JobsSvc.buildJob(input, now);
 
-    const { job: stored, created } = await this.repo.enqueue({ job });
+    const { job: stored, created, conflict_on } = await this.repo.enqueue({ job });
 
     if (!created) {
-      throw new ConflictError(`A ${input.name} job is already active`, {
-        details: { job_id: stored.id, dedup_key: input.dedup_key, status: stored.status }
+      const reason =
+        conflict_on === 'scheduled_for'
+          ? `This ${input.name} window is already materialized`
+          : `A ${input.name} job is already active`;
+      throw new ConflictError(reason, {
+        details: { job_id: stored.id, conflict_on, status: stored.status }
       });
     }
 
@@ -118,6 +122,8 @@ export class JobsSvc implements JobsSvcInterface {
 
       run_at,
       visible_at: run_at,
+      deadline_at: input.deadline_at,
+      scheduled_for: input.scheduled_for,
 
       locked_by: null,
       locked_at: null,

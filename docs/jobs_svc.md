@@ -103,7 +103,9 @@ Two rules do most of the work:
 
 **Advance before inserting.** The tick advances `next_run_at` first, in a compare-and-swap against the value it read, and only then enqueues. That is what makes a window materialize at most once when two containers overlap during a deploy — the loser no longer matches the filter. It also means a failed insert *skips* a run rather than retrying it forever, which is the safer direction to fail. The swap cannot be folded into the read as one atomic op, because the new `next_run_at` depends on the schedule's own kind and expression, which is not known until the document is read.
 
-**Advance forward from now, never from the stale value.** A container down for six hours therefore fires at most *one* run rather than one per missed window. Whether even that one fires is `catchup`: true suits cleanup that simply needs to happen; false suits work timed to run off-peak, where a "midnight" sweep starting at 09:00 is worse than a skipped night. A tick within two scheduler intervals of its target counts as punctual jitter, not a missed window.
+**Advance forward from now, never from the stale value.** A container down for six hours therefore materializes at most *one* window rather than one per hour missed.
+
+**Whether a late run should still happen is not the scheduler's call.** It is a question about the moment work *starts*, and only the worker is present for that - a scheduler deciding it at enqueue time is blind to lateness caused by a backlog, a disabled worker, or a queue that is simply busy. So a schedule's `max_delay_ms` becomes `deadline_at` on each spawned job, and the worker enforces it post-claim (§2). Absent means no limit: run it whenever, which suits housekeeping that simply needs to happen. Present means the run is skipped - `cancelled`, with `result.skipped = 'deadline_exceeded'` - once its window has closed.
 
 Overrun needs no separate guard: a schedule carrying a `dedup_key` spawns runs that collide on `uniq_job_dedup_active` (§4) while the previous one is still active, so the window is skipped and logged — and `next_run_at` has already moved, so the following window is unaffected.
 

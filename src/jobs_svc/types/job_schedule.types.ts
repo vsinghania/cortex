@@ -25,12 +25,16 @@ export interface JobSchedule {
   max_attempts: number;
 
   /**
-   * When a container boots to find this stale, `catchup` decides whether the
-   * missed window fires once immediately or is skipped to the next occurrence.
-   * True suits cleanup; false suits anything timed to run off-peak, where firing
-   * a "midnight" sweep at 09:00 is worse than skipping it.
+   * How late a run may start before it is skipped instead. Absent means "no
+   * limit" - run it whenever the worker gets to it, which suits cleanup that
+   * simply needs to happen.
+   *
+   * Set it for work whose value is tied to its window: a sweep timed for 03:00 to
+   * stay off-peak is worse than useless at 09:00. It becomes `deadline_at` on
+   * every spawned job, which the WORKER enforces at the moment work starts - so
+   * it covers lateness from any cause, not just a late scheduler.
    */
-  catchup: boolean;
+  max_delay_ms?: number;
 
   next_run_at: Date;
   last_run_at?: Date;
@@ -51,7 +55,7 @@ export type UpsertScheduleInput = {
   dedup_key?: string;
   user_id?: string;
   enabled?: boolean;
-  catchup?: boolean;
+  max_delay_ms?: number;
   max_attempts?: number;
   created_by?: string;
 };

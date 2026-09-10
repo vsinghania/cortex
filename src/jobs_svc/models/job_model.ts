@@ -52,6 +52,12 @@ export class JobModelFactory extends BaseModelFactory<Job> {
         max_attempts: { type: Number, required: true },
 
         run_at: { type: Date, required: true },
+        // The upper half of the timing contract; checked after the claim, never
+        // in the claim filter (comparing two fields needs $expr, which takes no
+        // index bounds - the same reason attempts is checked post-claim).
+        deadline_at: { type: Date, default: undefined },
+        // Which recurrence window this job is. Absent on ad-hoc jobs.
+        scheduled_for: { type: Date, default: undefined },
         // run_at while queued, lease_expires_at while running, null when terminal.
         // The only field the claim ranges on.
         visible_at: { type: Date, default: null },
@@ -122,6 +128,18 @@ export class JobModelFactory extends BaseModelFactory<Job> {
     // Per-document TTL: expireAfterSeconds 0 means "expire when expires_at passes",
     // so succeeded and failed jobs can carry different retentions from one index.
     JobSchemaMongoose.index({ expires_at: 1 }, { name: 'job_ttl', expireAfterSeconds: 0 });
+
+    // Exactly-once per recurrence window. Partial, because only scheduled jobs
+    // have a window - without it every ad-hoc job would carry (null, null) and
+    // they would all collide with one another.
+    JobSchemaMongoose.index(
+      { schedule_id: 1, scheduled_for: 1 },
+      {
+        unique: true,
+        name: 'uniq_schedule_window',
+        partialFilterExpression: { scheduled_for: { $exists: true } }
+      }
+    );
 
     // The admin list endpoint: recent jobs of a kind.
     JobSchemaMongoose.index({ name: 1, created_at: -1 }, { name: 'by_name_created' });

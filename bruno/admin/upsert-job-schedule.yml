@@ -17,8 +17,7 @@ http:
         "name": "refresh_token_prune",
         "label": "Prune expired refresh sessions",
         "schedule": { "kind": "cron", "expression": "0 3 * * *", "timezone": "UTC" },
-        "dedup_key": "refresh_token_prune",
-        "catchup": true
+        "dedup_key": "refresh_token_prune"
       }
   auth: inherit
 
