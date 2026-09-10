@@ -5,11 +5,22 @@ A Mongo-backed job queue with an in-process worker. Work is enqueued from a requ
 Source: [src/jobs_svc/](../src/jobs_svc/). First workload: the admin notes re-index ([src/notes_svc/jobs/](../src/notes_svc/jobs/)), exposed at `/api/v1/admin/notes/*` ([web.md](web.md)).
 
 ```
-enqueue ──► jobs collection ◄── claim ── JobWorker ──► JobHandlerRegistry ──► handler
-(any process)      │                        │              (registered at bootstrap)
-                   │                        └─ lease heartbeat: flush progress,
-                   └─ TTL reaps terminal jobs             read cancel, extend lease
+JobScheduler ─┐                                    ┌─► JobHandlerRegistry ─► handler
+(job_schedules)├─► jobs collection ◄── claim ── JobWorker
+enqueue ──────┘         │                   │      └─ lease heartbeat: flush progress,
+(any process)           └─ TTL reaps           read cancel, extend lease
+                           terminal jobs
 ```
+
+**Who decides what.** The split is deliberate, and most of the design follows from it:
+
+| | owns |
+| --- | --- |
+| **Scheduler** | *which windows exist* — recurrence arithmetic, materializing one window, advancing. Never executes. |
+| **Job** | *the contract between them* — `run_at` (not before), `deadline_at` (not after), `scheduled_for` (which window) |
+| **Worker** | *execution* — claiming, leasing, retry, cancellation, and every judgement about the moment work starts |
+
+The load-bearing rule is that **anything the worker must know has to travel on the job**, because the scheduler is long gone by the time work begins. Lateness is the clearest case: it is a property of the instant a job *starts*, so a scheduler deciding it at enqueue time can only guess, and is blind to delay caused by a backlog or a stalled worker.
 
 ---
 
@@ -33,6 +44,8 @@ options = { sort: { visible_at: 1 }, returnDocument: 'after' }
 `findOneAndUpdate` is atomic per document, so two workers firing this together cannot both win: the loser's filter no longer matches, and it takes the next job instead. This is the whole of the horizontal-scaling story — N workers running different jobs need nothing more.
 
 The query is built by [`JobClaimQuery`](../src/jobs_svc/repositories/job_claim_query.ts), which returns plain objects so it is asserted in a unit test with no database.
+
+`visible_at` is only the *lower* bound. The upper one, `deadline_at`, is checked **after** the claim rather than in the filter, because comparing two fields inside the query needs `$expr`, which takes no index bounds — the same reason `attempts < max_attempts` is a post-claim check. A job claimed past its deadline goes terminal as `cancelled` with `result.skipped = 'deadline_exceeded'`; the handler is never invoked.
 
 ## 2. Leases, not locks
 
@@ -69,6 +82,22 @@ It keys on a boolean rather than on `status` because `partialFilterExpression` a
 
 `user_id` in the key is what lets a re-index of one user coexist with another's while still blocking a duplicate of either.
 
+A second unique index does a different job — **exactly-once per recurrence window**:
+
+```
+uniq_schedule_window: { schedule_id: 1, scheduled_for: 1 }
+  partialFilterExpression: { scheduled_for: { $exists: true } }
+```
+
+Partial because only *scheduled* jobs have a window; without it every ad-hoc job would carry `(null, null)` and they would all collide with one another. The two are easy to confuse:
+
+| | prevents | cleared |
+| --- | --- | --- |
+| `scheduled_for` | the same **window** being materialized twice | never — it is history |
+| `dedup_active` | a **new run** starting while the previous is active | at the terminal write |
+
+One stops duplicate creation, the other stops overrun. `enqueue` reports which constraint refused (`conflict_on`), because they mean different things to whoever is reading the logs.
+
 ## 5. Two deliberate exceptions
 
 **`jobs.user_id` is optional, and is not an authorization scope.** Every other collection is user-scoped and [recall.md](recall.md) calls that invariant load-bearing. Here it is optional because a job may legitimately be system-wide — the re-index with an empty filter targets every note in the system. Present, it means "this job's work belongs to one user" and scopes the dedup key; absent, the job is system-wide. It never decides what a handler may read: `payload` does that, and `requested_by` separately records which admin triggered the run. **Do not "fix" this into a required tenant guard.** The compensating control is that the only enqueue surface is admin-gated.
@@ -101,7 +130,11 @@ A second collection, `job_schedules`, holds recurring *definitions*; `JobSchedul
 
 Two rules do most of the work:
 
-**Advance before inserting.** The tick advances `next_run_at` first, in a compare-and-swap against the value it read, and only then enqueues. That is what makes a window materialize at most once when two containers overlap during a deploy — the loser no longer matches the filter. It also means a failed insert *skips* a run rather than retrying it forever, which is the safer direction to fail. The swap cannot be folded into the read as one atomic op, because the new `next_run_at` depends on the schedule's own kind and expression, which is not known until the document is read.
+**Insert first, then advance.** The insert is idempotent — `uniq_schedule_window` (§4) makes `(schedule_id, scheduled_for)` unique — so a crash between the two steps is recoverable: the next tick reads the same `next_run_at`, re-inserts, collides harmlessly, and advances anyway. That is what makes materialization **exactly-once per window**.
+
+Advancing first, as an earlier version did, lost the window silently in that gap: `next_run_at` had moved on, no job existed, and nothing was left to retry from — at-most-once, with no way to tell it had happened.
+
+The window key also subsumes the cross-container guard: two schedulers ticking together both attempt the insert, and the unique index picks one. The compare-and-swap on `next_run_at` remains so the advance happens once too, and it cannot be folded into the read, because the new `next_run_at` depends on the schedule's own kind and expression — not known until the document has been read.
 
 **Advance forward from now, never from the stale value.** A container down for six hours therefore materializes at most *one* window rather than one per hour missed.
 
@@ -115,7 +148,7 @@ Both surfaces run the same admission check: an unregistered job name is refused,
 
 **Creation validates what would otherwise fail at 03:00.** An unregistered job name is refused outright, because such a schedule would spawn jobs no worker can run, and those are claimed and released on a loop rather than failing visibly. The payload is run through the handler's own `parsePayload`, so a malformed one is a 400 at creation rather than a nightly failure. An interval below the tick interval is refused, since it cannot fire faster than the ticker anyway.
 
-**`enabled` is insert-only.** The boot seed re-registers every schedule, so if `enabled` were part of the update an operator who disabled something through the API would be silently overruled by the next deploy. Toggling goes through `PATCH` alone. Deleting, by contrast, is *not* durable against a redeploy: a schedule declared in `server.ts` is recreated on next boot, so disable is the way to stop a seeded schedule for good. Re-enabling takes a fresh `next_run_at`, or a schedule disabled for a week would fire the instant it came back. Deleting a schedule removes the definition only - jobs it already spawned are independent rows and keep running. `ScheduleClock` holds the whole decision as pure functions, so the catch-up rules are unit-tested without a database; `npm run jobs:smoke:scheduler` covers the concurrency and overrun cases that need a real one.
+**`enabled` is insert-only.** The boot seed re-registers every schedule, so if `enabled` were part of the update an operator who disabled something through the API would be silently overruled by the next deploy. Toggling goes through `PATCH` alone. Deleting, by contrast, is *not* durable against a redeploy: a schedule declared in `server.ts` is recreated on next boot, so disable is the way to stop a seeded schedule for good. Re-enabling takes a fresh `next_run_at`, or a schedule disabled for a week would fire the instant it came back. Deleting a schedule removes the definition only - jobs it already spawned are independent rows and keep running. `ScheduleClock` is pure — recurrence arithmetic and the deadline computation, nothing else — so both are unit-tested with no database; `npm run jobs:smoke:scheduler` covers what needs a real one: two schedulers racing, overrun refusal, and the crash-between-insert-and-advance retry.
 
 ## 9. Gotchas
 
@@ -123,10 +156,17 @@ Both surfaces run the same admission check: an unregistered job name is refused,
 - **A job whose handler is not registered is released, not failed** — handed back unrun and unpenalised, so a job name can ship before the code that runs it. The cost is that a permanently unregistered name loops quietly; queue-depth sampling should watch for names with queued rows and no handler.
 - **An empty registry throws at startup.** Such a worker would claim every job and release every one unrun — a hot loop that looks healthy. `JOBS_WORKER_ENABLED=false` is the explicit way to run an enqueue-only process.
 - **Handler registration rethrows** at bootstrap, unlike most startup steps which warn and continue. A handler that silently fails to register means its jobs stop being claimed with no error anywhere.
-- **An empty payload needs `minimize: false` on the schema.** Mongoose strips empty objects on save, *after* validation, so `payload: {}` vanished from a `required: true` field and the handler's schema then rejected `undefined`. It only bit the `create()` path - the dedup upsert kept it, because `$setOnInsert` is a raw update operator that bypasses minimize. Both job models disable minimize; `jobs:smoke` pins the round trip.
+- **An empty payload needs `minimize: false` on the schema.** Mongoose strips empty objects on save, *after* validation, so `payload: {}` vanished from a `required: true` field and the handler's schema then rejected `undefined`. At the time it only bit the `create()` path, because the dedup route was then an upsert and `$setOnInsert` is a raw update operator that bypasses minimize. `enqueue` is now a plain `create()` in every case, so the flag is what keeps an empty payload alive at all. Both job models disable minimize; `jobs:smoke` pins the round trip.
 - **A cancel is not immediate.** `requestCancel` flags a running job; its worker notices on the next heartbeat, so the route returns 202 before the job has stopped. A *queued* job cancels outright.
 
 ## 10. Deliberately deferred
 
 - **Routing.** There is one undifferentiated pool and global FIFO, so a bulk import can occupy every worker and a cheap job queued behind it waits. Three designs were costed — lanes, capability filtering, tags — and each inserts a field into `job_claim` between `status` and `visible_at`, so adding one later is an index rebuild rather than a redesign. Tags are the nicest model and the most expensive query: an array field ahead of the sort key makes the index multikey, and the claim gains a blocking in-memory sort.
 - **Vectorization still runs inline with note writes.** It is the obvious second handler, but nothing has moved yet.
+- **Pre-enqueueing future windows — considered, rejected.** The scheduler could materialize tomorrow's run *today*, with `run_at` set to the future window, and let the worker's `visible_at <= now` hold it until due. It is tempting: the queue already accepts future-dated work via `delay_ms`, the scheduler would stop needing to be punctual, and upcoming runs would be queryable.
+
+  It was rejected on semantics. A recurrence rule is not a finite list of jobs — it is an infinite sequence, so materializing ahead means choosing a horizon, and a horizon makes the queue a **materialized view over the rule**. From that point the two must be kept in sync: deleting a schedule has to cancel its queued runs, editing a cron has to rewrite them, disabling has to sweep. Today the rule is the single source of truth and work is produced lazily at the moment it becomes work, so nothing can drift.
+
+  The benefits also did not survive inspection. Exactly-once was the strongest, and it turned out to be *separable* — `uniq_schedule_window` delivers it without projecting anything forward, which is why it is in §8 rather than here. "What runs tonight" is already answerable from `next_run_at`. Only the punctuality argument was real, and `deadline_at` covers what it was protecting against.
+
+  **Where this flips:** the moment you want to manipulate *individual* future runs — skip just tomorrow's, move Friday's an hour later, show an operator an editable calendar. You cannot annotate an instance that does not exist, so that feature requires materialized future runs, and the cascade cost becomes one paid deliberately for a capability rather than incidentally for plumbing.
