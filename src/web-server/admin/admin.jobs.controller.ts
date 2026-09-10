@@ -1,8 +1,48 @@
 import express from 'express';
 import { z } from 'zod';
 import { validateRequest } from '../../lib/decorators/validation_decorators.js';
+import { JobsSvc } from '../../jobs_svc/jobs_svc.js';
 import { JobScheduler } from '../../jobs_svc/job_scheduler.js';
-import { NotFoundError } from '../../common/errors.js';
+import { JobHandlerRegistry } from '../../jobs_svc/handlers/job_handler_registry.js';
+import { JobStatus } from '../../jobs_svc/types/job.types.js';
+import { BadRequestError, NotFoundError } from '../../common/errors.js';
+
+const DEFAULT_LIST_LIMIT = 50;
+const MAX_LIST_LIMIT = 200;
+
+const numericQuery = (max: number) =>
+  z
+    .string()
+    .regex(/^\d+$/)
+    .transform((v) => Number(v))
+    .pipe(z.number().int().positive().max(max))
+    .optional();
+
+// --- concrete runs ---------------------------------------------------------
+
+const JobListQuerySchema = z.object({
+  name: z.string().min(1).optional(),
+  status: z.nativeEnum(JobStatus).optional(),
+  user_id: z.string().min(1).optional(),
+  limit: numericQuery(MAX_LIST_LIMIT)
+});
+
+const JobStatsQuerySchema = z.object({ name: z.string().min(1).optional() });
+
+const EnqueueBodySchema = z
+  .object({
+    name: z.string().min(1),
+    payload: z.record(z.unknown()).default({}),
+    user_id: z.string().min(1).optional(),
+    dedup_key: z.string().min(1).optional(),
+    delay_ms: z.number().int().nonnegative().optional(),
+    max_attempts: z.number().int().positive().max(50).optional()
+  })
+  .strict();
+
+const JobParamsSchema = z.object({ job_id: z.string().min(1) });
+
+// --- recurring definitions -------------------------------------------------
 
 const ScheduleSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('interval'), every_ms: z.number().int().positive() }).strict(),
@@ -34,10 +74,16 @@ const ScheduleBodySchema = z
 const ScheduleParamsSchema = z.object({ id: z.string().min(1) });
 const EnabledBodySchema = z.object({ enabled: z.boolean() }).strict();
 
+type EnqueueBody = z.infer<typeof EnqueueBodySchema>;
 type ScheduleBody = z.infer<typeof ScheduleBodySchema>;
 
 /**
- * Recurring schedule management, mounted under /api/v1/admin/jobs.
+ * Background jobs, mounted under /api/v1/admin/jobs: concrete runs at the root,
+ * recurring definitions under /schedules.
+ *
+ * The notes routes under /admin/notes/reindex remain the notes-specific surface -
+ * they carry their own body schema and 404 on a job of any other name, which is a
+ * safety property worth keeping rather than folding in here.
  *
  * Carries no auth of its own: AdminController gates the whole tree once.
  */
@@ -55,19 +101,128 @@ export class AdminJobsController {
   }
 
   private registerRoutes() {
+    // Order matters: the literal paths must come before '/:job_id', or
+    // '/schedules' and '/stats' would be read as job ids.
     this.router.put('/schedules', this.upsertSchedule.bind(this));
     this.router.get('/schedules', this.listSchedules.bind(this));
     this.router.get('/schedules/:id', this.getSchedule.bind(this));
-    this.router.patch('/schedules/:id', this.setEnabled.bind(this));
+    this.router.patch('/schedules/:id', this.setScheduleEnabled.bind(this));
     this.router.delete('/schedules/:id', this.deleteSchedule.bind(this));
+
+    this.router.get('/stats', this.getStats.bind(this));
+
+    this.router.post('/', this.enqueueJob.bind(this));
+    this.router.get('/', this.listJobs.bind(this));
+    this.router.get('/:job_id', this.getJob.bind(this));
+    this.router.post('/:job_id/cancel', this.cancelJob.bind(this));
   }
+
+  // --- concrete runs -------------------------------------------------------
+
+  /**
+   * Runs a job now, out of band - the "trigger it without waiting for 03:00"
+   * companion to a schedule. Validated the same way a schedule is, so an
+   * unregistered name or a payload the handler refuses is a 400 here rather than
+   * a job no worker can run.
+   */
+  @validateRequest({ body: EnqueueBodySchema })
+  private async enqueueJob(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const body = req.body as EnqueueBody;
+      AdminJobsController.assertRunnable(body.name, body.payload ?? {});
+
+      const jobs_svc = await JobsSvc.getInstance();
+      const { job_id } = await jobs_svc.enqueue({
+        ...body,
+        payload: body.payload ?? {},
+        requested_by: req.auth!.user_id
+      });
+
+      const job = await jobs_svc.getJob(job_id);
+      // 202: the work happens on a worker, not in this request.
+      res.status(202).json({ response: { job } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ query: JobListQuerySchema })
+  private async listJobs(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const q = req.query as Record<string, string | undefined>;
+      const jobs_svc = await JobsSvc.getInstance();
+
+      const jobs = await jobs_svc.listJobs({
+        name: q.name,
+        status: q.status as JobStatus | undefined,
+        user_id: q.user_id,
+        limit: q.limit ? Number(q.limit) : DEFAULT_LIST_LIMIT
+      });
+      res.status(200).json({ response: { jobs } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  /** Queue depth by status - the counterpart to a name with no registered handler. */
+  @validateRequest({ query: JobStatsQuerySchema })
+  private async getStats(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const q = req.query as Record<string, string | undefined>;
+      const jobs_svc = await JobsSvc.getInstance();
+
+      const counts = await jobs_svc.getStats({ name: q.name });
+      res.status(200).json({
+        response: {
+          counts,
+          // Queued rows under a name nothing handles are claimed and released on
+          // a loop, so surfacing what IS handled makes that diagnosable.
+          registered_names: JobHandlerRegistry.getInstance().registeredNames()
+        }
+      });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ params: JobParamsSchema })
+  private async getJob(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { job_id } = req.params as { job_id: string };
+      const jobs_svc = await JobsSvc.getInstance();
+      const job = await jobs_svc.getJob(job_id);
+      if (!job) throw new NotFoundError('Job not found');
+      res.status(200).json({ response: { job } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  /**
+   * A queued job cancels outright; a running one is flagged and its worker
+   * notices on the next heartbeat, so this returns before the job has stopped.
+   */
+  @validateRequest({ params: JobParamsSchema })
+  private async cancelJob(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { job_id } = req.params as { job_id: string };
+      const jobs_svc = await JobsSvc.getInstance();
+
+      const existing = await jobs_svc.getJob(job_id);
+      if (!existing) throw new NotFoundError('Job not found');
+
+      const job = await jobs_svc.requestCancel(job_id);
+      res.status(202).json({ response: { job: job ?? existing } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  // --- recurring definitions -----------------------------------------------
 
   /**
    * PUT rather than POST: creation is an upsert on a caller-supplied id, which is
    * idempotent, so re-sending the same body is not a second schedule.
-   *
-   * Rejects an unregistered job name or a payload the handler's own schema
-   * refuses - failing here beats failing at 03:00.
    */
   @validateRequest({ body: ScheduleBodySchema })
   private async upsertSchedule(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -116,7 +271,7 @@ export class AdminJobsController {
    * redeploy - the boot seed only sets `enabled` on insert.
    */
   @validateRequest({ params: ScheduleParamsSchema, body: EnabledBodySchema })
-  private async setEnabled(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async setScheduleEnabled(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const { id } = req.params as { id: string };
       const { enabled } = req.body as { enabled: boolean };
@@ -146,6 +301,27 @@ export class AdminJobsController {
       res.status(204).send();
     } catch (e) {
       next(e);
+    }
+  }
+
+  /**
+   * Refuses work that could only fail later: an unregistered name spawns jobs no
+   * worker can run (claimed and released on a loop rather than failing visibly),
+   * and a payload the handler's own schema rejects would fail on the worker
+   * rather than at the request that created it.
+   */
+  private static assertRunnable(name: string, payload: Record<string, unknown>): void {
+    const registry = JobHandlerRegistry.getInstance();
+    const handler = registry.get(name);
+    if (!handler) {
+      throw new BadRequestError(
+        `Unknown job name: ${name}. Registered: ${registry.registeredNames().join(', ') || '(none)'}`
+      );
+    }
+    try {
+      handler.parsePayload(payload);
+    } catch (err) {
+      throw new BadRequestError(`Payload is invalid for job ${name}`, { cause: err });
     }
   }
 }

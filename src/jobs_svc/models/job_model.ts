@@ -93,6 +93,11 @@ export class JobModelFactory extends BaseModelFactory<Job> {
       {
         collection: 'jobs',
         versionKey: false,
+        // Mongoose strips empty objects on save by default, and it does so AFTER
+        // validation - so `payload: {}` on a required field vanished silently and
+        // the handler's schema then rejected `undefined`. The upsert path never
+        // saw it, because $setOnInsert bypasses minimize; only create() did.
+        minimize: false,
         timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
       }
     );

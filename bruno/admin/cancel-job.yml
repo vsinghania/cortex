@@ -1,0 +1,15 @@
+info:
+  name: cancel-job
+  type: http
+  seq: 14
+
+http:
+  method: POST
+  url: "{{base_url}}/admin/jobs/{{job_id}}/cancel"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

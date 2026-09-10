@@ -107,7 +107,9 @@ Two rules do most of the work:
 
 Overrun needs no separate guard: a schedule carrying a `dedup_key` spawns runs that collide on `uniq_job_dedup_active` (§4) while the previous one is still active, so the window is skipped and logged — and `next_run_at` has already moved, so the following window is unaffected.
 
-Schedules are managed over HTTP under `/api/v1/admin/jobs/schedules` (`PUT` upsert, `GET` list/read, `PATCH` enable/disable, `DELETE`), and seeded at boot by upserting a stable id, so the source of truth stays in code and restarts are idempotent. `PUT` rather than `POST`, because the id is caller-supplied and the write is an upsert - re-sending a body is not a second schedule.
+Concrete runs are managed over HTTP under `/api/v1/admin/jobs` (`POST` to run one out of band, `GET` to list or read, `POST /:id/cancel`, `GET /stats` for queue depth). Schedules sit under `/api/v1/admin/jobs/schedules` (`PUT` upsert, `GET` list/read, `PATCH` enable/disable, `DELETE`), and seeded at boot by upserting a stable id, so the source of truth stays in code and restarts are idempotent. `PUT` rather than `POST`, because the id is caller-supplied and the write is an upsert - re-sending a body is not a second schedule.
+
+Both surfaces run the same admission check: an unregistered job name is refused, and the payload is put through the handler's own `parsePayload`. The notes routes under `/admin/notes/reindex` stay as the notes-specific surface, since they carry their own body schema and 404 on a job of any other name.
 
 **Creation validates what would otherwise fail at 03:00.** An unregistered job name is refused outright, because such a schedule would spawn jobs no worker can run, and those are claimed and released on a loop rather than failing visibly. The payload is run through the handler's own `parsePayload`, so a malformed one is a 400 at creation rather than a nightly failure. An interval below the tick interval is refused, since it cannot fire faster than the ticker anyway.
 
@@ -119,6 +121,7 @@ Schedules are managed over HTTP under `/api/v1/admin/jobs/schedules` (`PUT` upse
 - **A job whose handler is not registered is released, not failed** — handed back unrun and unpenalised, so a job name can ship before the code that runs it. The cost is that a permanently unregistered name loops quietly; queue-depth sampling should watch for names with queued rows and no handler.
 - **An empty registry throws at startup.** Such a worker would claim every job and release every one unrun — a hot loop that looks healthy. `JOBS_WORKER_ENABLED=false` is the explicit way to run an enqueue-only process.
 - **Handler registration rethrows** at bootstrap, unlike most startup steps which warn and continue. A handler that silently fails to register means its jobs stop being claimed with no error anywhere.
+- **An empty payload needs `minimize: false` on the schema.** Mongoose strips empty objects on save, *after* validation, so `payload: {}` vanished from a `required: true` field and the handler's schema then rejected `undefined`. It only bit the `create()` path - the dedup upsert kept it, because `$setOnInsert` is a raw update operator that bypasses minimize. Both job models disable minimize; `jobs:smoke` pins the round trip.
 - **A cancel is not immediate.** `requestCancel` flags a running job; its worker notices on the next heartbeat, so the route returns 202 before the job has stopped. A *queued* job cancels outright.
 
 ## 10. Deliberately deferred

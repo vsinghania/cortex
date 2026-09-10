@@ -1,4 +1,4 @@
-import type { EnqueueInput, EnqueueResult, Job, JobPayload } from './types/job.types.js';
+import type { EnqueueInput, EnqueueResult, Job, JobName, JobPayload } from './types/job.types.js';
 import { JobStatus } from './types/job.types.js';
 import type { JobsSvcInterface, ListJobsInput } from './jobs_svc_interface.js';
 import type { JobRepository } from './repositories/job_repository_interface.js';
@@ -75,6 +75,10 @@ export class JobsSvc implements JobsSvcInterface {
 
   async listJobs(input: ListJobsInput): Promise<Job[]> {
     return this.repo.list(input);
+  }
+
+  async getStats(params?: { name?: JobName }): Promise<Record<JobStatus, number>> {
+    return this.repo.countByStatus(params);
   }
 
   async requestCancel(job_id: string): Promise<Job | null> {

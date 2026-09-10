@@ -1,0 +1,37 @@
+info:
+  name: run-job-now
+  type: http
+  seq: 12
+
+http:
+  method: POST
+  url: "{{base_url}}/admin/jobs"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "name": "refresh_token_prune",
+        "payload": {}
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        // Out-of-band trigger: runs a scheduled job now instead of waiting for
+        // its next window. 202 - the work happens on a worker, not in this call.
+        const body = res.getBody();
+        const job = body && body.response && body.response.job;
+        if (job && job.id) {
+          bru.setEnvVar('job_id', job.id, { persist: true });
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

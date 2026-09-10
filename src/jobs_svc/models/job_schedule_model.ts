@@ -46,6 +46,8 @@ export class JobScheduleModelFactory extends BaseModelFactory<JobSchedule> {
       {
         collection: 'job_schedules',
         versionKey: false,
+        // See job_model: an empty payload must survive the round trip.
+        minimize: false,
         timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
       }
     );
