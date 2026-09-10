@@ -224,12 +224,55 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   gap: 6px;
   margin: 6px 0;
 }
+/* Renders as a <span> where tags are decorative, and as a <button> where they filter. */
 .tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: #eef2f7;
   color: var(--text-muted);
   font-size: 12px;
   padding: 2px 8px;
+  border: 1px solid transparent;
   border-radius: 999px;
+  line-height: 1.5;
+}
+button.tag-chip {
+  cursor: pointer;
+}
+button.tag-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tag-chip-active,
+button.tag-chip-active:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.tag-chip-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.tag-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.tag-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag-filter-clear {
+  font-size: 12px;
+  padding: 2px 8px;
+  background: none;
+  border: none;
+  color: var(--accent);
 }
 .note-row-meta {
   font-size: 12px;

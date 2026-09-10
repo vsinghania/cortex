@@ -30,8 +30,18 @@ const NotePatchBodySchema = z.object({
   is_archived: z.boolean().optional()
 }).strict();
 
+const MAX_TAG_FILTER_COUNT = 10;
+
+// Repeated query params (?tags=a&tags=b) arrive as a bare string when there is exactly
+// one, so both forms normalize to an array here.
+const NoteTagsQuerySchema = z
+  .union([z.string().min(1), z.array(z.string().min(1))])
+  .transform((v) => (Array.isArray(v) ? v : [v]))
+  .pipe(z.array(z.string()).min(1).max(MAX_TAG_FILTER_COUNT));
+
 const NoteListQuerySchema = z.object({
   q: z.string().optional(),
+  tags: NoteTagsQuerySchema.optional(),
   limit: z
     .string()
     .regex(/^\d+$/)
@@ -43,6 +53,15 @@ const NoteListQuerySchema = z.object({
     .regex(/^\d+$/)
     .transform((v) => Number(v))
     .pipe(z.number().int().nonnegative())
+    .optional()
+});
+
+const NoteTagsListQuerySchema = z.object({
+  limit: z
+    .string()
+    .regex(/^\d+$/)
+    .transform((v) => Number(v))
+    .pipe(z.number().int().positive().max(200))
     .optional()
 });
 
@@ -75,6 +94,8 @@ export class NotesController {
     this.router.use(RequireAuthMiddleware.requireAuth);
     this.router.post('/', this.createNote.bind(this));
     this.router.get('/', this.listNotes.bind(this));
+    // Must precede '/:id', or this resolves to getNote with id='tags'.
+    this.router.get('/tags', this.listTags.bind(this));
     this.router.get('/:id/chunks/:chunk_id', this.getNoteChunk.bind(this));
     this.router.get('/:id', this.getNote.bind(this));
     this.router.patch('/:id', this.updateNote.bind(this));
@@ -102,9 +123,30 @@ export class NotesController {
       const q = typeof query_raw.q === 'string' ? query_raw.q : undefined;
       const limit = typeof query_raw.limit === 'string' ? Number(query_raw.limit) : undefined;
       const offset = typeof query_raw.offset === 'string' ? Number(query_raw.offset) : undefined;
+      const tags = query_raw.tags === undefined ? undefined : NoteTagsQuerySchema.parse(query_raw.tags);
       const notes_svc = await NotesSvc.create();
-      const result = await notes_svc.listNotes({ user_id, query: q, limit, offset });
+      const result = await notes_svc.listNotes({
+        user_id,
+        query: q,
+        filter: tags ? { tags } : undefined,
+        limit,
+        offset
+      });
       res.status(200).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ query: NoteTagsListQuerySchema })
+  private async listTags(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const user_id = req.auth!.user_id;
+      const query_raw = req.query as Record<string, unknown>;
+      const limit = typeof query_raw.limit === 'string' ? Number(query_raw.limit) : undefined;
+      const notes_svc = await NotesSvc.create();
+      const tags = await notes_svc.listTags({ user_id, limit });
+      res.status(200).json({ response: { tags } });
     } catch (e) {
       next(e);
     }

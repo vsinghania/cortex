@@ -48,6 +48,12 @@ export type NoteListResponse = {
   total: number;
 };
 
+/** Mirrors NoteTagCount in src/notes_svc/repositories/note_repository_interface.ts */
+export type NoteTagCount = {
+  tag: string;
+  count: number;
+};
+
 /** Mirrors NoteChunkRef in src/notes_svc/types/note_chunk.types.ts */
 export type NoteChunkRef = {
   id: string;

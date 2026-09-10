@@ -7,6 +7,13 @@ import { BaseModelFactory } from '../../db/mongo/base_model_factory.js';
 // The model is created per-Connection and cached; callers should use repositories to obtain it.
 export class NoteModelFactory extends BaseModelFactory<Note> {
 
+  /**
+   * strength 2 = case-insensitive, accent-sensitive. Shared by the tag index below and
+   * every tag query, since Mongo only uses a collated index when the query asks for the
+   * same collation.
+   */
+  static readonly CASE_INSENSITIVE_COLLATION = { locale: 'en', strength: 2 } as const;
+
   protected buildSchema(): Schema<Note> {
     // Subdocuments
     const ContainerSchema = new Schema(
@@ -95,6 +102,11 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
       { name: 'by_user_provider_updated' }
     );
     NoteSchemaMongoose.index({ user_id: 1, last_synced_at: -1 }, { name: 'by_user_last_synced' });
+    // Multikey over `tags`; also covers the tag-facet aggregation, which reads keys only.
+    NoteSchemaMongoose.index(
+      { user_id: 1, tags: 1, updated_at: -1 },
+      { name: 'by_user_tags_updated', collation: NoteModelFactory.CASE_INSENSITIVE_COLLATION }
+    );
     // Optional text index for basic search/fallbacks
     NoteSchemaMongoose.index({ title: 'text', body: 'text' }, { name: 'note_text_index' });
 

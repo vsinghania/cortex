@@ -1,6 +1,12 @@
 import type { Note, NoteContainer, NoteLocator, NoteMetadata, NoteVectorization } from './types/note.types.js';
 import { NoteSource, SyncStatus } from './types/note.types.js';
-import type { NoteRepository, NoteListParams as RepoListParams, NoteListResult as RepoListResult } from './repositories/note_repository_interface.js';
+import type {
+  NoteRepository,
+  NoteListParams as RepoListParams,
+  NoteListResult as RepoListResult,
+  NoteListFilter as RepoListFilter,
+  NoteTagCount as RepoTagCount
+} from './repositories/note_repository_interface.js';
 import type { NoteChunkRepository } from './repositories/note_chunk_repository_interface.js';
 import type { NoteChunk } from './types/note_chunk.types.js';
 import { MongooseNoteRepository } from './repositories/mongoose_note_repository.js';
@@ -16,6 +22,8 @@ import { logger } from '../common/logger.js';
 
 export type NoteListParams = RepoListParams;
 export type NoteListResult = RepoListResult;
+export type NoteListFilter = RepoListFilter;
+export type NoteTagCount = RepoTagCount;
 
 export type NoteCreateInput = {
   user_id: string;
@@ -65,6 +73,10 @@ export class NotesSvc {
 
   async listNotes(params: NoteListParams): Promise<NoteListResult> {
     return this.notes_repo.listNotes(params);
+  }
+
+  async listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]> {
+    return this.notes_repo.listTags(params);
   }
 
   async getNote(user_id: string, locator: NoteLocator): Promise<Note | null> {

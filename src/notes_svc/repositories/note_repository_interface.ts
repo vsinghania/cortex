@@ -1,8 +1,18 @@
 import type { Note, NoteSource } from '../types/note.types.js';
 
+/**
+ * Structured, additive note filters. Add named fields here as new filters are needed;
+ * keep it a plain typed struct rather than a generic {field, operator, value} DSL.
+ */
+export type NoteListFilter = {
+  /** Matches notes carrying ALL of these tags, ignoring case. */
+  tags?: string[];
+};
+
 export type NoteListParams = {
   user_id: string;
   query?: string;
+  filter?: NoteListFilter;
   limit?: number;
   offset?: number;
 };
@@ -10,6 +20,12 @@ export type NoteListParams = {
 export type NoteListResult = {
   items: Note[];
   total: number;
+};
+
+/** One row of the tag facet: a representative casing of the tag, and how many notes carry it. */
+export type NoteTagCount = {
+  tag: string;
+  count: number;
 };
 
 export type NoteByIdKey = {
@@ -45,6 +61,9 @@ export interface NoteRepository {
   getNotesByIds(params: { user_id: string; ids: string[] }): Promise<Note[]>;
 
   listNotes(params: NoteListParams): Promise<NoteListResult>;
+
+  /** Distinct tags for one user with note counts, case-folded, most-used first. */
+  listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]>;
 
   updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null>;
   updateNoteByKey(params: NoteBySourceKey & { patch: Partial<Note> }): Promise<Note | null>;
