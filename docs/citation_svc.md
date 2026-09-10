@@ -91,6 +91,8 @@ Numbering stays dense in every case, because `index` was fixed at extraction tim
 ## 6. Gotchas
 
 - **Citations only exist for turns that ran through `runByAgentId`.** Conversations created before this feature have no `citations` field and render as plain text with markers stripped. The tool payloads are still in those transcripts, so a backfill script could recover them.
+- **Chunk ids are the only thing tying a citation to its source, and re-indexing must preserve them.** `vectorizeNote` reuses the existing chunk id at each index, so a `rechunk` keeps citations resolvable. A full re-embed used to delete the chunks first, which regenerated every id and silently orphaned every citation into that note; `revectorizeNote` now forces the embed instead (`force_embed`) rather than deleting. Anything that reaches for delete-then-rebuild is doing the same damage. `scripts/citation_audit.ts` detects both dangling and rewritten citations.
+- **A shrinking note still prunes citations.** If a re-chunk yields fewer chunks, the surplus is deleted and citations into them dangle — resolved as `chunk_available: false`, which is why that field exists.
 - **`runAdHoc` produces no citations** — it has no conversation and often no `user_id`. Extraction would work; resolution is user-scoped.
 - **Resolution needs a `user_id`.** Without one, `AgentRunResponse.citations` is `undefined` rather than views with everything marked unavailable.
 - **The persist path is best-effort.** `persistTurn` swallows write failures, so a caller can receive citations that were never saved and would vanish on reload. The response is not a receipt for the write.

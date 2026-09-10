@@ -10,3 +10,5 @@ variables:
     value: smoke-notes-agent
   - name: note_id
     value: ""
+  - name: job_id
+    value: 01a08b28-9a46-7714-9290-a6d1ec3d5965
