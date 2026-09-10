@@ -107,7 +107,11 @@ Two rules do most of the work:
 
 Overrun needs no separate guard: a schedule carrying a `dedup_key` spawns runs that collide on `uniq_job_dedup_active` (§4) while the previous one is still active, so the window is skipped and logged — and `next_run_at` has already moved, so the following window is unaffected.
 
-Schedules are registered at boot by upserting a stable id, so the source of truth stays in code and restarts are idempotent. Re-enabling a disabled schedule takes a fresh `next_run_at`, or one disabled for a week would fire the instant it came back. `ScheduleClock` holds the whole decision as pure functions, so the catch-up rules are unit-tested without a database; `npm run jobs:smoke:scheduler` covers the concurrency and overrun cases that need a real one.
+Schedules are managed over HTTP under `/api/v1/admin/jobs/schedules` (`PUT` upsert, `GET` list/read, `PATCH` enable/disable, `DELETE`), and seeded at boot by upserting a stable id, so the source of truth stays in code and restarts are idempotent. `PUT` rather than `POST`, because the id is caller-supplied and the write is an upsert - re-sending a body is not a second schedule.
+
+**Creation validates what would otherwise fail at 03:00.** An unregistered job name is refused outright, because such a schedule would spawn jobs no worker can run, and those are claimed and released on a loop rather than failing visibly. The payload is run through the handler's own `parsePayload`, so a malformed one is a 400 at creation rather than a nightly failure. An interval below the tick interval is refused, since it cannot fire faster than the ticker anyway.
+
+**`enabled` is insert-only.** The boot seed re-registers every schedule, so if `enabled` were part of the update an operator who disabled something through the API would be silently overruled by the next deploy. Toggling goes through `PATCH` alone. Deleting, by contrast, is *not* durable against a redeploy: a schedule declared in `server.ts` is recreated on next boot, so disable is the way to stop a seeded schedule for good. Re-enabling takes a fresh `next_run_at`, or a schedule disabled for a week would fire the instant it came back. Deleting a schedule removes the definition only - jobs it already spawned are independent rows and keep running. `ScheduleClock` holds the whole decision as pure functions, so the catch-up rules are unit-tested without a database; `npm run jobs:smoke:scheduler` covers the concurrency and overrun cases that need a real one.
 
 ## 9. Gotchas
 

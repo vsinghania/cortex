@@ -9,6 +9,7 @@ const { MongooseJobScheduleRepository } = await import('../src/jobs_svc/reposito
 const { JobScheduler } = await import('../src/jobs_svc/job_scheduler.js');
 const { ScheduleClock } = await import('../src/jobs_svc/schedule_clock.js');
 const { Time } = await import('../src/lib/time.js');
+const { JobHandlerRegistry } = await import('../src/jobs_svc/handlers/job_handler_registry.js');
 
 let passed = 0;
 let failed = 0;
@@ -37,6 +38,14 @@ async function main(): Promise<void> {
 
   // Repositories register the models on the connection, so build them before
   // reaching for conn.model().
+  // upsertSchedule refuses a job name no handler is registered for, so a schedule
+  // can never be created that spawns work nothing can run. Register a stub.
+  JobHandlerRegistry.getInstance().register({
+    name: 'smoke_scheduled',
+    parsePayload: (raw: any) => raw,
+    handle: async () => ({ outcome: 'succeeded' as const })
+  } as any);
+
   const repo = await MongooseJobScheduleRepository.create();
   const scheduler = await JobScheduler.create();
   await conn.model('JobSchedule').syncIndexes();
@@ -67,6 +76,23 @@ async function main(): Promise<void> {
     assert.equal(await conn.collection('job_schedules').countDocuments({}), 1, 'must not duplicate');
     assert.equal(again.label, 'Renamed', 'mutable fields should update');
     assert.deepEqual(again.next_run_at, first.next_run_at, 'redeploy must not reset the clock');
+  });
+
+  await check('a redeploy does not overrule an operator who disabled a schedule', async () => {
+    await seed();
+    await scheduler.setScheduleEnabled({ id: 'smoke-schedule', enabled: false });
+
+    // Boot re-registers every schedule, so `enabled` must be insert-only.
+    await scheduler.upsertSchedule({
+      id: 'smoke-schedule',
+      name: 'smoke_scheduled',
+      payload: { hello: 'world' },
+      schedule: EVERY_MIN,
+      enabled: true
+    } as any);
+
+    const after = await repo.getById('smoke-schedule');
+    assert.equal(after!.enabled, false, 'a re-registration must not silently re-enable');
   });
 
   console.log('\nfiring');

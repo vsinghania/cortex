@@ -3,7 +3,8 @@ import type { JobScheduleRepository } from './repositories/job_schedule_reposito
 import { MongooseJobScheduleRepository } from './repositories/mongoose_job_schedule_repository.js';
 import { ScheduleClock } from './schedule_clock.js';
 import { JobsSvc } from './jobs_svc.js';
-import { ConflictError } from '../common/errors.js';
+import { JobHandlerRegistry } from './handlers/job_handler_registry.js';
+import { BadRequestError, ConflictError } from '../common/errors.js';
 import { TraceContext } from '../common/trace_context.js';
 import { logger } from '../common/logger.js';
 import { Time } from '../lib/time.js';
@@ -15,6 +16,8 @@ const TICK_INTERVAL_MS = Time.secondsToMs(30);
  */
 const STALE_AFTER_MS = TICK_INTERVAL_MS * 2;
 const DUE_BATCH_LIMIT = 20;
+/** Anything under the tick interval cannot fire more often anyway. */
+const MIN_INTERVAL_MS = TICK_INTERVAL_MS;
 
 /**
  * Materializes due recurring schedules into concrete jobs.
@@ -64,7 +67,7 @@ export class JobScheduler {
 
   /** Registers or updates a schedule. Idempotent on `id`, so it is safe at boot. */
   async upsertSchedule(input: UpsertScheduleInput): Promise<JobSchedule> {
-    ScheduleClock.assertValid(input.schedule);
+    JobScheduler.assertSchedulable(input);
 
     const now = new Date();
     const schedule: JobSchedule = {
@@ -92,6 +95,56 @@ export class JobScheduler {
       'job schedule registered'
     );
     return saved;
+  }
+
+  /**
+   * Rejects a schedule that could only fail later. Called on every upsert, so it
+   * guards the HTTP surface and the boot seed alike:
+   *
+   *  - an unregistered job name would spawn jobs no worker can run, and those are
+   *    claimed and released on a loop rather than failing visibly;
+   *  - a payload the handler's own schema rejects would fail at 03:00 rather than
+   *    at the moment someone created the schedule;
+   *  - an interval under the tick interval cannot fire more often than the ticker.
+   */
+  private static assertSchedulable(input: UpsertScheduleInput): void {
+    // ScheduleClock stays HTTP-agnostic - it is a pure domain helper - so its
+    // plain Error is translated here rather than there. Without this, a bad cron
+    // expression from a request body surfaces as a 500 instead of a 400.
+    try {
+      ScheduleClock.assertValid(input.schedule);
+    } catch (err) {
+      throw new BadRequestError((err as Error).message, { cause: err });
+    }
+
+    if (input.schedule.kind === 'interval' && input.schedule.every_ms < MIN_INTERVAL_MS) {
+      throw new BadRequestError(
+        `Interval must be at least ${MIN_INTERVAL_MS}ms; the scheduler ticks no faster than that`
+      );
+    }
+
+    const handler = JobHandlerRegistry.getInstance().get(input.name);
+    if (!handler) {
+      throw new BadRequestError(
+        `Unknown job name: ${input.name}. Registered: ${JobHandlerRegistry.getInstance().registeredNames().join(', ') || '(none)'}`
+      );
+    }
+
+    try {
+      handler.parsePayload(input.payload);
+    } catch (err) {
+      throw new BadRequestError(`Payload is invalid for job ${input.name}`, { cause: err });
+    }
+  }
+
+  async getSchedule(id: string): Promise<JobSchedule | null> {
+    return this.repo.getById(id);
+  }
+
+  async deleteSchedule(id: string): Promise<boolean> {
+    const deleted = await this.repo.delete(id);
+    if (deleted) logger.info({ schedule_id: id }, 'job schedule deleted');
+    return deleted;
   }
 
   async listSchedules(params?: { enabled?: boolean }): Promise<JobSchedule[]> {

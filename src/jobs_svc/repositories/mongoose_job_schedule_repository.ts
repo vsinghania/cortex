@@ -26,11 +26,12 @@ export class MongooseJobScheduleRepository implements JobScheduleRepository {
       .findOneAndUpdate(
         { id },
         {
-          $set: MongooseJobScheduleRepository.withoutNextRunAt(rest),
-          // next_run_at is only seeded on insert: an existing schedule keeps the
-          // firing it is already counting down to, so redeploying does not reset
-          // every schedule's clock.
-          $setOnInsert: { id, next_run_at: rest.next_run_at }
+          $set: MongooseJobScheduleRepository.mutableFields(rest),
+          // Seeded on insert only. next_run_at, so a redeploy does not reset the
+          // clock every schedule is counting down to; enabled, so an operator who
+          // disabled a schedule through the API is not silently overruled by the
+          // next boot. Toggling it afterwards goes through setEnabled.
+          $setOnInsert: { id, next_run_at: rest.next_run_at, enabled: rest.enabled }
         },
         { upsert: true, returnDocument: 'after', lean: true }
       )
@@ -99,10 +100,11 @@ export class MongooseJobScheduleRepository implements JobScheduleRepository {
     return result.deletedCount > 0;
   }
 
-  private static withoutNextRunAt(
+  /** Everything a re-registration may overwrite - see the $setOnInsert above. */
+  private static mutableFields(
     rest: Omit<JobSchedule, 'id' | 'created_at' | 'updated_at'>
   ): Record<string, unknown> {
-    const { next_run_at, ...without } = rest;
-    return without;
+    const { next_run_at, enabled, ...mutable } = rest;
+    return mutable;
   }
 }
