@@ -138,7 +138,7 @@ Audio never touches our servers. The browser gets a short-lived secret; the inst
 
 ## 7. Startup and lifecycle
 
-`Server.start()` runs, in order: Mongo connect (**fatal**), Qdrant collection bootstrap, `RetrievalSvc.create()`, `NotesRecallAgentSeed.ensure()`, `AgentSvc.create()` (warms tool/agent/MCP registries and compiles the agent graph), `AiSvc.getInstance()`, job-handler registration (**fatal** — a handler that fails to register means its jobs stop being claimed with no error anywhere), then the job worker. Everything else after Mongo is warn-only.
+`Server.start()` runs, in order: Mongo connect (**fatal**), Qdrant collection bootstrap, `RetrievalSvc.create()`, `NotesRecallAgentSeed.ensure()`, `AgentSvc.create()` (warms tool/agent/MCP registries and compiles the agent graph), `AiSvc.getInstance()`, job-handler registration (**fatal** — a handler that fails to register means its jobs stop being claimed with no error anywhere), then the job worker and the schedule ticker. Everything else after Mongo is warn-only.
 
 The rule is **degrade, don't crash**: only the database is required to boot; every other failure logs a warning and surfaces on the request that needs it. `AgentRegistry` and `McpServerRegistry` then refresh themselves every 10 minutes. `SIGINT`/`SIGTERM` stops accepting, drains the job worker, *then* closes Mongo — in that order, because the drain needs the database alive to flush checkpoints and release leases — with a forced exit at 28s inside the 30s compose `stop_grace_period`.
 
