@@ -27,8 +27,9 @@ runtime:
         // accepts and returns rather than blocking.
         const body = res.getBody();
         const job = body && body.response && body.response.job;
+        // No persist - see run-job-now.
         if (job && job.id) {
-          bru.setEnvVar('job_id', job.id, { persist: true });
+          bru.setEnvVar('job_id', job.id);
         }
 
 settings:

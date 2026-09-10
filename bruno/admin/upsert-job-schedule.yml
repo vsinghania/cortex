@@ -29,8 +29,9 @@ runtime:
         // is an upsert, so repeating this request is not a second schedule.
         const body = res.getBody();
         const schedule = body && body.response && body.response.schedule;
+        // No persist - see run-job-now.
         if (schedule && schedule.id) {
-          bru.setEnvVar('schedule_id', schedule.id, { persist: true });
+          bru.setEnvVar('schedule_id', schedule.id);
         }
 
 settings:
