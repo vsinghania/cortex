@@ -22,6 +22,9 @@ services:
       context: .
       target: builder
     image: cortex:dev-builder
+    # Matches deploy/docker-compose.prod.yml: the in-process job worker needs
+    # longer than Compose's 10s default to flush checkpoints and release leases.
+    stop_grace_period: 30s
     command: ["npx", "tsx", "watch", "src/web-server/server.ts"]
     environment:
       NODE_ENV: development

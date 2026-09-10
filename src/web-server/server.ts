@@ -7,9 +7,20 @@ import { AiSvc } from '../ai_svc/ai_svc.js';
 import { NotesRecallAgentSeed } from '../agent_svc/seeds/notes_recall_agent_seed.js';
 import { EmbeddingsSvc } from '../embeddings_svc/embeddings_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
+import { JobHandlerRegistry } from '../jobs_svc/handlers/job_handler_registry.js';
+import { JobWorker } from '../jobs_svc/worker/job_worker.js';
+import { JobWorkerConfigLoader } from '../jobs_svc/worker/job_worker_config.js';
+import { NotesReindexHandler } from '../notes_svc/jobs/notes_reindex_handler.js';
 import { logger } from '../common/logger.js';
+import { Time } from '../lib/time.js';
+
+// Must stay inside the compose stop_grace_period (30s) with room for the worker's
+// own 25s drain, so a wedged handler cannot hold the container past SIGKILL.
+const FORCE_EXIT_MS = Time.secondsToMs(28);
 
 class Server {
+  private static job_worker: JobWorker | null = null;
+
   private constructor() {}
 
   static async start(): Promise<void> {
@@ -24,18 +35,33 @@ class Server {
       logger.info({ port }, 'HTTP server listening');
     });
 
+    let shutting_down = false;
     const shutdown = async (signal: NodeJS.Signals) => {
+      if (shutting_down) return;
+      shutting_down = true;
       logger.info({ signal }, 'Shutting down');
+
+      const force_exit = setTimeout(() => {
+        logger.error('Shutdown timed out; forcing exit');
+        process.exit(1);
+      }, FORCE_EXIT_MS);
+      force_exit.unref?.();
+
       try {
+        // Order matters: stop accepting, then drain in-flight work, and only then
+        // close Mongo - the worker's drain needs the database alive to flush
+        // checkpoints and release leases.
+        await new Promise<void>((resolve) => http_server.close(() => resolve()));
+        if (Server.job_worker) await Server.job_worker.stop();
+
         const mgr = MongooseConnectionManager.getExistingInstance();
-        if (mgr) {
-          await mgr.disconnectAll();
-        }
-      } finally {
-        http_server.close(() => {
-          logger.info('Shutdown complete');
-          process.exit(0);
-        });
+        if (mgr) await mgr.disconnectAll();
+
+        logger.info('Shutdown complete');
+        process.exit(0);
+      } catch (err) {
+        logger.error({ err }, 'Shutdown failed');
+        process.exit(1);
       }
     };
 
@@ -50,6 +76,32 @@ class Server {
     await Server.seedNotesRecallAgent();
     await Server.loadAgentSvc();
     await Server.loadAiSvc();
+    await Server.registerJobHandlers();
+    await Server.startJobWorker();
+  }
+
+  /**
+   * Rethrows, unlike most steps here: a handler that silently fails to register
+   * means its jobs are claimed and released unrun on a loop, which looks like a
+   * healthy worker and an inexplicably stuck queue.
+   */
+  private static async registerJobHandlers(): Promise<void> {
+    const registry = JobHandlerRegistry.getInstance();
+    registry.register(await NotesReindexHandler.create());
+    logger.info({ job_names: registry.registeredNames() }, 'Job handlers registered');
+  }
+
+  private static async startJobWorker(): Promise<void> {
+    if (!JobWorkerConfigLoader.fromEnv().enabled) {
+      logger.info('Job worker disabled; this process will enqueue only');
+      return;
+    }
+    try {
+      Server.job_worker = await JobWorker.create();
+      Server.job_worker.start();
+    } catch (err) {
+      logger.error({ err }, 'Job worker failed to start; queued jobs will not run');
+    }
   }
 
   private static async loadAiSvc(): Promise<void> {

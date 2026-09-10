@@ -23,6 +23,20 @@ export type NoteBySourceKey = {
   external_id: string;
 };
 
+/**
+ * Admin-only, and the one read path that is NOT user-scoped: a maintenance sweep
+ * may legitimately target every note in the system. Cursor on `id` rather than an
+ * offset because note ids are UUIDv7, so they sort chronologically, `id` is already
+ * uniquely indexed, and a `$gt` cursor stays stable while the sweep mutates rows
+ * underneath it.
+ */
+export type NoteMaintenanceParams = {
+  user_ids?: string[];
+  note_ids?: string[];
+  after_id?: string;
+  limit: number;
+};
+
 export interface NoteRepository {
   createNote(note: Note): Promise<Note>;
 
@@ -44,4 +58,8 @@ export interface NoteRepository {
     limit?: number;
     offset?: number;
   }): Promise<NoteListResult>;
+
+  /** Admin maintenance sweeps only - see NoteMaintenanceParams. */
+  listNotesForMaintenance(params: NoteMaintenanceParams): Promise<Note[]>;
+  countNotesForMaintenance(params: Omit<NoteMaintenanceParams, 'after_id' | 'limit'>): Promise<number>;
 }

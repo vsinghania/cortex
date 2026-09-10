@@ -1,0 +1,38 @@
+info:
+  name: start-notes-reindex
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{base_url}}/admin/notes/reindex"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "mode": "rechunk",
+        "dry_run": true
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        // Capture the job id so get/cancel below work without copying it by hand.
+        // 202 is the success case here: the sweep may run for hours, so the request
+        // accepts and returns rather than blocking.
+        const body = res.getBody();
+        const job = body && body.response && body.response.job;
+        if (job && job.id) {
+          bru.setEnvVar('job_id', job.id, { persist: true });
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

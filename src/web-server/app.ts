@@ -11,6 +11,7 @@ import { AuthController } from './auth/auth.controller.js';
 import { AgentController } from './agent/agent.controller.js';
 import { NotesController } from './notes/notes.controller.js';
 import { VoiceController } from './voice/voice.controller.js';
+import { AdminController } from './admin/admin.controller.js';
 import { McpProxyRouter } from './mcp/mcp_proxy_router.js';
 
 export class App {
@@ -103,6 +104,12 @@ export class App {
     const health_controller = new HealthController();
     v1_router.use('/health', health_controller.getRouter());
 
-    logger.info({ mounts: ['auth', 'ai', 'agent', 'notes', 'voice', 'health'] }, 'v1 routes mounted');
+    const admin_controller = new AdminController();
+    v1_router.use('/admin', admin_controller.getRouter());
+
+    logger.info(
+      { mounts: ['auth', 'ai', 'agent', 'notes', 'voice', 'health', 'admin'] },
+      'v1 routes mounted'
+    );
   }
 }

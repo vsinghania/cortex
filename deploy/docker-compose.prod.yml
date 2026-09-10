@@ -54,6 +54,14 @@ services:
     restart: unless-stopped
     logging: *default_logging
 
+    # The job worker runs in this process and drains on SIGTERM: it stops
+    # claiming, flushes each in-flight job's checkpoint, and releases its lease so
+    # the next container resumes immediately instead of waiting out the lease.
+    # Compose's default grace period is 10s, which would SIGKILL that drain
+    # halfway through on every deploy. 30s leaves room for the worker's own 25s
+    # deadline (JOBS_DRAIN_DEADLINE_MS) and the 28s forced exit behind it.
+    stop_grace_period: 30s
+
     depends_on:
       mongodb:
         condition: service_healthy
