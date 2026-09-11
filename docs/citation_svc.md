@@ -46,7 +46,7 @@ The payoff is that **renaming a note updates every past answer that cited it**, 
 
 `CitationExtractor.extract({ tool_payloads, answer_text })` intersects the markers in the answer with the chunks retrieval actually returned *that turn*. A marker matching nothing is dropped and the marker stripped, so **the model cannot fabricate a reference to a document it never saw**. Markers are numbered by first appearance and deduped.
 
-`MARKER_SYNTAX` lives here and is interpolated into the [notes-recall seed prompt](../src/agent_svc/seeds/notes_recall_agent_seed.ts), so the regex and the prompt cannot drift. The MCP tool description deliberately does **not** prescribe the format — it says only that `chunk_id` is stable and safe to reference. A tool describes its data; the agent decides what referencing means.
+The marker syntax `[c:<chunk_id>]` is taught only by the agent's instructions, which live in its Mongo manifest row — so `MARKER_PATTERN` and the prompt can drift, and a prompt edit that changes the format silently yields zero citations. The MCP tool description deliberately does **not** prescribe the format — it says only that `chunk_id` is stable and safe to reference. A tool describes its data; the agent decides what referencing means.
 
 **The input is plain data, not `Message[]`.** That is load-bearing: it is what stops `citation_svc` importing `agent_svc` and closing the dependency loop. `AgentSvc.toolPayloads` does the message-shape work on its side of the boundary.
 

@@ -111,7 +111,7 @@ SPA ─POST /api/v1/agent/run─► AgentSvc ─► OpenAiAgent ─MCP, x-user-i
               answer citing [c:<chunk_id>] ◄────────────────────┘  → ConversationStore.appendTurn
 ```
 
-The seeded `notes-recall` agent is instructed to make exactly one `notes_search_semantic` call before answering and to cite every load-bearing claim as `[c:<chunk_id>]`. Grounding is enforced by prompt, but the cited ids are *verified*: [citation_svc](citation_svc.md) intersects the markers with the chunks that turn actually retrieved, so a fabricated id never becomes a citation. Only `{index, chunk_id, document_id, corpus}` is persisted — titles are resolved from live documents on every read.
+The `notes-recall` agent (a manifest row in Mongo, not code) is instructed to make exactly one `notes_search_semantic` call before answering and to cite every load-bearing claim as `[c:<chunk_id>]`. Grounding is enforced by prompt, but the cited ids are *verified*: [citation_svc](citation_svc.md) intersects the markers with the chunks that turn actually retrieved, so a fabricated id never becomes a citation. Only `{index, chunk_id, document_id, corpus}` is persisted — titles are resolved from live documents on every read.
 
 ### Capture by voice
 
@@ -139,13 +139,13 @@ Audio never touches our servers. The browser gets a short-lived secret; the inst
 
 ## 7. Startup and lifecycle
 
-`Server.start()` runs, in order: Mongo connect (**fatal**), Qdrant collection bootstrap, `RetrievalSvc.create()`, `NotesRecallAgentSeed.ensure()`, `AgentSvc.create()` (warms tool/agent/MCP registries and compiles the agent graph), `AiSvc.getInstance()`, job-handler registration (**fatal** — a handler that fails to register means its jobs stop being claimed with no error anywhere), then the job worker and the schedule ticker. Everything else after Mongo is warn-only.
+`Server.start()` runs, in order: Mongo connect (**fatal**), Qdrant collection bootstrap, `RetrievalSvc.create()`, `AgentSvc.create()` (warms tool/agent/MCP registries and compiles the agent graph), `AiSvc.getInstance()`, job-handler registration (**fatal** — a handler that fails to register means its jobs stop being claimed with no error anywhere), then the job worker and the schedule ticker. Everything else after Mongo is warn-only.
 
 The rule is **degrade, don't crash**: only the database is required to boot; every other failure logs a warning and surfaces on the request that needs it. `AgentRegistry` and `McpServerRegistry` then refresh themselves every 10 minutes. `SIGINT`/`SIGTERM` stops accepting, drains the job worker, *then* closes Mongo — in that order, because the drain needs the database alive to flush checkpoints and release leases — with a forced exit at 28s inside the 30s compose `stop_grace_period`.
 
 ## 8. Known rough edges
 
-- **MCP server manifests are not seeded.** `NotesRecallAgentSeed` references `mcp_server_id: 'notes'`, but nothing inserts that `McpServerManifest` row and there is no admin route for it — on a fresh database the recall agent silently has no tools.
+- **Agents and MCP server manifests are data, and nothing seeds them.** The web chat hardcodes `agent_id: 'notes-recall'`, so on a fresh database that agent row must be inserted by hand before chat works. It references `mcp_server_id: 'notes'`, and that `McpServerManifest` row has no admin route either — without it the recall agent silently has no tools.
 - **Semantic search has no REST route.** `notes_search_semantic` is MCP-only; the HTTP notes API is CRUD plus lexical search.
 - **Vectorization is still synchronous with the write.** A slow embedding call slows the note response. [jobs_svc](jobs_svc.md) now exists and is the obvious home for it, but nothing has moved yet — the only repair remains an explicit `revectorizeNote`, or the admin re-index sweep.
 - **Background jobs have no routing.** One undifferentiated pool, global FIFO, so a bulk sweep can occupy every worker while a cheap job waits behind it. See [jobs_svc.md](jobs_svc.md) §9.

@@ -21,8 +21,6 @@ const ToolResultSchema = z.object({
 type RetrievedChunkLike = z.infer<typeof RetrievedChunkSchema>;
 
 export class CitationExtractor {
-  /** The inline marker the agent is prompted to emit. Single source of truth for the syntax. */
-  static readonly MARKER_SYNTAX = '[c:<chunk_id>]';
   private static readonly MARKER_PATTERN = /\[c:([^\]\s]+)\]/g;
 
   private constructor() {}

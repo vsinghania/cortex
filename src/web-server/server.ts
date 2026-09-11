@@ -4,7 +4,6 @@ import { MongooseConnectionManager } from '../db/mongo/mongoose_connection_manag
 import { QdrantCollectionBootstrap } from '../db/qdrant/qdrant_collection_bootstrap.js';
 import { AgentSvc } from '../agent_svc/agent_svc.js';
 import { AiSvc } from '../ai_svc/ai_svc.js';
-import { NotesRecallAgentSeed } from '../agent_svc/seeds/notes_recall_agent_seed.js';
 import { EmbeddingsSvc } from '../embeddings_svc/embeddings_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
 import { JobWorker } from '../jobs_svc/worker/job_worker.js';
@@ -75,7 +74,6 @@ class Server {
     await Server.connectMongo();
     await Server.bootstrapQdrant();
     await Server.bootstrapRetrievalSvc();
-    await Server.seedNotesRecallAgent();
     await Server.loadAgentSvc();
     await Server.loadAiSvc();
     await JobHandlerBootstrap.registerAll();
@@ -150,14 +148,6 @@ class Server {
         { err: (err as Error)?.message },
         'Qdrant collection bootstrap failed; vectorization will be marked errored until Qdrant is reachable'
       );
-    }
-  }
-
-  private static async seedNotesRecallAgent(): Promise<void> {
-    try {
-      await NotesRecallAgentSeed.ensure();
-    } catch (err) {
-      logger.warn({ err }, 'notes-recall agent seed failed; chat agent may be missing');
     }
   }
 

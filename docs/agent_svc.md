@@ -66,7 +66,7 @@ MCP tools arrive differently — attached whole from `mcp_server_ids`, not regis
 
 ## 5. Gotchas
 
-- **The `notes` MCP server manifest is not seeded** while the `notes-recall` agent depends on it — see [architecture.md §8](architecture.md#8-known-rough-edges). Symptom: the agent answers without ever searching.
+- **Agent and MCP server manifests are not seeded.** The `notes-recall` agent the web chat uses, and the `notes` MCP server it depends on, must be inserted into Mongo directly — see [architecture.md §8](architecture.md#8-known-rough-edges). Symptom of a missing MCP row: the agent answers without ever searching.
 - **`MaxTurnsExceededError` is not an error.** It maps to `stop_reason: 'max_turns'` (default 10 turns), so a truncated run looks like a successful one — check `stop_reason`.
 - **Persistence failures do not fail a run.** The model answered; the turn may simply not be in Mongo.
 - **`AgentSvc` holds no state.** It pulls registries via `getInstance()` per call, so constructing it per request is fine.

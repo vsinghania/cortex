@@ -100,7 +100,6 @@ services:
 
       QDRANT_URL: http://qdrant:6333
       RAG_TOP_K: "8"
-      RAG_ANSWER_MODEL: gpt-5.4-nano
       CHUNK_TARGET_TOKENS: "512"
       CHUNK_OVERLAP_TOKENS: "64"
 
