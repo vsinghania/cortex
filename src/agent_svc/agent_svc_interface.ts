@@ -8,6 +8,7 @@ import type {
   Tool,
 } from './types/agent.types.js';
 import type { Message } from './types/message.types.js';
+import type { AgentView } from './types/agent_view.types.js';
 import type {
   Conversation,
   ConversationMessageView,
@@ -47,6 +48,10 @@ export type UpdateAgentInput = {
   patch: AgentUpdatePatch;
 };
 
+export type GetAgentInput = {
+  agent_id: string;
+};
+
 export type ListConversationsInput = {
   user_id: string;
   limit?: number;
@@ -71,6 +76,8 @@ export type ConversationWithMessages = {
 export interface AgentSvcInterface {
   createAgent(input: CreateAgentInput): Promise<AgentManifest>;
   updateAgent(input: UpdateAgentInput): Promise<AgentManifest>;
+  listAgents(): Promise<AgentView[]>;
+  getAgent(input: GetAgentInput): Promise<AgentView>;
   runByAgentId(input: RunByAgentIdInput): Promise<AgentRunResponse>;
   runAdHoc(input: RunAdHocInput): Promise<AgentRunResponse>;
   listConversations(input: ListConversationsInput): Promise<Conversation[]>;

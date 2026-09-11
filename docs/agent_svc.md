@@ -14,6 +14,8 @@ Source: [src/agent_svc/](../src/agent_svc/). Consumed by [agent.controller.ts](.
 interface AgentSvcInterface {
   createAgent(input: CreateAgentInput): Promise<AgentManifest>;
   updateAgent(input: UpdateAgentInput): Promise<AgentManifest>;
+  listAgents(): Promise<AgentView[]>;
+  getAgent(input: GetAgentInput): Promise<AgentView>;
   runByAgentId(input: RunByAgentIdInput): Promise<AgentRunResponse>;
   runAdHoc(input: RunAdHocInput): Promise<AgentRunResponse>;
   listConversations(input: ListConversationsInput): Promise<Conversation[]>;
@@ -23,6 +25,8 @@ interface AgentSvcInterface {
 ```
 
 `runByAgentId` persists the conversation; `runAdHoc` (manifest + tools supplied inline) never does — it is for tests and scripts. `deleteConversation` snapshots the conversation and its messages to `conversations_trash` / `conversation_messages_trash` (TTL'd at 30 days; no restore path yet), then hard-deletes them; like `getConversation` it is user-scoped, so another user's conversation is a `NotFoundError`. Everything else — picking the LLM SDK, wiring tools and sub-agents, connecting MCP servers — is internal.
+
+`listAgents` / `getAgent` (admin-only `GET /api/v1/agent[/:agent_id]`) return an `AgentView`: the stored `manifest`, a `status` (`loaded` | `disabled` | `not_loaded`), and a `runtime` describing what the registry is actually serving — effective model, composed prompt (policies included), resolved tools, MCP servers and sub-agents, and the `manifest_version` / `manifest_updated_at` it was built from. `runtime` is `null` unless loaded. The two can disagree on purpose: a row edited directly in Mongo is not served until the next refresh, and an enabled agent that failed to build is `not_loaded` — the view is the quickest way to see either.
 
 ## 2. Mental model
 

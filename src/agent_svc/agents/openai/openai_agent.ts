@@ -39,6 +39,10 @@ export class OpenAiAgent extends BaseAgent {
     return this.sdk_agent;
   }
 
+  effectiveModel(): string {
+    return this.manifest.model ?? this.default_model;
+  }
+
   protected onCompile(): void {
     const fn_tools = this.tools.map((t) => this.toSdkTool(t));
     const tool_agent_tools = this.buildToolAgentTools();
@@ -49,7 +53,7 @@ export class OpenAiAgent extends BaseAgent {
     this.sdk_agent = new Agent({
       name: this.manifest.name,
       instructions: this.instructions,
-      model: this.manifest.model ?? this.default_model,
+      model: this.effectiveModel(),
       tools: [...fn_tools, ...tool_agent_tools, ...hosted_tools],
       mcpServers: self_hosted_servers,
       handoffs,
@@ -222,9 +226,7 @@ export class OpenAiAgent extends BaseAgent {
       : undefined;
     const usage = OpenAiSdkUtils.extractUsage(result);
     const model_name =
-      OpenAiSdkUtils.extractModelName(result) ??
-      this.manifest.model ??
-      this.default_model;
+      OpenAiSdkUtils.extractModelName(result) ?? this.effectiveModel();
 
     const message_history: Message[] = [
       ...(req.message_history ?? []),
@@ -253,7 +255,7 @@ export class OpenAiAgent extends BaseAgent {
       final_output_json: undefined,
       message_history,
       usage: this.emptyUsage(),
-      model: this.manifest.model ?? this.default_model,
+      model: this.effectiveModel(),
       conversation_id: req.conversation_id,
       stop_reason: 'max_turns',
     };

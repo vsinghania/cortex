@@ -9,6 +9,7 @@ import type {
 } from '../types/agent.types.js';
 import { Role, MessageContent, type Message } from '../types/message.types.js';
 import type { McpServerHandle } from '../registry/mcp_server_registry.js';
+import type { AgentRuntimeView } from '../types/agent_view.types.js';
 import { logger as base_logger } from '../../common/logger.js';
 import { TraceContext } from '../../common/trace_context.js';
 import { Id } from '../../lib/id.js';
@@ -86,6 +87,20 @@ export abstract class BaseAgent {
     return this.compiled;
   }
 
+  describeRuntime(): AgentRuntimeView {
+    return {
+      model: this.effectiveModel(),
+      instructions: this.instructions,
+      compiled: this.compiled,
+      manifest_version: this.manifest.version,
+      manifest_updated_at: this.manifest.updated_at,
+      tool_names: this.tools.map((tool) => tool.name),
+      mcp_servers: this.mcp_servers.map((handle) => ({ mcp_server_id: handle.id, mode: handle.mode })),
+      tool_agent_ids: this._tool_agents.map((agent) => agent.manifest.agent_id),
+      handoff_agent_ids: this._handoff_agents.map((agent) => agent.manifest.agent_id),
+    };
+  }
+
   /**
    * Public run entrypoint. Ensures compile(), delegates to onRun(),
    * normalizes errors. Subclasses override onRun() rather than this.
@@ -104,6 +119,8 @@ export abstract class BaseAgent {
   // --- abstract: each adapter implements ---
   protected abstract onCompile(): void;
   protected abstract onRun(req: AgentRunRequest): Promise<AgentRunResponse>;
+  /** The model this agent runs on: the manifest's, else the engine default. */
+  abstract effectiveModel(): string;
 
   // --- shared helpers ---
 

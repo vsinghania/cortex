@@ -29,6 +29,11 @@ export class MongooseAgentRepository implements AgentRepositoryInterface {
     return docs.map((d) => MongooseAgentRepository.toDomain(d));
   }
 
+  async listAll(): Promise<AgentManifest[]> {
+    const docs = await this.model.find({}).sort({ agent_id: 1 }).lean();
+    return docs.map((d) => MongooseAgentRepository.toDomain(d));
+  }
+
   async getById(agent_id: string): Promise<AgentManifest | null> {
     const doc = await this.model.findOne({ agent_id }).lean();
     return doc ? MongooseAgentRepository.toDomain(doc) : null;

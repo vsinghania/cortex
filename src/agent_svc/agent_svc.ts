@@ -13,6 +13,7 @@ import type {
   ConversationWithMessages,
   CreateAgentInput,
   DeleteConversationInput,
+  GetAgentInput,
   GetConversationInput,
   ListConversationsInput,
   RunAdHocInput,
@@ -20,6 +21,7 @@ import type {
   UpdateAgentInput,
 } from './agent_svc_interface.js';
 import type { Conversation, ConversationMessage, ConversationMessageView } from './types/conversation.types.js';
+import type { AgentView } from './types/agent_view.types.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../common/errors.js';
 import { AgentRegistry } from './registry/agent_registry.js';
 import { ToolRegistry } from './tools/tool_registry.js';
@@ -28,6 +30,7 @@ import { ConversationTitleGenerator } from './conversation/conversation_title_ge
 import { AgentFactory } from './factory/agent_factory.js';
 import { MongooseAgentRepository } from './repositories/mongoose_agent_repository.js';
 import { AgentIdGenerator } from './agent_id_generator.js';
+import { AgentViewBuilder } from './agent_view_builder.js';
 import type { BaseAgent } from './agents/base_agent.js';
 import { logger } from '../common/logger.js';
 import { logExecTime } from '../lib/decorators/logging_decorators.js';
@@ -176,6 +179,26 @@ export class AgentSvc implements AgentSvcInterface {
     );
 
     return response;
+  }
+
+  /** Every stored agent, disabled ones included, each paired with what the registry serves. */
+  async listAgents(): Promise<AgentView[]> {
+    const repo = await MongooseAgentRepository.create();
+    const agent_registry = await AgentRegistry.getInstance();
+    const manifests = await repo.listAll();
+    return manifests.map((manifest) =>
+      AgentViewBuilder.build(manifest, agent_registry.tryResolve(manifest.agent_id))
+    );
+  }
+
+  async getAgent(input: GetAgentInput): Promise<AgentView> {
+    const repo = await MongooseAgentRepository.create();
+    const manifest = await repo.getById(input.agent_id);
+    if (!manifest) {
+      throw new NotFoundError(`Agent not found: ${input.agent_id}`);
+    }
+    const agent_registry = await AgentRegistry.getInstance();
+    return AgentViewBuilder.build(manifest, agent_registry.tryResolve(manifest.agent_id));
   }
 
   /**

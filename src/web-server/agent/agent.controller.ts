@@ -79,6 +79,17 @@ export class AgentController {
     this.router.get('/conversations', this.listConversations.bind(this));
     this.router.get('/conversations/:conversation_id', this.getConversation.bind(this));
     this.router.delete('/conversations/:conversation_id', this.deleteConversation.bind(this));
+    // Registered after /conversations so '/:agent_id' cannot shadow it.
+    this.router.get(
+      '/',
+      AuthorizeMiddleware.authorizeRoles('admin'),
+      this.listAgents.bind(this)
+    );
+    this.router.get(
+      '/:agent_id',
+      AuthorizeMiddleware.authorizeRoles('admin'),
+      this.getAgent.bind(this)
+    );
   }
 
   @validateRequest({ body: agent_manifest_create_input_schema })
@@ -108,6 +119,36 @@ export class AgentController {
       const body = agent_manifest_update_input_schema.parse(req.body) as UpdateAgentRequest;
       const agent_svc = await AgentSvc.create();
       const result = await agent_svc.updateAgent({ agent_id, patch: body });
+      res.status(200).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  private async listAgents(
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
+    try {
+      const agent_svc = await AgentSvc.create();
+      const result = await agent_svc.listAgents();
+      res.status(200).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ params: AgentParamsSchema })
+  private async getAgent(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
+    try {
+      const { agent_id } = req.params as { agent_id: string };
+      const agent_svc = await AgentSvc.create();
+      const result = await agent_svc.getAgent({ agent_id });
       res.status(200).json({ response: result });
     } catch (e) {
       next(e);
