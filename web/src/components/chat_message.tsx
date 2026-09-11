@@ -1,9 +1,11 @@
-import { Link } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Citation } from '../lib/agent.types';
 import { CitationText } from '../lib/citation_text';
+import type { ReturnLinkState } from '../lib/navigation.types';
 
 type Props = {
   role: 'user' | 'assistant';
@@ -32,6 +34,19 @@ function citationTitle(citation: Citation): string {
   return heading ? `${citation.document_title} — ${heading}` : citation.document_title;
 }
 
+type CitationLinkProps = { href: string; className: string; title?: string; children: ReactNode };
+
+/** Carries the current chat URL so the source page can link straight back to this thread. */
+function CitationLink({ href, className, title, children }: CitationLinkProps) {
+  const location = useLocation();
+  const state: ReturnLinkState = { return_to: location.pathname, return_label: 'Back to chat' };
+  return (
+    <Link to={href} state={state} className={className} title={title}>
+      {children}
+    </Link>
+  );
+}
+
 function CitationChip({ citation }: { citation: Citation }) {
   const href = citation.document_available ? citationHref(citation) : null;
   if (!href) {
@@ -42,9 +57,9 @@ function CitationChip({ citation }: { citation: Citation }) {
     );
   }
   return (
-    <Link to={href} className="chat-citation" title={citationTitle(citation)}>
+    <CitationLink href={href} className="chat-citation" title={citationTitle(citation)}>
       {citation.index}
-    </Link>
+    </CitationLink>
   );
 }
 
@@ -109,9 +124,9 @@ export function ChatMessage({ role, text, citations }: Props) {
               return (
                 <li key={citation.chunk_id}>
                   {href ? (
-                    <Link to={href} className="chat-source-row">
+                    <CitationLink href={href} className="chat-source-row">
                       {body}
-                    </Link>
+                    </CitationLink>
                   ) : (
                     <span className="chat-source-row chat-source-row-dead">{body}</span>
                   )}

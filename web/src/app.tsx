@@ -25,6 +25,7 @@ export function App() {
             <Route path="/notes" element={<NotesPage />} />
             <Route path="/notes/:id" element={<NoteDetailPage />} />
             <Route path="/chat" element={<ChatPage />} />
+            <Route path="/chat/:conversation_id" element={<ChatPage />} />
             <Route path="/voice" element={<VoiceCapturePage />} />
           </Route>
           <Route path="*" element={<Navigate to="/notes" replace />} />

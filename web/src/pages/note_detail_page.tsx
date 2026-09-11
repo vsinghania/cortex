@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import type { Note, NoteChunkRef, NotePatchBody } from '../lib/note.types';
+import type { ReturnLinkState } from '../lib/navigation.types';
 import { NoteForm } from '../components/note_form';
 import { Spinner } from '../components/spinner';
 
@@ -37,6 +38,7 @@ export function NoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [search_params] = useSearchParams();
   const chunk_id = search_params.get('chunk');
+  const return_link = useLocation().state as ReturnLinkState | null;
   const navigate = useNavigate();
   const [note, set_note] = useState<Note | null>(null);
   const [chunk, set_chunk] = useState<NoteChunkRef | null>(null);
@@ -112,7 +114,9 @@ export function NoteDetailPage() {
   return (
     <div className="page note-detail-page">
       <header className="page-header">
-        <Link to="/notes" className="back-link">← All notes</Link>
+        <Link to={return_link?.return_to ?? '/notes'} className="back-link">
+          ← {return_link?.return_label ?? 'All notes'}
+        </Link>
         {!editing && (
           <div className="page-header-actions">
             <button type="button" onClick={() => set_editing(true)}>Edit</button>

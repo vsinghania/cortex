@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import { NOTES_RECALL_AGENT_ID } from '../lib/agent.types';
 import type { Citation, Conversation, ConversationMessage } from '../lib/agent.types';
@@ -22,7 +23,13 @@ function toDisplayTurns(messages: ConversationMessage[]): Turn[] {
     .filter((t) => t.text.trim() !== '');
 }
 
+function chatPath(conversation_id: string): string {
+  return `/chat/${encodeURIComponent(conversation_id)}`;
+}
+
 export function ChatPage() {
+  const { conversation_id: route_conversation_id } = useParams<{ conversation_id: string }>();
+  const navigate = useNavigate();
   const [conversations, set_conversations] = useState<Conversation[]>([]);
   const [conv_loading, set_conv_loading] = useState(true);
   const [messages, set_messages] = useState<Turn[]>([]);
@@ -53,26 +60,55 @@ export function ChatPage() {
     thread_ref.current?.scrollTo({ top: thread_ref.current.scrollHeight, behavior: 'smooth' });
   }, [messages, pending]);
 
-  async function selectConversation(id: string) {
-    if (id === conversation_id) return;
-    set_thread_loading(true);
-    set_error(null);
-    try {
-      const { messages: raw } = await ApiClient.getConversation(id);
-      set_conversation_id(id);
-      set_messages(toDisplayTurns(raw));
-    } catch (err) {
-      set_error(err instanceof Error ? err.message : 'Failed to load conversation.');
-    } finally {
-      set_thread_loading(false);
-    }
-  }
-
-  function startNewChat() {
+  function resetThread() {
     set_conversation_id(null);
     set_messages([]);
     set_error(null);
     set_input('');
+    set_thread_loading(false);
+  }
+
+  // The URL is the source of truth for the open conversation, so leaving the page (e.g. via a
+  // citation) and coming back restores the same thread.
+  useEffect(() => {
+    if (!route_conversation_id) {
+      resetThread();
+      return;
+    }
+    // A just-created conversation is already on screen; its URL was only swapped in afterwards.
+    if (route_conversation_id === conversation_id) return;
+
+    let cancelled = false;
+    const loadThread = async () => {
+      set_thread_loading(true);
+      set_error(null);
+      try {
+        const { messages: raw } = await ApiClient.getConversation(route_conversation_id);
+        if (cancelled) return;
+        set_conversation_id(route_conversation_id);
+        set_messages(toDisplayTurns(raw));
+      } catch (err) {
+        if (cancelled) return;
+        resetThread();
+        set_error(err instanceof Error ? err.message : 'Failed to load conversation.');
+      } finally {
+        if (!cancelled) set_thread_loading(false);
+      }
+    };
+    void loadThread();
+    return () => {
+      cancelled = true;
+    };
+  }, [route_conversation_id]);
+
+  function selectConversation(id: string) {
+    if (id === conversation_id) return;
+    navigate(chatPath(id));
+  }
+
+  function startNewChat() {
+    resetThread();
+    navigate('/chat');
   }
 
   async function deleteConversation(target: Conversation) {
@@ -82,7 +118,10 @@ export function ChatPage() {
     try {
       await ApiClient.deleteConversation(target.conversation_id);
       set_conversations((list) => list.filter((c) => c.conversation_id !== target.conversation_id));
-      if (target.conversation_id === conversation_id) startNewChat();
+      if (target.conversation_id === conversation_id) {
+        resetThread();
+        navigate('/chat', { replace: true });
+      }
     } catch (err) {
       set_error(err instanceof Error ? err.message : 'Failed to delete conversation.');
     } finally {
@@ -109,6 +148,7 @@ export function ChatPage() {
 
       if (res.conversation_id && !conversation_id) {
         set_conversation_id(res.conversation_id);
+        navigate(chatPath(res.conversation_id), { replace: true });
         void loadConversations();
       }
 
@@ -137,7 +177,7 @@ export function ChatPage() {
               <li
                 key={c.conversation_id}
                 className={`chat-conv-item${conversation_id === c.conversation_id ? ' active' : ''}`}
-                onClick={() => void selectConversation(c.conversation_id)}
+                onClick={() => selectConversation(c.conversation_id)}
               >
                 <div className="chat-conv-text">
                   <span className="chat-conv-title">{c.title ?? 'Untitled'}</span>
