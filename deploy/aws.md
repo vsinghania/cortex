@@ -303,12 +303,12 @@ The app directory (`/home/ssm-user/cortex`) holds three files:
 | File | Owner | Contents |
 | --- | --- | --- |
 | `compose.yaml` | **CI — do not hand-edit** | shipped by every deploy from [docker-compose.prod.yml](docker-compose.prod.yml); local changes are silently reverted |
-| `.env` | human | the three secrets: `JWT_ACCESS_SECRET`, `OPENAI_API_KEY`, `MCP_NOTES_AUTH_TOKEN`. Automation never writes this file |
+| `.env` | human | the four secrets: `JWT_ACCESS_SECRET`, `OPENAI_API_KEY`, `MCP_NOTES_AUTH_TOKEN`, `SMTP_PASS` (the Resend API key, see §10). Automation never writes this file |
 | `deploy.env` | CI | one line, `CORTEX_IMAGE=<registry>/cortex-app:<full-sha>` — which version is running |
 
 Splitting deployment state from secrets is what lets CI change the running version
 without ever touching the file holding credentials. Every non-secret fact is a
-literal in the compose file; only those four values are interpolated.
+literal in the compose file; only those five values are interpolated.
 
 The on-box name is `compose.yaml` because that is one of the names `docker compose`
 discovers automatically, so interactive commands need no `-f`. Both env files must
@@ -327,7 +327,7 @@ profile runs `bash -l` so a session actually sources it.
 
 If the instance is replaced, these do not come back on their own:
 
-- `.env` — the only copy of the three secrets
+- `.env` — the only copy of the four secrets
 - `deploy.env` — recreated by the next deploy, so not critical
 - `ssm-user`'s membership of the `docker` group (`usermod -aG docker ssm-user`)
 - `/etc/profile.d/cortex.sh`
@@ -385,6 +385,43 @@ dig NS cortexapp.me +short          # four awsdns nameservers
 dig cortexapp.me +short             # resolves to CloudFront
 dig api.cortexapp.me +short         # resolves to the ALB
 ```
+
+### Sending mail
+
+Mail goes out through **Resend** over SMTP: `smtp.resend.com:465`, user `resend`,
+password a sending-only API key scoped to the sending domain `mail.cortexapp.me`.
+The provider is pure config ([docs/mailer_svc.md](../docs/mailer_svc.md)) — moving
+to SES or Postmark changes the `SMTP_*` literals and the key, not the code. A
+subdomain keeps sending reputation off the apex.
+
+The sending domain needs, in this zone:
+
+- **DKIM** — TXT `resend._domainkey.mail`, value from Resend.
+- **Return path (SPF + bounces)** — CNAMEs `send.mail` and `rsend.mail` pointing at
+  Resend's `*.forge.rmta.net`; Resend publishes the SPF and MX behind them.
+
+  Copy the exact records from the domain's page in Resend; Route 53's record-name
+  field takes only the prefix shown above (it appends `.cortexapp.me`).
+- **DMARC** — a `_dmarc.cortexapp.me` TXT, starting at `p=none` to watch reports
+  before tightening.
+
+Without them, password-reset and verification mail lands in spam or is rejected
+outright. Outbound 465 must be allowed by `cortex-ec2-sg` (egress is open by
+default; AWS only throttles port 25).
+
+`SMTP_PASS` must be in `.env` **before** deploying: the compose file requires it,
+so a deploy without it fails at interpolation. After a deploy, check the relay
+and the key from inside the container — this connects and authenticates without
+sending anything:
+
+```sh
+docker compose exec web-server node --input-type=module -e \
+  "const { MailerSvc } = await import('./dist/mailer_svc/mailer_svc.js'); await MailerSvc.getInstance().verify(); console.log('smtp ok')"
+```
+
+Bounces and complaints are
+asynchronous — the relay accepts the message at SMTP time — so they show in the
+Resend dashboard, not in our logs.
 
 ## 11. Deploy and rollback
 

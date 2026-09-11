@@ -28,6 +28,19 @@ services:
       retries: 5
       start_period: 10s
 
+  # Local mail catcher: accepts any SMTP message and shows it at
+  # http://localhost:8025. Nothing it receives leaves the machine.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    environment:
+      # Otherwise every connection waits ~8s on a reverse lookup of the Docker
+      # gateway IP before the SMTP banner.
+      MP_SMTP_DISABLE_RDNS: "true"
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   web-server:
     build:
       context: .
@@ -44,6 +57,8 @@ services:
       qdrant:
         condition: service_started
       mcp-notes:
+        condition: service_started
+      mailpit:
         condition: service_started
     environment:
       PORT: "3000"
@@ -78,6 +93,11 @@ services:
       OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime}
       OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-alloy}
       VOICE_MCP_PUBLIC_URL: ${VOICE_MCP_PUBLIC_URL:-}
+      MAIL_TRANSPORT: smtp
+      MAIL_FROM: "Cortex <no-reply@cortexapp.me>"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
     ports:
       - "3000:3000"
 

@@ -115,6 +115,17 @@ services:
       OPENAI_REALTIME_VOICE: alloy
       VOICE_MCP_PUBLIC_URL: https://api.cortexapp.me/api/v1/mcp/notes
 
+      # Resend over SMTP; SMTP_PASS is a sending-only API key. MAIL_FROM must stay
+      # on the domain verified in Resend - any other is refused with a 5xx, which
+      # the mailer treats as permanent, so the send job fails without retrying.
+      MAIL_TRANSPORT: smtp
+      MAIL_FROM: "Cortex <no-reply@mail.cortexapp.me>"
+      SMTP_HOST: smtp.resend.com
+      SMTP_PORT: "465"
+      SMTP_SECURE: "true"
+      SMTP_USER: resend
+      SMTP_PASS: ${SMTP_PASS:?SMTP_PASS is required}
+
     ports:
     - "3000:3000"
 

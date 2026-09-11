@@ -10,6 +10,9 @@
  * jobs_svc is the strictest of them: it is a generic queue, so it must not name a
  * domain concept at all. Handlers are registered into it from the composition root
  * (web-server), which is why the dependency runs notes_svc -> jobs_svc and never back.
+ *
+ * mailer_svc is generic in the same way: domains own their templates and send jobs,
+ * and hand it a finished message. It must not reach back into any of them.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -34,6 +37,21 @@ const RULES: Rule[] = [
       'embeddings_svc',
       'notes_svc',
       'retrieval_svc',
+      'voice_svc'
+    ]
+  },
+  {
+    module: 'mailer_svc',
+    forbidden: [
+      'agent_svc',
+      'ai_svc',
+      'auth_svc',
+      'citation_svc',
+      'embeddings_svc',
+      'jobs_svc',
+      'notes_svc',
+      'retrieval_svc',
+      'user',
       'voice_svc'
     ]
   },

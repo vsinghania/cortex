@@ -12,6 +12,7 @@ Design-level documentation: what the pieces are, why they are shaped that way, a
 | [recall.md](recall.md) | Notes, chunking, embeddings, semantic retrieval |
 | [citation_svc.md](citation_svc.md) | Grounding answers in sources: markers, storage, resolution |
 | [jobs_svc.md](jobs_svc.md) | Durable background work: claiming, leases, resumable sweeps |
+| [mailer_svc.md](mailer_svc.md) | Outbound email: transport adapter, shared layout, what never gets logged |
 | [mcp.md](mcp.md) | MCP server framework, notes tools, client, reverse proxy |
 | [auth.md](auth.md) | JWT access tokens, rotating refresh sessions, users |
 | [voice.md](voice.md) | Ephemeral OpenAI Realtime sessions |
