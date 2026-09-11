@@ -43,7 +43,7 @@ const MAX_TAG_FILTER_COUNT = 10;
 const zListInput = z.object({
   query: z.string().optional(),
   tags: z.array(z.string().min(1)).max(MAX_TAG_FILTER_COUNT).optional(),
-  limit: z.number().int().positive().max(100).optional().default(20),
+  limit: z.number().int().min(0).max(100).optional().default(20),
   offset: z.number().int().min(0).optional().default(0)
 });
 
@@ -53,7 +53,7 @@ const zTagsInput = z.object({
 
 const zSearchInput = z.object({
   query: z.string().min(1),
-  limit: z.number().int().positive().max(100).optional().default(20),
+  limit: z.number().int().min(0).max(100).optional().default(20),
   offset: z.number().int().min(0).optional().default(0)
 });
 
@@ -224,7 +224,8 @@ export class NotesMcpModule extends McpModule {
         description: 'List and browse notes for the authenticated user, with optional filtering and pagination. ' +
           'Use this for collection-level questions such as how many notes exist, recent notes, ' +
           'listing notes, or browsing notes by source/filter. The response includes `total`, which ' +
-          'is the authoritative count for the matching collection. ' +
+          'is the authoritative count for the matching collection; pass `limit: 0` to get only ' +
+          '`total` with no items. ' +
           'Pass `tags` to narrow to notes carrying ALL of the listed tags; tag matching ignores case. ' +
           'When a tag value is not already known to be valid, call notes_tags first to get the ' +
           'real tag list rather than guessing a spelling. ' +

@@ -88,7 +88,7 @@ export class MongooseNoteRepository implements NoteRepository {
     if (collation) cursor = cursor.collation(collation);
 
     const [items, total] = await Promise.all([
-      cursor.skip(offset).limit(limit).lean(),
+      MongooseNoteRepository.isCountOnly(limit) ? [] : cursor.skip(offset).limit(limit).lean(),
       // Must carry the same collation as the find, or total disagrees with items.
       collation ? this.model.countDocuments(filter, { collation }) : this.model.countDocuments(filter)
     ]);
@@ -172,12 +172,14 @@ export class MongooseNoteRepository implements NoteRepository {
     };
 
     const [items, total] = await Promise.all([
-      this.model.find(filter)
-        .select({ score: { $meta: 'textScore' } })
-        .sort({ score: { $meta: 'textScore' }, updated_at: -1 })
-        .skip(offset)
-        .limit(limit)
-        .lean(),
+      MongooseNoteRepository.isCountOnly(limit)
+        ? []
+        : this.model.find(filter)
+          .select({ score: { $meta: 'textScore' } })
+          .sort({ score: { $meta: 'textScore' }, updated_at: -1 })
+          .skip(offset)
+          .limit(limit)
+          .lean(),
       this.model.countDocuments(filter)
     ]);
 
@@ -283,9 +285,14 @@ export class MongooseNoteRepository implements NoteRepository {
     const limit_raw = params.limit ?? 20;
     const offset_raw = params.offset ?? 0;
     return {
-      limit: Math.max(1, Math.min(100, limit_raw)),
+      limit: Math.max(0, Math.min(100, limit_raw)),
       offset: Math.max(0, offset_raw)
     };
+  }
+
+  /** A zero limit means "total only"; it must skip the find, since Mongo reads `.limit(0)` as unlimited. */
+  private static isCountOnly(limit: number): boolean {
+    return limit === 0;
   }
 
   private static buildAllowedPatch(patch: Partial<Note> | undefined): Partial<Note> {
