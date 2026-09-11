@@ -47,8 +47,7 @@ export class AgentRegistry {
     // Eagerly initialize the registries so the first refresh() call below
     // sees them ready (McpServerRegistry.getInstance() is async).
     ToolRegistry.getInstance();
-    const mcp_server_registry = await McpServerRegistry.getInstance();
-    mcp_server_registry.startPeriodicRefresh();
+    await McpServerRegistry.getInstance();
     const registry = new AgentRegistry();
     await registry.refresh();
     registry.startPeriodicRefresh();
@@ -61,7 +60,7 @@ export class AgentRegistry {
     this.refresh_timer = setInterval(async () => {
       TraceContext.enterBackground('agent-registry');
       try {
-        await this.refresh();
+        await this.refreshWithMcpServers();
       } catch (err) {
         logger.warn({ err }, 'AgentRegistry periodic refresh failed');
       }
@@ -74,6 +73,14 @@ export class AgentRegistry {
     if (!this.refresh_timer) return;
     clearInterval(this.refresh_timer);
     this.refresh_timer = null;
+  }
+
+  // MCP handles must be swapped before agents compile, or agents capture
+  // connections that McpServerRegistry closes moments later.
+  private async refreshWithMcpServers(): Promise<void> {
+    const mcp_server_registry = await McpServerRegistry.getInstance();
+    await mcp_server_registry.refresh();
+    await this.refresh();
   }
 
   /**

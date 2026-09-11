@@ -5,7 +5,6 @@ import type { McpServerRepositoryInterface } from '../repositories/mcp_server_re
 import { MongooseMcpServerRepository } from '../repositories/mongoose_mcp_server_repository.js';
 import { logger } from '../../common/logger.js';
 import { TraceContext } from '../../common/trace_context.js';
-import { Time } from '../../lib/time.js';
 
 export type SelfHostedHandle = {
   id: string;
@@ -21,14 +20,21 @@ export type PublicHostedHandle = {
 
 export type McpServerHandle = SelfHostedHandle | PublicHostedHandle;
 
-const REFRESH_INTERVAL_MS = Time.minutesToMs(10);
+type RegistryEntry = {
+  handle: McpServerHandle;
+  version: number;
+  updated_at_ms: number;
+};
 
+/**
+ * Has no refresh timer of its own: AgentRegistry drives refresh() so agents are
+ * always recompiled after the handles they reference have been swapped.
+ */
 export class McpServerRegistry {
   private static instance: McpServerRegistry | null = null;
   private static in_flight: Promise<McpServerRegistry> | null = null;
 
-  private handles = new Map<string, McpServerHandle>();
-  private refresh_timer: NodeJS.Timeout | null = null;
+  private entries = new Map<string, RegistryEntry>();
 
   private constructor(private readonly repo: McpServerRepositoryInterface) {}
 
@@ -54,23 +60,39 @@ export class McpServerRegistry {
     return McpServerRegistry.instance;
   }
 
-  private static async bootstrap(): Promise<McpServerRegistry> {
-    logger.info('McpServerRegistry bootstrap started');
-    const repo = await MongooseMcpServerRepository.create();
+  static async create(repo: McpServerRepositoryInterface): Promise<McpServerRegistry> {
     const registry = new McpServerRegistry(repo);
     await registry.refresh();
-    logger.info({ server_count: registry.handles.size }, 'McpServerRegistry bootstrap complete');
     return registry;
   }
 
+  private static async bootstrap(): Promise<McpServerRegistry> {
+    logger.info('McpServerRegistry bootstrap started');
+    const registry = await McpServerRegistry.create(await MongooseMcpServerRepository.create());
+    logger.info({ server_count: registry.entries.size }, 'McpServerRegistry bootstrap complete');
+    return registry;
+  }
+
+  /**
+   * Keeps the existing handle for every unchanged manifest so compiled agents
+   * holding it stay valid. Replaced and removed handles are closed only after
+   * the swap, so resolveAll() never hands out a closed connection.
+   */
   async refresh(): Promise<void> {
     const manifests = await this.repo.listEnabled();
-    const next = new Map<string, McpServerHandle>();
+    const next = new Map<string, RegistryEntry>();
+    let reused_count = 0;
 
     for (const manifest of manifests) {
+      const existing = this.entries.get(manifest.mcp_server_id);
+      if (existing && McpServerRegistry.isUnchanged(existing, manifest)) {
+        next.set(manifest.mcp_server_id, existing);
+        reused_count++;
+        continue;
+      }
       try {
         const handle = await this.buildHandle(manifest);
-        if (handle) next.set(manifest.mcp_server_id, handle);
+        if (handle) next.set(manifest.mcp_server_id, McpServerRegistry.toEntry(handle, manifest));
       } catch (err) {
         logger.warn(
           { mcp_server_id: manifest.mcp_server_id, err },
@@ -79,50 +101,59 @@ export class McpServerRegistry {
       }
     }
 
-    await this.closeAll();
-    this.handles = next;
-    logger.info({ count: this.handles.size }, 'McpServerRegistry loaded');
+    const stale = this.entriesMissingFrom(next);
+    this.entries = next;
+    await McpServerRegistry.closeEntries(stale);
+    logger.info(
+      { count: next.size, reused_count, closed_count: stale.length },
+      'McpServerRegistry loaded'
+    );
   }
 
   resolveAll(ids: string[]): McpServerHandle[] {
     const out: McpServerHandle[] = [];
     for (const id of ids) {
-      const handle = this.handles.get(id);
-      if (!handle) {
+      const entry = this.entries.get(id);
+      if (!entry) {
         logger.warn({ mcp_server_id: id }, 'Unresolved MCP server reference; skipping');
         continue;
       }
-      out.push(handle);
+      out.push(entry.handle);
     }
     return out;
   }
 
   list(): McpServerHandle[] {
-    return Array.from(this.handles.values());
-  }
-
-  startPeriodicRefresh(): void {
-    if (this.refresh_timer) return;
-    this.refresh_timer = setInterval(async () => {
-      TraceContext.enterBackground('mcp-server-registry');
-      try {
-        await this.refresh();
-      } catch (err) {
-        logger.warn({ err }, 'McpServerRegistry periodic refresh failed');
-      }
-    }, REFRESH_INTERVAL_MS);
-    this.refresh_timer.unref?.();
-    logger.info({ interval_ms: REFRESH_INTERVAL_MS }, 'McpServerRegistry periodic refresh started');
-  }
-
-  stopPeriodicRefresh(): void {
-    if (!this.refresh_timer) return;
-    clearInterval(this.refresh_timer);
-    this.refresh_timer = null;
+    return Array.from(this.entries.values(), (entry) => entry.handle);
   }
 
   async closeAll(): Promise<void> {
-    for (const handle of this.handles.values()) {
+    await McpServerRegistry.closeEntries(Array.from(this.entries.values()));
+  }
+
+  private static isUnchanged(entry: RegistryEntry, manifest: McpServerManifest): boolean {
+    return (
+      entry.version === manifest.version &&
+      entry.updated_at_ms === manifest.updated_at.getTime()
+    );
+  }
+
+  private static toEntry(handle: McpServerHandle, manifest: McpServerManifest): RegistryEntry {
+    return {
+      handle,
+      version: manifest.version,
+      updated_at_ms: manifest.updated_at.getTime(),
+    };
+  }
+
+  private entriesMissingFrom(next: Map<string, RegistryEntry>): RegistryEntry[] {
+    return Array.from(this.entries.values()).filter(
+      (entry) => next.get(entry.handle.id) !== entry
+    );
+  }
+
+  private static async closeEntries(entries: RegistryEntry[]): Promise<void> {
+    for (const { handle } of entries) {
       if (handle.mode !== McpServerMode.SelfHosted) continue;
       try {
         await handle.sdk_server.close();
