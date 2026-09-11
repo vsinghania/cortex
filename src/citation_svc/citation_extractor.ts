@@ -23,7 +23,14 @@ type RetrievedChunkLike = z.infer<typeof RetrievedChunkSchema>;
 export class CitationExtractor {
   private static readonly MARKER_PATTERN = /\[c:([^\]\s]+)\]/g;
 
+  /** How agents are taught to write a marker; must stay parseable by MARKER_PATTERN. */
+  static readonly MARKER_SYNTAX = CitationExtractor.markerFor('<chunk_id>');
+
   private constructor() {}
+
+  static markerFor(chunk_id: string): string {
+    return `[c:${chunk_id}]`;
+  }
 
   /**
    * Intersects the markers in an answer with the chunks retrieval actually returned this

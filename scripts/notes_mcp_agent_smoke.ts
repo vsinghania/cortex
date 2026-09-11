@@ -114,6 +114,7 @@ class NotesMcpAgentSmoke {
       tool_agent_ids: [],
       handoff_agent_ids: [],
       mcp_server_ids: [NotesMcpAgentSmoke.MCP_SERVER_ID],
+      instruction_policy_names: [],
       enabled: true,
       version: 1,
     });

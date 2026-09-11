@@ -22,6 +22,7 @@ export class AgentModelFactory extends BaseModelFactory<AgentManifest> {
         tool_agent_ids: { type: [String], default: [] },
         handoff_agent_ids: { type: [String], default: [] },
         mcp_server_ids: { type: [String], default: [] },
+        instruction_policy_names: { type: [String], default: [] },
         output_schema: { type: Schema.Types.Mixed, default: undefined },
         enabled: { type: Boolean, default: true, index: true },
         version: { type: Number, default: 1 },

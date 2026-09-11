@@ -109,13 +109,14 @@ export class AgentRegistry {
             engine: manifest.engine,
             tool_count: tools.length,
             mcp_count: mcp_servers.length,
+            policy_count: manifest.instruction_policy_names.length,
           },
           'Agent built'
         );
       } catch (err) {
         logger.warn(
           { agent_id: manifest.agent_id, err },
-          'Skipping agent: failed to build (unknown tool reference?)'
+          'Skipping agent: failed to build (unknown tool or instruction policy?)'
         );
       }
     }

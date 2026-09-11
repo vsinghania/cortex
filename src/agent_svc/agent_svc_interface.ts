@@ -37,6 +37,7 @@ export type CreateAgentInput = {
   tool_agent_ids?: string[];
   handoff_agent_ids?: string[];
   mcp_server_ids?: string[];
+  instruction_policy_names?: string[];
   output_schema?: AgentOutputSchema;
   enabled?: boolean;
 };

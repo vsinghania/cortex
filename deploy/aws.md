@@ -419,6 +419,10 @@ db.agents.updateOne(
       tool_agent_ids: [],
       handoff_agent_ids: [],
       mcp_server_ids: ['notes'],
+      instruction_policy_names: [
+        'output_hygiene', 'confidentiality', 'untrusted_content',
+        'grounding', 'citations', 'write_safety',
+      ],
       enabled: true,
       version: 1,
       updated_at: now,

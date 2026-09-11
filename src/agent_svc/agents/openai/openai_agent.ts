@@ -48,7 +48,7 @@ export class OpenAiAgent extends BaseAgent {
 
     this.sdk_agent = new Agent({
       name: this.manifest.name,
-      instructions: this.manifest.instructions,
+      instructions: this.instructions,
       model: this.manifest.model ?? this.default_model,
       tools: [...fn_tools, ...tool_agent_tools, ...hosted_tools],
       mcpServers: self_hosted_servers,

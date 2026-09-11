@@ -17,6 +17,7 @@ export const agent_manifest_schema = z.object({
   tool_agent_ids: z.array(z.string()).default([]),
   handoff_agent_ids: z.array(z.string()).default([]),
   mcp_server_ids: z.array(z.string()).default([]),
+  instruction_policy_names: z.array(z.string()).default([]),
   output_schema: output_schema_zod.optional(),
   enabled: z.boolean().default(true),
   version: z.number().int().min(1).default(1),
@@ -44,6 +45,7 @@ export const agent_manifest_update_input_schema = agent_manifest_schema
     tool_agent_ids: true,
     handoff_agent_ids: true,
     mcp_server_ids: true,
+    instruction_policy_names: true,
     enabled: true,
   })
   .partial()

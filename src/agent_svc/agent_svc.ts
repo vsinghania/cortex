@@ -449,6 +449,7 @@ export class AgentSvc implements AgentSvcInterface {
       tool_agent_ids: input.tool_agent_ids ?? [],
       handoff_agent_ids: input.handoff_agent_ids ?? [],
       mcp_server_ids: input.mcp_server_ids ?? [],
+      instruction_policy_names: input.instruction_policy_names ?? [],
       output_schema: input.output_schema,
       enabled: input.enabled ?? true,
       version: 1,

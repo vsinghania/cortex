@@ -21,6 +21,8 @@ import { Id } from '../../lib/id.js';
  */
 export type BaseAgentInit = {
   manifest: AgentManifest;
+  /** Effective prompt: manifest.instructions plus any opted-in instruction policies. */
+  instructions: string;
   tools: Tool[];
   tool_agents?: BaseAgent[];
   handoff_agents?: BaseAgent[];
@@ -36,6 +38,7 @@ export type BaseAgentInit = {
  */
 export abstract class BaseAgent {
   readonly manifest: AgentManifest;
+  readonly instructions: string;
   readonly tools: Tool[];
   readonly mcp_servers: McpServerHandle[];
 
@@ -46,6 +49,7 @@ export abstract class BaseAgent {
 
   protected constructor(init: BaseAgentInit) {
     this.manifest = init.manifest;
+    this.instructions = init.instructions;
     this.tools = init.tools;
     this._tool_agents = init.tool_agents ?? [];
     this._handoff_agents = init.handoff_agents ?? [];
