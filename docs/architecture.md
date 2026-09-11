@@ -145,7 +145,7 @@ The rule is **degrade, don't crash**: only the database is required to boot; eve
 
 ## 8. Known rough edges
 
-- **Agents and MCP server manifests are data, and nothing seeds them.** The web chat hardcodes `agent_id: 'notes-recall'`, so on a fresh database that agent row must be inserted by hand before chat works. It references `mcp_server_id: 'notes'`, and that `McpServerManifest` row has no admin route either — without it the recall agent silently has no tools.
+- **Agents and MCP server manifests are data, and nothing seeds them.** The web chat hardcodes `agent_id: 'notes-recall'`, so on a fresh database that agent row must be inserted by hand before chat works. It references `mcp_server_id: 'notes'`, and that `McpServerManifest` row has no admin route either — without it the recall agent silently has no tools. The recipe for both rows is in [deploy/aws.md §9](../deploy/aws.md#fresh-database--seed-the-chat-agent).
 - **Semantic search has no REST route.** `notes_search_semantic` is MCP-only; the HTTP notes API is CRUD plus lexical search.
 - **Vectorization is still synchronous with the write.** A slow embedding call slows the note response. [jobs_svc](jobs_svc.md) now exists and is the obvious home for it, but nothing has moved yet — the only repair remains an explicit `revectorizeNote`, or the admin re-index sweep.
 - **Background jobs have no routing.** One undifferentiated pool, global FIFO, so a bulk sweep can occupy every worker while a cheap job waits behind it. See [jobs_svc.md](jobs_svc.md) §9.

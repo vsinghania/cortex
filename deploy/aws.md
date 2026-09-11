@@ -22,6 +22,7 @@ production is a manual dispatch.
 | Ship the SPA | **Actions → deploy-spa → Run workflow** |
 | Roll back | **Actions → deploy-api** with the previous commit's SHA |
 | Rebuild without a new commit | **Actions → build-image → Run workflow** |
+| Stand up a fresh database | seed the chat agent rows by hand — [§9](#fresh-database--seed-the-chat-agent) |
 
 `deploy-api` takes a branch, tag or SHA in `git_ref` (default `main`) and resolves
 it to a single commit. The image and the compose file both come from that commit,
@@ -370,6 +371,87 @@ the tunnel:
 - **You are connected to live prod data with full write access.** A stray
   destructive command in a GUI hits production. Until Mongo has auth (and thus a
   read-only role), care is the only guardrail.
+
+### Fresh database — seed the chat agent
+
+Agents and MCP servers are data, not code: nothing creates them on boot. The SPA's
+chat hardcodes `agent_id: 'notes-recall'`, so on a new environment chat is broken
+until two rows exist in `cortex_agent_db` (`MONGO_DB_APP=cortex` + `_agent_db`):
+the `notes` MCP server in `mcp_servers`, and the `notes-recall` agent in `agents`.
+
+Run once on the box after the first deploy, replacing `<AGENT_PROMPT>` and
+`<AGENT_MODEL>` with the agent's prompt and model first — neither is kept in the
+repo. It is an upsert, so
+re-running is safe — but it **resets both rows to these values**, overwriting any
+prompt edits made in the database since.
+
+```sh
+cd /home/ssm-user/cortex
+docker compose exec -T mongodb mongosh --quiet cortex_agent_db <<'EOF'
+const now = new Date();
+
+db.mcp_servers.updateOne(
+  { mcp_server_id: 'notes' },
+  {
+    $set: {
+      name: 'Notes MCP',
+      mode: 'self_hosted',
+      transport: 'http',
+      http: { base_url: 'http://mcp-notes:3010/mcp', auth_token_env: 'MCP_NOTES_AUTH_TOKEN' },
+      enabled: true,
+      version: 1,
+      updated_at: now,
+    },
+    $setOnInsert: { created_at: now },
+  },
+  { upsert: true }
+);
+
+db.agents.updateOne(
+  { agent_id: 'notes-recall' },
+  {
+    $set: {
+      name: 'Notes Recall',
+      instructions: `<AGENT_PROMPT>`,
+      model: '<AGENT_MODEL>',
+      engine: 'openai',
+      tool_names: [],
+      tool_agent_ids: [],
+      handoff_agent_ids: [],
+      mcp_server_ids: ['notes'],
+      enabled: true,
+      version: 1,
+      updated_at: now,
+    },
+    $setOnInsert: { created_at: now },
+  },
+  { upsert: true }
+);
+EOF
+
+docker compose restart web-server
+docker compose logs --since=2m web-server | grep 'Connected to self-hosted MCP server'
+```
+
+The same script works against the local compose stack (`docker compose exec -T
+mongodb mongosh cortex_agent_db`). Then ask the chat something about a note; the
+answer should carry citations.
+
+Things that bite when editing these rows by hand later:
+
+- **Always set `created_at` / `updated_at`.** Mongoose stamps them, raw `mongosh`
+  does not — and an MCP row without `updated_at` is skipped with `Skipping MCP
+  server: failed to initialize`.
+- **Bump `updated_at` (or `version`) when changing an MCP row.** The registry
+  keeps the existing connection unless one of them moves. Agents are recompiled
+  on every refresh regardless.
+- **Changes land within 10 minutes** (the registry refresh), or immediately on
+  `docker compose restart web-server`.
+- **Keep `[c:<chunk_id>]` in the prompt.** It is the only place the citation
+  format is taught, and `CitationExtractor` matches exactly that; any other
+  format produces answers with no citations and no error.
+- **`auth_token_env` names an env var, not the token.** web-server reads
+  `MCP_NOTES_AUTH_TOKEN` from its environment; the secret never goes in Mongo.
 
 ## 10. Route 53 / DNS
 
