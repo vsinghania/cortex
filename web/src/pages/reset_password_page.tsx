@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import { AuthStore } from '../lib/auth_store';
+import { AuthLayout } from '../components/auth_layout';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -50,9 +51,11 @@ export function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="auth-page">
+      <AuthLayout>
         <div className="auth-form">
-          <h1>Link incomplete</h1>
+          <div className="auth-heading">
+            <h1>Link incomplete</h1>
+          </div>
           <p className="auth-note">
             This reset link is missing its token. Open the link from the email again, or request a new one.
           </p>
@@ -60,14 +63,17 @@ export function ResetPasswordPage() {
             <Link to="/forgot-password">Request a new link</Link>
           </p>
         </div>
-      </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="auth-page">
+    <AuthLayout>
       <form className="auth-form" onSubmit={handleSubmit}>
-        <h1>Choose a new password</h1>
+        <div className="auth-heading">
+          <h1>Choose a new password</h1>
+          <p className="auth-subtitle">This will sign you out everywhere else.</p>
+        </div>
         <label>
           New password
           <input
@@ -76,8 +82,10 @@ export function ResetPasswordPage() {
             onChange={(e) => set_password(e.target.value)}
             autoComplete="new-password"
             minLength={MIN_PASSWORD_LENGTH}
+            autoFocus
             required
           />
+          <span className="field-hint">At least {MIN_PASSWORD_LENGTH} characters.</span>
         </label>
         <label>
           Confirm new password
@@ -91,14 +99,14 @@ export function ResetPasswordPage() {
           />
         </label>
         {error && (
-          <div className="form-error">
+          <div className="form-error" role="alert">
             {error} <Link to="/forgot-password">Request a new link</Link>
           </div>
         )}
-        <button type="submit" disabled={submitting}>
+        <button type="submit" className="primary" disabled={submitting}>
           {submitting ? 'Saving…' : 'Set new password'}
         </button>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

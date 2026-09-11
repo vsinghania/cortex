@@ -5,6 +5,7 @@ import type {
   VoiceToolEvent,
   VoiceTranscriptEvent,
 } from '../lib/voice.types';
+import { Icon } from '../components/icon';
 
 type TranscriptLine = {
   id: number;
@@ -13,7 +14,7 @@ type TranscriptLine = {
 };
 
 const STATUS_LABEL: Record<VoiceSessionStatus, string> = {
-  idle: 'Tap to start',
+  idle: 'Ready',
   connecting: 'Connecting…',
   listening: 'Listening',
   closed: 'Stopped',
@@ -101,28 +102,40 @@ export function VoiceCapturePage() {
   }
 
   const is_active = status === 'connecting' || status === 'listening';
-  const button_label = is_active ? 'Tap to stop' : status === 'error' ? 'Retry' : 'Tap to start';
+  const button_label = is_active ? 'Stop recording' : status === 'error' ? 'Retry' : 'Start recording';
+  const button_class = [
+    'voice-button',
+    status === 'listening' && 'voice-button-active',
+    status === 'connecting' && 'voice-button-connecting',
+  ].filter(Boolean).join(' ');
 
   return (
     <div className="voice-page">
+      <div className="voice-intro">
+        <h1>Voice capture</h1>
+        <p>Speak a note. Cortex reads back a summary and saves it when you say “save”.</p>
+      </div>
+
       <div className="voice-stage">
         <button
           type="button"
-          className={`voice-button${status === 'listening' ? ' voice-button-active' : ''}`}
+          className={button_class}
           onClick={() => (is_active ? stopSession() : void startSession())}
           aria-label={button_label}
+          title={button_label}
         >
-          <span className="voice-button-icon" aria-hidden="true">●</span>
+          <Icon name={is_active ? 'stop' : 'mic'} size={40} />
         </button>
-        <div className={`voice-status voice-status-${status}`}>{STATUS_LABEL[status]}</div>
-        {error && <div className="voice-error">{error}</div>}
+        <div className={`voice-status voice-status-${status}`} role="status">
+          <span className="voice-status-dot" aria-hidden="true" />
+          {STATUS_LABEL[status]}
+        </div>
+        {error && <div className="voice-error" role="alert">{error}</div>}
       </div>
 
       <div className="voice-transcript" ref={transcript_scroll_ref}>
         {transcript_lines.length === 0 && tool_events.length === 0 ? (
-          <p className="voice-transcript-empty">
-            Speak a note. Cortex will read back a summary and save it when you say "save".
-          </p>
+          <p className="voice-transcript-empty">Your transcript will appear here.</p>
         ) : (
           <>
             {transcript_lines.map((line) => (

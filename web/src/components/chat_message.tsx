@@ -6,6 +6,8 @@ import remarkGfm from 'remark-gfm';
 import type { Citation } from '../lib/agent.types';
 import { CitationText } from '../lib/citation_text';
 import type { ReturnLinkState } from '../lib/navigation.types';
+import { BrandMark } from './brand_mark';
+import { Spinner } from './spinner';
 
 type Props = {
   role: 'user' | 'assistant';
@@ -102,40 +104,70 @@ function MessageBody({ role, text, citations }: Props) {
   );
 }
 
+function SourceList({ citations }: { citations: Citation[] }) {
+  return (
+    <div className="chat-sources">
+      <div className="chat-sources-label">Sources</div>
+      <ul>
+        {citations.map((citation) => {
+          const heading = CitationText.headingLabel(citation);
+          const href = citation.document_available ? citationHref(citation) : null;
+          const body = (
+            <>
+              <span className="chat-source-index">{citation.index}</span>
+              <span className="chat-source-title">{citation.document_title}</span>
+              {heading && <span className="chat-source-heading">{heading}</span>}
+            </>
+          );
+          return (
+            <li key={citation.chunk_id}>
+              {href ? (
+                <CitationLink href={href} className="chat-source-row" title={citationTitle(citation)}>
+                  {body}
+                </CitationLink>
+              ) : (
+                <span className="chat-source-row chat-source-row-dead" title={citationTitle(citation)}>
+                  {body}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function AssistantAvatar() {
+  return (
+    <span className="chat-avatar">
+      <BrandMark size="sm" />
+    </span>
+  );
+}
+
 export function ChatMessage({ role, text, citations }: Props) {
   return (
     <div className={`chat-message chat-message-${role}`}>
-      <div className="chat-message-role">{role === 'user' ? 'You' : 'Assistant'}</div>
-      <MessageBody role={role} text={text} citations={citations} />
-      {citations && citations.length > 0 && (
-        <div className="chat-sources">
-          <div className="chat-sources-label">Sources</div>
-          <ul>
-            {citations.map((citation) => {
-              const heading = CitationText.headingLabel(citation);
-              const href = citation.document_available ? citationHref(citation) : null;
-              const body = (
-                <>
-                  <span className="chat-source-index">{citation.index}</span>
-                  <span className="chat-source-title">{citation.document_title}</span>
-                  {heading && <span className="chat-source-heading">{heading}</span>}
-                </>
-              );
-              return (
-                <li key={citation.chunk_id}>
-                  {href ? (
-                    <CitationLink href={href} className="chat-source-row">
-                      {body}
-                    </CitationLink>
-                  ) : (
-                    <span className="chat-source-row chat-source-row-dead">{body}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+      {role === 'assistant' && <AssistantAvatar />}
+      <div className="chat-message-content">
+        <span className="sr-only">{role === 'user' ? 'You said:' : 'Assistant said:'}</span>
+        <MessageBody role={role} text={text} citations={citations} />
+        {citations && citations.length > 0 && <SourceList citations={citations} />}
+      </div>
+    </div>
+  );
+}
+
+export function ChatTypingIndicator() {
+  return (
+    <div className="chat-message chat-message-assistant">
+      <AssistantAvatar />
+      <div className="chat-message-content">
+        <div className="chat-typing">
+          <Spinner label="Searching your notes…" />
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { NavBar } from './components/nav_bar';
 import { RequireAuth } from './components/require_auth';
 import { LoginPage } from './pages/login_page';
@@ -11,10 +11,13 @@ import { ChatPage } from './pages/chat_page';
 import { VoiceCapturePage } from './pages/voice_capture_page';
 
 export function App() {
+  // Chat owns the full viewport (sidebar + thread); every other page sits in the reading column.
+  const is_full_bleed = useLocation().pathname.startsWith('/chat');
+
   return (
     <div className="app-shell">
       <NavBar />
-      <main className="app-main">
+      <main className={`app-main${is_full_bleed ? ' app-main-full' : ''}`}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />

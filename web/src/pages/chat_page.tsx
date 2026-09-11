@@ -3,10 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import { NOTES_RECALL_AGENT_ID } from '../lib/agent.types';
 import type { Citation, Conversation, ConversationMessage } from '../lib/agent.types';
-import { ChatMessage } from '../components/chat_message';
+import { DateFormat } from '../lib/date_format';
+import { useAutosize } from '../lib/use_autosize';
+import { ChatMessage, ChatTypingIndicator } from '../components/chat_message';
+import { EmptyState } from '../components/empty_state';
+import { Icon } from '../components/icon';
 import { Spinner } from '../components/spinner';
 
 type Turn = { role: 'user' | 'assistant'; text: string; citations?: Citation[] };
+
+const COMPOSER_MAX_HEIGHT_PX = 200;
 
 function contentToText(parts: ConversationMessage['content']): string {
   return parts
@@ -40,6 +46,9 @@ export function ChatPage() {
   const [deleting_id, set_deleting_id] = useState<string | null>(null);
   const [error, set_error] = useState<string | null>(null);
   const thread_ref = useRef<HTMLDivElement>(null);
+  const input_ref = useRef<HTMLTextAreaElement>(null);
+
+  useAutosize(input_ref, input, COMPOSER_MAX_HEIGHT_PX);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -109,6 +118,7 @@ export function ChatPage() {
   function startNewChat() {
     resetThread();
     navigate('/chat');
+    input_ref.current?.focus();
   }
 
   async function deleteConversation(target: Conversation) {
@@ -163,9 +173,13 @@ export function ChatPage() {
 
   return (
     <div className="chat-page">
-      <aside className="chat-sidebar">
+      <aside className="chat-sidebar" aria-label="Conversations">
         <div className="chat-sidebar-header">
-          <button onClick={startNewChat}>+ New Chat</button>
+          <span className="chat-sidebar-title">Chats</span>
+          <button type="button" className="primary small" onClick={startNewChat}>
+            <Icon name="plus" size={14} />
+            New chat
+          </button>
         </div>
         {conv_loading ? (
           <div className="chat-sidebar-spinner"><Spinner /></div>
@@ -173,77 +187,90 @@ export function ChatPage() {
           <p className="chat-sidebar-empty">No conversations yet.</p>
         ) : (
           <ul className="chat-conv-list">
-            {conversations.map((c) => (
-              <li
-                key={c.conversation_id}
-                className={`chat-conv-item${conversation_id === c.conversation_id ? ' active' : ''}`}
-                onClick={() => selectConversation(c.conversation_id)}
-              >
-                <div className="chat-conv-text">
-                  <span className="chat-conv-title">{c.title ?? 'Untitled'}</span>
-                  <span className="chat-conv-date">
-                    {new Date(c.updated_at).toLocaleDateString()}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="chat-conv-delete"
-                  title="Delete chat"
-                  aria-label={`Delete ${c.title ?? 'Untitled'}`}
-                  disabled={deleting_id !== null || (pending && c.conversation_id === conversation_id)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void deleteConversation(c);
-                  }}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
+            {conversations.map((c) => {
+              const is_active = conversation_id === c.conversation_id;
+              const title = c.title ?? 'Untitled';
+              return (
+                <li key={c.conversation_id} className={`chat-conv-item${is_active ? ' active' : ''}`}>
+                  <button
+                    type="button"
+                    className="chat-conv-select"
+                    aria-current={is_active ? 'page' : undefined}
+                    onClick={() => selectConversation(c.conversation_id)}
+                  >
+                    <span className="chat-conv-title">{title}</span>
+                    <span className="chat-conv-date" title={DateFormat.full(c.updated_at)}>
+                      {DateFormat.relative(c.updated_at)}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-conv-delete ghost danger icon-button"
+                    title="Delete chat"
+                    aria-label={`Delete ${title}`}
+                    disabled={deleting_id !== null || (pending && is_active)}
+                    onClick={() => void deleteConversation(c)}
+                  >
+                    <Icon name="trash" size={14} />
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </aside>
 
-      <div className="chat-main">
+      <section className="chat-main">
         <div className="chat-thread" ref={thread_ref}>
-          {thread_loading ? (
-            <Spinner label="Loading…" />
-          ) : messages.length === 0 && !pending ? (
-            <p className="empty-state">Ask the agent something about your notes.</p>
-          ) : (
-            messages.map((m, i) => (
-              <ChatMessage key={i} role={m.role} text={m.text} citations={m.citations} />
-            ))
-          )}
-          {pending && (
-            <div className="chat-message chat-message-assistant">
-              <div className="chat-message-role">Assistant</div>
-              <Spinner label="thinking…" />
-            </div>
-          )}
+          <div className="chat-thread-inner">
+            {thread_loading ? (
+              <div className="chat-thread-status"><Spinner label="Loading conversation…" /></div>
+            ) : messages.length === 0 && !pending ? (
+              <EmptyState icon="sparkle" title="Ask your notes anything" plain>
+                Answers cite the notes they draw on, so you can jump straight to the source.
+              </EmptyState>
+            ) : (
+              messages.map((m, i) => (
+                <ChatMessage key={i} role={m.role} text={m.text} citations={m.citations} />
+              ))
+            )}
+            {pending && <ChatTypingIndicator />}
+          </div>
         </div>
 
-        {error && <div className="page-error">{error}</div>}
-
-        <form className="chat-input" onSubmit={handleSubmit}>
-          <textarea
-            value={input}
-            onChange={(e) => set_input(e.target.value)}
-            placeholder="Ask about your notes…"
-            rows={2}
-            disabled={pending}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void handleSubmit(e);
-              }
-            }}
-          />
-          <button type="submit" disabled={pending || !input.trim()}>
-            Send
-          </button>
-        </form>
-      </div>
+        <div className="chat-composer-wrap">
+          {error && <div className="page-error" role="alert">{error}</div>}
+          <form className="chat-composer" onSubmit={handleSubmit}>
+            <textarea
+              ref={input_ref}
+              value={input}
+              onChange={(e) => set_input(e.target.value)}
+              placeholder="Ask about your notes…"
+              aria-label="Message"
+              rows={1}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void handleSubmit(e);
+                }
+              }}
+            />
+            <button
+              type="submit"
+              className="primary icon-button chat-send"
+              disabled={pending || !input.trim()}
+              title="Send"
+              aria-label="Send"
+            >
+              <Icon name="send" size={17} />
+            </button>
+          </form>
+          <p className="chat-composer-hint">
+            <kbd className="kbd">Enter</kbd> to send · <kbd className="kbd">Shift</kbd>
+            <kbd className="kbd">Enter</kbd> for a new line
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

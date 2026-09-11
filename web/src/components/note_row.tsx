@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Note, NotePatchBody } from '../lib/note.types';
+import { DateFormat } from '../lib/date_format';
+import { NotePreview } from '../lib/note_preview';
 import { NoteForm } from './note_form';
+import { Icon } from './icon';
 
 type Props = {
   note: Note;
@@ -41,7 +44,7 @@ export function NoteRow({ note, onUpdate, onDelete, onTagClick, active_tags = []
     );
   }
 
-  const preview = note.body.length > 200 ? `${note.body.slice(0, 200)}…` : note.body;
+  const preview = NotePreview.excerpt(note);
 
   return (
     <article className="note-row">
@@ -50,36 +53,54 @@ export function NoteRow({ note, onUpdate, onDelete, onTagClick, active_tags = []
           <Link to={`/notes/${note.id}`}>{note.title}</Link>
         </h3>
         <div className="note-row-actions">
-          <button type="button" onClick={() => set_editing(true)}>Edit</button>
-          <button type="button" onClick={handleDelete} disabled={deleting} className="danger">
-            {deleting ? 'Deleting…' : 'Delete'}
+          <button
+            type="button"
+            className="ghost icon-button"
+            onClick={() => set_editing(true)}
+            title="Edit"
+            aria-label={`Edit "${note.title}"`}
+          >
+            <Icon name="edit" size={15} />
+          </button>
+          <button
+            type="button"
+            className="ghost danger icon-button"
+            onClick={handleDelete}
+            disabled={deleting}
+            aria-busy={deleting}
+            title="Delete"
+            aria-label={`Delete "${note.title}"`}
+          >
+            <Icon name="trash" size={15} />
           </button>
         </div>
       </header>
       {preview && <p className="note-row-preview">{preview}</p>}
-      {note.tags.length > 0 && (
-        <div className="note-row-tags">
-          {note.tags.map((t) => {
-            const is_active = active_tags.some((a) => a.toLowerCase() === t.toLowerCase());
-            const class_name = `tag-chip${is_active ? ' tag-chip-active' : ''}`;
-            return onTagClick ? (
-              <button
-                key={t}
-                type="button"
-                className={class_name}
-                aria-pressed={is_active}
-                onClick={() => onTagClick(t)}
-              >
-                {t}
-              </button>
-            ) : (
-              <span key={t} className={class_name}>{t}</span>
-            );
-          })}
-        </div>
-      )}
-      <footer className="note-row-meta">
-        {new Date(note.created_at).toLocaleString()}
+      <footer className="note-row-footer">
+        {note.tags.length > 0 && (
+          <div className="note-row-tags">
+            {note.tags.map((t) => {
+              const is_active = active_tags.some((a) => a.toLowerCase() === t.toLowerCase());
+              const class_name = `tag-chip${is_active ? ' tag-chip-active' : ''}`;
+              return onTagClick ? (
+                <button
+                  key={t}
+                  type="button"
+                  className={class_name}
+                  aria-pressed={is_active}
+                  onClick={() => onTagClick(t)}
+                >
+                  {t}
+                </button>
+              ) : (
+                <span key={t} className={class_name}>{t}</span>
+              );
+            })}
+          </div>
+        )}
+        <time className="note-row-meta" dateTime={note.created_at} title={DateFormat.full(note.created_at)}>
+          {DateFormat.relative(note.created_at)}
+        </time>
       </footer>
     </article>
   );

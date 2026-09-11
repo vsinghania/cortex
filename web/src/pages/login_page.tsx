@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
+import { AuthLayout } from '../components/auth_layout';
 
 type LocationState = { from?: string; notice?: string } | null;
 
@@ -30,9 +31,12 @@ export function LoginPage() {
   }
 
   return (
-    <div className="auth-page">
+    <AuthLayout>
       <form className="auth-form" onSubmit={handleSubmit}>
-        <h1>Log in</h1>
+        <div className="auth-heading">
+          <h1>Welcome back</h1>
+          <p className="auth-subtitle">Log in to your notes.</p>
+        </div>
         {notice && <div className="form-notice">{notice}</div>}
         <label>
           Email
@@ -41,11 +45,15 @@ export function LoginPage() {
             value={email}
             onChange={(e) => set_email(e.target.value)}
             autoComplete="email"
+            autoFocus
             required
           />
         </label>
         <label>
-          Password
+          <span className="auth-label-row">
+            Password
+            <Link to="/forgot-password">Forgot password?</Link>
+          </span>
           <input
             type="password"
             value={password}
@@ -54,17 +62,14 @@ export function LoginPage() {
             required
           />
         </label>
-        {error && <div className="form-error">{error}</div>}
-        <button type="submit" disabled={submitting}>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        <button type="submit" className="primary" disabled={submitting}>
           {submitting ? 'Logging in…' : 'Log in'}
         </button>
         <p className="auth-alt">
-          <Link to="/forgot-password">Forgot password?</Link>
-        </p>
-        <p className="auth-alt">
-          Don't have an account? <Link to="/register">Register</Link>
+          Don't have an account? <Link to="/register">Create one</Link>
         </p>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

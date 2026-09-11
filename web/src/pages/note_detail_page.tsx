@@ -3,7 +3,10 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { ApiClient } from '../lib/api_client';
 import type { Note, NoteChunkRef, NotePatchBody } from '../lib/note.types';
 import type { ReturnLinkState } from '../lib/navigation.types';
+import { DateFormat } from '../lib/date_format';
 import { NoteForm } from '../components/note_form';
+import { EmptyState } from '../components/empty_state';
+import { Icon } from '../components/icon';
 import { Spinner } from '../components/spinner';
 
 type HighlightRange = { start: number; end: number };
@@ -107,20 +110,47 @@ export function NoteDetailPage() {
     navigate('/notes', { replace: true });
   }
 
+  const back_link = (
+    <Link to={return_link?.return_to ?? '/notes'} className="back-link">
+      <Icon name="back" size={15} />
+      {return_link?.return_label ?? 'All notes'}
+    </Link>
+  );
+
   if (loading) return <div className="page"><Spinner label="Loading…" /></div>;
-  if (error) return <div className="page"><div className="page-error">{error}</div></div>;
-  if (!note) return <div className="page"><p>Not found.</p></div>;
+  if (error) {
+    return (
+      <div className="page note-detail-page">
+        <header className="page-header">{back_link}</header>
+        <div className="page-error" role="alert">{error}</div>
+      </div>
+    );
+  }
+  if (!note) {
+    return (
+      <div className="page note-detail-page">
+        <header className="page-header">{back_link}</header>
+        <EmptyState icon="notes" title="Note not found">
+          It may have been deleted.
+        </EmptyState>
+      </div>
+    );
+  }
 
   return (
     <div className="page note-detail-page">
       <header className="page-header">
-        <Link to={return_link?.return_to ?? '/notes'} className="back-link">
-          ← {return_link?.return_label ?? 'All notes'}
-        </Link>
+        {back_link}
         {!editing && (
           <div className="page-header-actions">
-            <button type="button" onClick={() => set_editing(true)}>Edit</button>
-            <button type="button" onClick={handleDelete} className="danger">Delete</button>
+            <button type="button" className="ghost" onClick={() => set_editing(true)}>
+              <Icon name="edit" size={15} />
+              Edit
+            </button>
+            <button type="button" className="ghost danger" onClick={handleDelete}>
+              <Icon name="trash" size={15} />
+              Delete
+            </button>
           </div>
         )}
       </header>
@@ -134,14 +164,19 @@ export function NoteDetailPage() {
         />
       ) : (
         <article className="note-detail">
-          <h1>{note.title}</h1>
-          {note.tags.length > 0 && (
-            <div className="note-row-tags">
-              {note.tags.map((t) => (
-                <span key={t} className="tag-chip">{t}</span>
-              ))}
-            </div>
-          )}
+          <h1 className="note-detail-title">{note.title}</h1>
+          <div className="note-detail-meta">
+            {note.tags.length > 0 && (
+              <div className="note-row-tags">
+                {note.tags.map((t) => (
+                  <span key={t} className="tag-chip">{t}</span>
+                ))}
+              </div>
+            )}
+            <span className="note-detail-dates">
+              Created {DateFormat.full(note.created_at)} · Updated {DateFormat.relative(note.updated_at)}
+            </span>
+          </div>
           <pre className="note-detail-body">
             {highlight ? (
               <>
@@ -155,9 +190,6 @@ export function NoteDetailPage() {
               note.body
             )}
           </pre>
-          <footer className="note-row-meta">
-            Created {new Date(note.created_at).toLocaleString()} · Updated {new Date(note.updated_at).toLocaleString()}
-          </footer>
         </article>
       )}
     </div>

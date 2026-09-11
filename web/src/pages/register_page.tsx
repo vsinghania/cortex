@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
+import { AuthLayout } from '../components/auth_layout';
+
+const MIN_PASSWORD_LENGTH = 8;
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -12,8 +15,8 @@ export function RegisterPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 8) {
-      set_error('Password must be at least 8 characters.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      set_error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
     set_submitting(true);
@@ -29,9 +32,12 @@ export function RegisterPage() {
   }
 
   return (
-    <div className="auth-page">
+    <AuthLayout>
       <form className="auth-form" onSubmit={handleSubmit}>
-        <h1>Create account</h1>
+        <div className="auth-heading">
+          <h1>Create your account</h1>
+          <p className="auth-subtitle">Capture notes you can search and chat with.</p>
+        </div>
         <label>
           Name
           <input
@@ -39,6 +45,7 @@ export function RegisterPage() {
             value={name}
             onChange={(e) => set_name(e.target.value)}
             autoComplete="name"
+            autoFocus
             required
           />
         </label>
@@ -59,18 +66,19 @@ export function RegisterPage() {
             value={password}
             onChange={(e) => set_password(e.target.value)}
             autoComplete="new-password"
-            minLength={8}
+            minLength={MIN_PASSWORD_LENGTH}
             required
           />
+          <span className="field-hint">At least {MIN_PASSWORD_LENGTH} characters.</span>
         </label>
-        {error && <div className="form-error">{error}</div>}
-        <button type="submit" disabled={submitting}>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        <button type="submit" className="primary" disabled={submitting}>
           {submitting ? 'Creating…' : 'Create account'}
         </button>
         <p className="auth-alt">
           Already have an account? <Link to="/login">Log in</Link>
         </p>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

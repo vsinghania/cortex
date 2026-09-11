@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Note, NoteCreateBody, NotePatchBody } from '../lib/note.types';
+import { Platform } from '../lib/platform';
 
 type Props = {
   initial?: Pick<Note, 'title' | 'body' | 'tags'>;
@@ -37,18 +38,30 @@ export function NoteForm({ initial, submit_label = 'Save', cancel_label = 'Cance
     }
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      e.currentTarget.requestSubmit();
+    } else if (e.key === 'Escape' && onCancel && !submitting) {
+      onCancel();
+    }
+  }
+
   return (
-    <form className="note-form" onSubmit={handleSubmit}>
+    <form className="note-form" onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
       <input
         type="text"
-        placeholder="Title"
+        placeholder="Untitled note"
+        aria-label="Title"
         value={title}
         onChange={(e) => set_title(e.target.value)}
         disabled={submitting}
         className="note-form-title"
+        autoFocus
       />
       <textarea
-        placeholder="Write your note (markdown supported)…"
+        placeholder="Write your note…"
+        aria-label="Body"
         value={body}
         onChange={(e) => set_body(e.target.value)}
         disabled={submitting}
@@ -58,21 +71,28 @@ export function NoteForm({ initial, submit_label = 'Save', cancel_label = 'Cance
       <input
         type="text"
         placeholder="Tags, comma-separated"
+        aria-label="Tags"
         value={tags_text}
         onChange={(e) => set_tags_text(e.target.value)}
         disabled={submitting}
         className="note-form-tags"
       />
       {error && <div className="form-error">{error}</div>}
-      <div className="note-form-actions">
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Saving…' : submit_label}
-        </button>
-        {onCancel && (
-          <button type="button" onClick={onCancel} disabled={submitting} className="secondary">
-            {cancel_label}
+      <div className="note-form-footer">
+        <span className="note-form-hint">
+          Markdown supported · <kbd className="kbd">{Platform.modifierKeyLabel()}</kbd>
+          <kbd className="kbd">Enter</kbd> to save
+        </span>
+        <div className="note-form-actions">
+          {onCancel && (
+            <button type="button" onClick={onCancel} disabled={submitting} className="ghost">
+              {cancel_label}
+            </button>
+          )}
+          <button type="submit" disabled={submitting} className="primary">
+            {submitting ? 'Saving…' : submit_label}
           </button>
-        )}
+        </div>
       </div>
     </form>
   );
