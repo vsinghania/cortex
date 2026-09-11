@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { NotesReindexHandler } from '../src/notes_svc/jobs/notes_reindex_handler.js';
+import { NotesReindexJobHandler } from '../src/notes_svc/jobs/notes_reindex_job_handler.js';
 import type { Note } from '../src/notes_svc/types/note.types.js';
 import { NoteSource, SyncStatus } from '../src/notes_svc/types/note.types.js';
 import { JobRunContext } from '../src/jobs_svc/worker/job_run_context.js';
@@ -89,7 +89,7 @@ const notes = ['n-01', 'n-02', 'n-03'].map((id) => buildNote(id));
 
 test('processes every selected note and advances the checkpoint', async () => {
   const { svc, seen } = fakeVectorizationSvc();
-  const handler = await NotesReindexHandler.create({
+  const handler = await NotesReindexJobHandler.create({
     notes_repo: fakeNotesRepo(notes),
     vectorization_svc: svc
   });
@@ -107,7 +107,7 @@ test('processes every selected note and advances the checkpoint', async () => {
 test('honours a user_ids filter', async () => {
   const mixed = [buildNote('n-01', 'xyz'), buildNote('n-02', 'abc'), buildNote('n-03', 'xyz')];
   const { svc, seen } = fakeVectorizationSvc();
-  const handler = await NotesReindexHandler.create({
+  const handler = await NotesReindexJobHandler.create({
     notes_repo: fakeNotesRepo(mixed),
     vectorization_svc: svc
   });
@@ -118,7 +118,7 @@ test('honours a user_ids filter', async () => {
 
 test('honours a note_ids filter', async () => {
   const { svc, seen } = fakeVectorizationSvc();
-  const handler = await NotesReindexHandler.create({
+  const handler = await NotesReindexJobHandler.create({
     notes_repo: fakeNotesRepo(notes),
     vectorization_svc: svc
   });
@@ -129,7 +129,7 @@ test('honours a note_ids filter', async () => {
 
 test('resuming from a checkpoint skips already-processed notes and keeps counters', async () => {
   const { svc, seen } = fakeVectorizationSvc();
-  const handler = await NotesReindexHandler.create({
+  const handler = await NotesReindexJobHandler.create({
     notes_repo: fakeNotesRepo(notes),
     vectorization_svc: svc
   });
@@ -151,7 +151,7 @@ test('a per-note failure is counted and the sweep continues', async () => {
   const { svc } = fakeVectorizationSvc((note_id) => {
     if (note_id === 'n-02') throw new Error('embedding blew up');
   });
-  const handler = await NotesReindexHandler.create({
+  const handler = await NotesReindexJobHandler.create({
     notes_repo: fakeNotesRepo(notes),
     vectorization_svc: svc
   });
@@ -168,7 +168,7 @@ test('a per-note failure is counted and the sweep continues', async () => {
 
 test('dry_run reports the selection without processing anything', async () => {
   const { svc, seen } = fakeVectorizationSvc();
-  const handler = await NotesReindexHandler.create({
+  const handler = await NotesReindexJobHandler.create({
     notes_repo: fakeNotesRepo(notes),
     vectorization_svc: svc
   });
@@ -189,7 +189,7 @@ test('a cancellation halts between notes, keeping work already done', async () =
   const { svc, seen } = fakeVectorizationSvc((note_id) => {
     if (note_id === 'n-01') ctx.abort('cancelled');
   });
-  const handler = await NotesReindexHandler.create({
+  const handler = await NotesReindexJobHandler.create({
     notes_repo: fakeNotesRepo(notes),
     vectorization_svc: svc
   });
@@ -213,7 +213,7 @@ test('reembed routes to revectorizeNote rather than vectorizeNote', async () => 
     }
   } as any;
 
-  const handler = await NotesReindexHandler.create({
+  const handler = await NotesReindexJobHandler.create({
     notes_repo: fakeNotesRepo([notes[0]]),
     vectorization_svc: svc
   });
@@ -223,7 +223,7 @@ test('reembed routes to revectorizeNote rather than vectorizeNote', async () => 
 });
 
 test('parsePayload rejects an unknown field rather than silently ignoring it', () => {
-  const handler = Object.create(NotesReindexHandler.prototype) as NotesReindexHandler;
+  const handler = Object.create(NotesReindexJobHandler.prototype) as NotesReindexJobHandler;
   assert.throws(() => handler.parsePayload({ mode: 'rechunk', bogus: 1 } as any));
   assert.throws(() => handler.parsePayload({ mode: 'nonsense' } as any));
 });

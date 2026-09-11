@@ -4,12 +4,14 @@ import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 import { RateLimitMiddleware } from '../../common/middlewares/rate_limit.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
 import { AuthSvc } from '../../auth_svc/auth_svc.js';
+import { PasswordResetSvc } from '../../auth_svc/password_reset_svc.js';
 import { REFRESH_COOKIE_NAME, TokenUtils } from '../../auth_svc/utils/token_utils.js';
 import { Time } from '../../lib/time.js';
 
 const EmailSchema = z.string().email();
 const PasswordSchema = z.string().min(8);
 const NameSchema = z.string().trim().min(1).max(100);
+const ResetTokenSchema = z.string().min(1).max(512);
 
 
 
@@ -52,6 +54,8 @@ export class AuthController {
     this.router.post('/refresh', this.refresh.bind(this));
     this.router.post('/logout', this.logout.bind(this));
     this.router.get('/me', RequireAuthMiddleware.requireAuth, this.me.bind(this));
+    this.router.post('/password/forgot', RateLimitMiddleware.emailSendRateLimiter, this.forgotPassword.bind(this));
+    this.router.post('/password/reset', this.resetPassword.bind(this));
   }
 
   @validateRequest({ body: z.object({ email: EmailSchema, name: NameSchema, password: PasswordSchema }) })
@@ -144,6 +148,35 @@ export class AuthController {
       res.clearCookie(REFRESH_COOKIE_NAME, opts);
 
       res.status(200).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ body: z.object({ email: EmailSchema }) })
+  private async forgotPassword(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { email } = req.body as { email: string };
+      const password_reset_svc = await PasswordResetSvc.create();
+      await password_reset_svc.requestReset(email);
+      // 202 whatever happened, so this endpoint cannot be used to probe which
+      // emails have accounts.
+      res.status(202).json({ response: { accepted: true } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ body: z.object({ token: ResetTokenSchema, password: PasswordSchema }) })
+  private async resetPassword(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { token, password } = req.body as { token: string; password: string };
+      const password_reset_svc = await PasswordResetSvc.create();
+      await password_reset_svc.resetPassword({ token, new_password: password });
+
+      // Every session was just revoked, this browser's included, so drop its dead cookie.
+      res.clearCookie(REFRESH_COOKIE_NAME, AuthController.refreshCookieOptions());
+      res.status(200).json({ response: { success: true } });
     } catch (e) {
       next(e);
     }

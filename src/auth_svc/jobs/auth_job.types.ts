@@ -5,8 +5,21 @@ import { z } from 'zod';
  * module never names a domain concept - see scripts/layering.test.ts.
  */
 export const AuthJobName = {
-  RefreshTokenPrune: 'refresh_token_prune'
+  RefreshTokenPrune: 'refresh_token_prune',
+  PasswordResetEmail: 'password_reset_email'
 } as const;
+
+/**
+ * Only an id. Admins can list job payloads and rows persist in Mongo, so the token
+ * is minted when the email is sent and never travels on the job.
+ */
+export const AuthEmailPayloadSchema = z
+  .object({
+    user_id: z.string().min(1)
+  })
+  .strict();
+
+export type AuthEmailPayload = z.infer<typeof AuthEmailPayloadSchema>;
 
 export const DEFAULT_PRUNE_BATCH = 1000;
 

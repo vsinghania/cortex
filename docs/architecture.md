@@ -76,14 +76,14 @@ The user id travels: JWT claim → `req.auth.user_id` → `TraceContext` → `x-
 Dependencies point one way:
 
 ```
-web-server ──► auth ──► user
+web-server ──► auth ──► user, mailer_svc      (reset emails, sent from a job)
            ├─► ai_svc ─────────────────► OpenAI
            ├─► agent_svc ──► ai_svc                (conversation titles)
            │              └► mcp client ──────────► notes MCP server
            ├─► notes ─┬► embeddings ──────────────► OpenAI
            │          └► retrieval ──► embeddings + Qdrant
            ├─► voice ──────────────────────────────► OpenAI Realtime
-           └─► jobs_svc ◄── notes (handlers registered at bootstrap)
+           └─► jobs_svc ◄── notes, auth (handlers registered at bootstrap)
 
 common/ · lib/ · db/   — used by all, depend on none
 ```
@@ -130,7 +130,7 @@ Audio never touches our servers. The browser gets a short-lived secret; the inst
 
 | Service key | Holds |
 | --- | --- |
-| `user` / `auth` | users / refresh-token sessions |
+| `user` / `auth` | users / refresh-token sessions, single-use email tokens |
 | `notes` | notes, note chunks, note trash |
 | `agent` | agent + MCP server manifests, conversations, messages |
 | `jobs` | background jobs (claim, lease, checkpoint, TTL'd history) |

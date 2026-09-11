@@ -23,7 +23,7 @@ const PAGE_SIZE = 100;
  * selection comes from `payload.user_ids` ONLY - never from ctx.user_id, which is
  * the requesting admin and is an audit field, not a tenant scope.
  */
-export class NotesReindexHandler implements JobHandler<NotesReindexPayload> {
+export class NotesReindexJobHandler implements JobHandler<NotesReindexPayload> {
   readonly name = NotesJobName.NotesReindex;
   // Embedding calls are slow: 20s timeout x 3 retries x ceil(chunks/96) batches,
   // so one note can outlast a default lease on its own.
@@ -40,11 +40,11 @@ export class NotesReindexHandler implements JobHandler<NotesReindexPayload> {
   static async create(params?: {
     notes_repo?: NoteRepository;
     vectorization_svc?: NotesVectorizationSvc;
-  }): Promise<NotesReindexHandler> {
+  }): Promise<NotesReindexJobHandler> {
     const notes_repo =
       params?.notes_repo ?? (await MongooseNoteRepository.create({ db: DbNameResolver.resolve('notes') }));
     const vectorization_svc = params?.vectorization_svc ?? (await NotesVectorizationSvc.create());
-    return new NotesReindexHandler(notes_repo, vectorization_svc);
+    return new NotesReindexJobHandler(notes_repo, vectorization_svc);
   }
 
   parsePayload(raw: JobPayload): NotesReindexPayload {

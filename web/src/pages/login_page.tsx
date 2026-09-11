@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 
-type LocationState = { from?: string } | null;
+type LocationState = { from?: string; notice?: string } | null;
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -11,6 +11,7 @@ export function LoginPage() {
   const [password, set_password] = useState('');
   const [submitting, set_submitting] = useState(false);
   const [error, set_error] = useState<string | null>(null);
+  const notice = (location.state as LocationState)?.notice;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,6 +33,7 @@ export function LoginPage() {
     <div className="auth-page">
       <form className="auth-form" onSubmit={handleSubmit}>
         <h1>Log in</h1>
+        {notice && <div className="form-notice">{notice}</div>}
         <label>
           Email
           <input
@@ -56,6 +58,9 @@ export function LoginPage() {
         <button type="submit" disabled={submitting}>
           {submitting ? 'Logging in…' : 'Log in'}
         </button>
+        <p className="auth-alt">
+          <Link to="/forgot-password">Forgot password?</Link>
+        </p>
         <p className="auth-alt">
           Don't have an account? <Link to="/register">Register</Link>
         </p>

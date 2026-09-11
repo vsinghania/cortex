@@ -125,6 +125,8 @@ services:
       SMTP_SECURE: "true"
       SMTP_USER: resend
       SMTP_PASS: ${SMTP_PASS:?SMTP_PASS is required}
+      # Origin that links in emails point to (the SPA, not this API).
+      APP_PUBLIC_URL: https://cortexapp.me
 
     ports:
     - "3000:3000"
