@@ -25,6 +25,7 @@
     "lru-cache": "^10.4.3",
     "mongoose": "^8.19.0",
     "nanoid": "^5.1.5",
+    "nodemailer": "^10.0.3",
     "openai": "^5.16.0",
     "pino": "^9.9.0",
     "pino-http": "^10.5.0",
@@ -61,11 +62,13 @@
     "jobs:smoke": "tsx scripts/jobs_repo_smoke.ts",
     "jobs:smoke:worker": "tsx scripts/jobs_worker_smoke.ts",
     "jobs:smoke:scheduler": "tsx scripts/jobs_scheduler_smoke.ts",
+    "mailer:smoke": "tsx scripts/mailer_smoke.ts",
     "mcp:dev": "tsx src/mcp/server/notes/server.ts",
     "mcp:start": "node --enable-source-maps dist/mcp/server/notes/server.js",
     "mcp:notes:dev": "tsx src/mcp/server/notes/server.ts",
     "mcp:notes:start": "node --enable-source-maps dist/mcp/server/notes/server.js",
     "qdrant:up": "docker compose up -d qdrant",
+    "mailpit:up": "docker compose up -d mailpit",
     "qdrant:down": "docker compose down"
   },
   "engines": {

@@ -66,6 +66,7 @@ The user id travels: JWT claim → `req.auth.user_id` → `TraceContext` → `x-
 | [ai_svc.md](ai_svc.md) | Single-shot text and structured generation |
 | [recall.md](recall.md) | Notes, chunking, embeddings, semantic retrieval |
 | [jobs_svc.md](jobs_svc.md) | Durable background work: claiming, leases, resumable sweeps |
+| [mailer_svc.md](mailer_svc.md) | Outbound email: transport adapter, shared layout, what never gets logged |
 | [mcp.md](mcp.md) | MCP server framework, notes tools, client, reverse proxy |
 | [auth.md](auth.md) | JWT access tokens, rotating refresh sessions, users |
 | [voice.md](voice.md) | Ephemeral OpenAI Realtime sessions |
