@@ -17,7 +17,7 @@ import { Time } from '../../lib/time.js';
  *
  * System-wide by design, so the payload carries no user scope.
  */
-export class RefreshTokenPruneHandler implements JobHandler<RefreshTokenPrunePayload> {
+export class RefreshTokenPruneJobHandler implements JobHandler<RefreshTokenPrunePayload> {
   readonly name = AuthJobName.RefreshTokenPrune;
   readonly lease_ms = Time.minutesToMs(2);
   // Cheap and idempotent, and the next scheduled run would pick up the remainder
@@ -26,9 +26,9 @@ export class RefreshTokenPruneHandler implements JobHandler<RefreshTokenPrunePay
 
   private constructor(private readonly repo: RefreshTokenRepository) {}
 
-  static async create(params?: { repo?: RefreshTokenRepository }): Promise<RefreshTokenPruneHandler> {
+  static async create(params?: { repo?: RefreshTokenRepository }): Promise<RefreshTokenPruneJobHandler> {
     const repo = params?.repo ?? (await MongooseRefreshTokenRepository.create({ db: DbNameResolver.resolve('auth') }));
-    return new RefreshTokenPruneHandler(repo);
+    return new RefreshTokenPruneJobHandler(repo);
   }
 
   parsePayload(raw: JobPayload): RefreshTokenPrunePayload {

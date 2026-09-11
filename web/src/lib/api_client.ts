@@ -29,6 +29,16 @@ export class ApiError extends Error {
 export class ApiClient {
   private static refresh_promise: Promise<void> | null = null;
 
+  // Calls that work without a session, where a 401 is an answer rather than an
+  // expired access token worth refreshing.
+  private static readonly NO_REFRESH_PATHS = new Set([
+    '/auth/refresh',
+    '/auth/login',
+    '/auth/register',
+    '/auth/password/forgot',
+    '/auth/password/reset',
+  ]);
+
   private static async request<T>(
     path: string,
     init: RequestInit = {},
@@ -49,7 +59,7 @@ export class ApiClient {
       credentials: 'include',
     });
 
-    if (res.status === 401 && !retried && path !== '/auth/refresh' && path !== '/auth/login' && path !== '/auth/register') {
+    if (res.status === 401 && !retried && !ApiClient.NO_REFRESH_PATHS.has(path)) {
       try {
         await ApiClient.runSilentRefresh();
       } catch (err) {
@@ -88,6 +98,9 @@ export class ApiClient {
   private static extractErrorMessage(parsed: unknown): string | null {
     if (parsed && typeof parsed === 'object') {
       const obj = parsed as Record<string, unknown>;
+      // API errors are RFC 7807 problem details; the rate limiter sends { error }.
+      if (typeof obj.detail === 'string') return obj.detail;
+      if (typeof obj.error === 'string') return obj.error;
       if (typeof obj.message === 'string') return obj.message;
       if (obj.error && typeof obj.error === 'object') {
         const err = obj.error as Record<string, unknown>;
@@ -158,6 +171,20 @@ export class ApiClient {
 
   static async me(): Promise<User> {
     return ApiClient.request<User>('/auth/me');
+  }
+
+  static async forgotPassword(email: string): Promise<void> {
+    await ApiClient.request<{ accepted: true }>('/auth/password/forgot', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  static async resetPassword(token: string, password: string): Promise<void> {
+    await ApiClient.request<{ success: true }>('/auth/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
   }
 
   static async listNotes(

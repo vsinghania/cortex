@@ -27,6 +27,10 @@ export class Time {
     return Math.floor(n / 1000);
   }
 
+  static msToMinutes(n: number): number {
+    return Math.floor(n / (60 * 1000));
+  }
+
   static elapsedMs(start_ms: number): number {
     return Number((performance.now() - start_ms).toFixed(1));
   }

@@ -7,11 +7,9 @@ import { AiSvc } from '../ai_svc/ai_svc.js';
 import { NotesRecallAgentSeed } from '../agent_svc/seeds/notes_recall_agent_seed.js';
 import { EmbeddingsSvc } from '../embeddings_svc/embeddings_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
-import { JobHandlerRegistry } from '../jobs_svc/handlers/job_handler_registry.js';
 import { JobWorker } from '../jobs_svc/worker/job_worker.js';
 import { JobWorkerConfigLoader } from '../jobs_svc/worker/job_worker_config.js';
-import { NotesReindexHandler } from '../notes_svc/jobs/notes_reindex_handler.js';
-import { RefreshTokenPruneHandler } from '../auth_svc/jobs/refresh_token_prune_handler.js';
+import { JobHandlerBootstrap } from './bootstrap/job_handler_bootstrap.js';
 import { JobScheduler } from '../jobs_svc/job_scheduler.js';
 import { logger } from '../common/logger.js';
 import { Time } from '../lib/time.js';
@@ -80,21 +78,9 @@ class Server {
     await Server.seedNotesRecallAgent();
     await Server.loadAgentSvc();
     await Server.loadAiSvc();
-    await Server.registerJobHandlers();
+    await JobHandlerBootstrap.registerAll();
     await Server.startJobWorker();
     await Server.startJobScheduler();
-  }
-
-  /**
-   * Rethrows, unlike most steps here: a handler that silently fails to register
-   * means its jobs are claimed and released unrun on a loop, which looks like a
-   * healthy worker and an inexplicably stuck queue.
-   */
-  private static async registerJobHandlers(): Promise<void> {
-    const registry = JobHandlerRegistry.getInstance();
-    registry.register(await NotesReindexHandler.create());
-    registry.register(await RefreshTokenPruneHandler.create());
-    logger.info({ job_names: registry.registeredNames() }, 'Job handlers registered');
   }
 
   /**

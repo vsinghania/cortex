@@ -120,7 +120,7 @@ Smoke suites against a real Mongo: `npm run jobs:smoke` (repository — claim ex
 
 1. Declare the name and a Zod payload schema in your module (see [notes_job.types.ts](../src/notes_svc/jobs/notes_job.types.ts)).
 2. Implement `JobHandler`: `parsePayload` (throwing here is a *permanent* failure) and `handle(payload, ctx)`.
-3. Register it in `Server.registerJobHandlers()`. That step **rethrows** rather than warning — see the gotcha below.
+3. Register it in `JobHandlerBootstrap.registerAll()` ([job_handler_bootstrap.ts](../src/web-server/bootstrap/job_handler_bootstrap.ts)). That step **rethrows** rather than warning — see the gotcha below.
 
 Payloads carry references (ids), never snapshots, so a job re-reads current state when it runs. And **re-parse the payload even though the controller already validated it**: it round-trips through `Schema.Types.Mixed` and can outlive a schema change while sitting in the queue, which makes storage an untrusted boundary like any other. That is not theoretical — BSON serializes `undefined` to `null`, so an absent optional filter comes back as `null` and a bare `.optional()` rejects it. Use `.nullish()`.
 
@@ -144,7 +144,7 @@ Overrun needs no separate guard: a schedule carrying a `dedup_key` spawns runs t
 
 Concrete runs are managed over HTTP under `/api/v1/admin/jobs` (`POST` to run one out of band, `GET` to list or read, `POST /:id/cancel`, `GET /stats` for queue depth). Schedules sit under `/api/v1/admin/jobs/schedules` (`PUT` upsert, `GET` list/read, `PATCH` enable/disable, `DELETE`). `PUT` rather than `POST`, because the id is caller-supplied and the write is an upsert - re-sending a body is not a second schedule.
 
-**Schedules are data, not code.** Nothing is seeded at boot: `server.ts` starts the ticker and registers handlers, and that is all. A boot-time upsert was tried and removed, because it made deletion impossible to express - the API could create a schedule but the next deploy would resurrect anything an operator had removed. The cost is that a fresh database has no schedules until someone creates them, which is the honest trade: the collection now says exactly what will run.
+**Schedules are data, not code.** Nothing is seeded at boot: `server.ts` starts the ticker and `JobHandlerBootstrap` registers handlers, and that is all. A boot-time upsert was tried and removed, because it made deletion impossible to express - the API could create a schedule but the next deploy would resurrect anything an operator had removed. The cost is that a fresh database has no schedules until someone creates them, which is the honest trade: the collection now says exactly what will run.
 
 Both surfaces run the same admission check: an unregistered job name is refused, and the payload is put through the handler's own `parsePayload`. The notes routes under `/admin/notes/reindex` stay as the notes-specific surface, since they carry their own body schema and 404 on a job of any other name.
 

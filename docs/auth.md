@@ -1,8 +1,8 @@
 # auth
 
-Registration, login, session refresh, logout. Issues the JWT every other route trusts, and owns the rotating refresh sessions behind it.
+Registration, login, session refresh, logout, password reset. Issues the JWT every other route trusts, and owns the rotating refresh sessions behind it.
 
-Source: [src/auth_svc/](../src/auth_svc/) (flows + session store) and [src/user/](../src/user/) (the `User` entity). Contract: `AuthSvcInterface` — `register`, `login`, `refresh`, `logout`, `getMe`, each taking an optional `{ ip, user_agent }` recorded on the session.
+Source: [src/auth_svc/](../src/auth_svc/) (flows + session store) and [src/user/](../src/user/) (the `User` entity). Contract: `AuthSvcInterface` — `register`, `login`, `refresh`, `logout`, `getMe`, each taking an optional `{ ip, user_agent }` recorded on the session. Password reset is `PasswordResetSvcInterface` — `requestReset`, `resetPassword`.
 
 ---
 
@@ -29,10 +29,31 @@ Enforcement lives in middleware, not in this service: `requireAuth` verifies the
 
 Verification is stateless, which has one important consequence: **revoking a refresh session does not invalidate an outstanding access token** — it simply stops working within 15 minutes.
 
-## 3. Gotchas
+## 3. Password reset
+
+```
+POST /auth/password/forgot {email}                                         → 202, always
+  └► PasswordResetSvc.requestReset ─► enqueue password_reset_email { user_id }
+                                                   │ worker
+     PasswordResetEmailJobHandler ─► issue token ─► render ─► MailerSvc ─► email: /reset-password#token=…
+
+POST /auth/password/reset {token, password}                                → 200
+  └► consume token ─► bcrypt new hash ─► revoke every refresh session
+```
+
+- **`forgot` answers 202 whether or not the account exists**, and the SPA words its confirmation for both cases, so the endpoint cannot be used to learn which emails are registered. It sits behind a second, stricter limiter (`EMAIL_SEND_RATE_LIMIT_*`, default 5 per 15 min per IP) on top of the auth one.
+- **The token never touches a job row.** Admins can list job payloads, so the job carries `{ user_id }` only and the handler mints the token at send time. A retry after a failed send mints a new one — harmless, since the failed email never arrived.
+- **Tokens are hashed, single-use and short-lived.** `email_tokens` (auth db) stores the SHA-256, never the token; rows expire after 30 minutes and a TTL index reaps them. `consume` is one conditional update, so a link cannot be used twice even by two simultaneous submissions. Issuing deletes the user's previous token, so only the newest email works.
+- **One send in flight per user.** The job's dedup key turns a second `forgot` while one is queued into a no-op, rather than a second email whose token would invalidate the first. `deadline_at` drops a send the worker cannot start within 30 minutes.
+- **A reset logs out every session** (`revokeAllForUser`) and clears the browser's refresh cookie. Access tokens already issued keep working until they expire (≤ 15 min), because verification is stateless (§2).
+- **Links need `APP_PUBLIC_URL`**, the SPA origin. The token travels in the URL fragment, which browsers never send to a server, so it stays out of CloudFront and ALB logs and out of Referer headers; the reset page strips it from the address bar once read.
+
+Delivery mechanics — transport, retries, what never gets logged — are in [mailer_svc.md](mailer_svc.md).
+
+## 4. Gotchas
 
 - **`JWT_ACCESS_SECRET` is required**; `TokenUtils` throws `missing_env:JWT_ACCESS_SECRET` on first use. Rotating it invalidates every access token in flight.
-- **Expired sessions are pruned nightly, but revoked ones still accumulate.** The collection has a plain index on `expires_at`, not a TTL index; a `refresh_token_prune` handler is registered with [jobs_svc](jobs_svc.md) and deletes anything past `expires_at`, but it only runs if a schedule exists for it - create one under `/api/v1/admin/jobs/schedules` (a nightly cron is the intended shape). Nothing is seeded automatically. `revokeAllForUser` still has no caller, so there is no "log out everywhere", and a session revoked before its expiry sticks around until that expiry passes.
+- **Expired sessions are pruned nightly, but revoked ones still accumulate.** The collection has a plain index on `expires_at`, not a TTL index; a `refresh_token_prune` handler is registered with [jobs_svc](jobs_svc.md) and deletes anything past `expires_at`, but it only runs if a schedule exists for it - create one under `/api/v1/admin/jobs/schedules` (a nightly cron is the intended shape). Nothing is seeded automatically. A session revoked before its expiry — by logout, or all of a user's sessions on a password reset — sticks around until that expiry passes.
 - **Issuer/audience claims are commented out** in `token_utils.ts`; enable signing and verification together if you turn them on.
 - **Cross-site SPA setups need `COOKIE_SAMESITE=none` + `COOKIE_SECURE=true`** plus the SPA origin in `CORS_ORIGINS`, since the client sends credentials.
-- **Auth failures log a `reason`** (`email_taken`, `bad_password`, `session_revoked`, `rotation_failed`, …) and never the email or password.
+- **Auth failures log a `reason`** (`email_taken`, `bad_password`, `session_revoked`, `rotation_failed`, `token_invalid`, `send_in_flight`, …) and never the email or password.

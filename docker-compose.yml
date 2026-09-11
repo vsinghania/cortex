@@ -98,6 +98,7 @@ services:
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_SECURE: "false"
+      APP_PUBLIC_URL: http://localhost:5173
     ports:
       - "3000:3000"
 

@@ -37,6 +37,11 @@ export type RefreshResult = {
 
 export type LogoutResult = { success: true };
 
+export type ResetPasswordInput = {
+  token: string;
+  new_password: string;
+};
+
 export type JwtClaims = {
   sub: string; // user_id (UUID)
   roles: Role[];

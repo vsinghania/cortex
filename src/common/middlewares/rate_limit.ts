@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import { Time } from '../../lib/time.js';
 
 export class RateLimitMiddleware {
   private constructor() {}
@@ -31,5 +32,13 @@ export class RateLimitMiddleware {
     windowMs: RateLimitMiddleware.num('AUTH_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
     max: RateLimitMiddleware.num('AUTH_RATE_LIMIT_MAX', 60),
     message: 'Too many auth requests, please try again later.'
+  });
+
+  // Endpoints that send an email. Each hit is a real send into someone's inbox, so
+  // the budget sits far below the general auth one it stacks on top of.
+  public static readonly emailSendRateLimiter = RateLimitMiddleware.createRateLimiter({
+    windowMs: RateLimitMiddleware.num('EMAIL_SEND_RATE_LIMIT_WINDOW_MS', Time.minutesToMs(15)),
+    max: RateLimitMiddleware.num('EMAIL_SEND_RATE_LIMIT_MAX', 5),
+    message: 'Too many email requests, please try again later.'
   });
 }
