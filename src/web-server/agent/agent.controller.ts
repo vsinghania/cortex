@@ -78,6 +78,7 @@ export class AgentController {
     this.router.post('/run', this.run.bind(this));
     this.router.get('/conversations', this.listConversations.bind(this));
     this.router.get('/conversations/:conversation_id', this.getConversation.bind(this));
+    this.router.delete('/conversations/:conversation_id', this.deleteConversation.bind(this));
   }
 
   @validateRequest({ body: agent_manifest_create_input_schema })
@@ -168,6 +169,23 @@ export class AgentController {
       const agent_svc = await AgentSvc.create();
       const result = await agent_svc.getConversation({ conversation_id, user_id });
       res.status(200).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ params: ConversationParamsSchema })
+  private async deleteConversation(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
+    try {
+      const { conversation_id } = req.params as { conversation_id: string };
+      const user_id = req.auth!.user_id;
+      const agent_svc = await AgentSvc.create();
+      await agent_svc.deleteConversation({ conversation_id, user_id });
+      res.status(204).end();
     } catch (e) {
       next(e);
     }

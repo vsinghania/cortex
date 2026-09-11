@@ -12,6 +12,7 @@ import type {
   AgentSvcInterface,
   ConversationWithMessages,
   CreateAgentInput,
+  DeleteConversationInput,
   GetConversationInput,
   ListConversationsInput,
   RunAdHocInput,
@@ -234,6 +235,21 @@ export class AgentSvc implements AgentSvcInterface {
       'fetched conversation'
     );
     return { conversation, messages: resolved };
+  }
+
+  async deleteConversation(input: DeleteConversationInput): Promise<void> {
+    const conversation_store = await ConversationStore.getInstance();
+    const result = await conversation_store.deleteForUser({
+      conversation_id: input.conversation_id,
+      user_id: input.user_id,
+    });
+    if (!result) {
+      throw new NotFoundError(`Conversation not found: ${input.conversation_id}`);
+    }
+    logger.info(
+      { conversation_id: input.conversation_id, message_count: result.message_count },
+      'conversation deleted'
+    );
   }
 
   private async generateAndPersistTitle(

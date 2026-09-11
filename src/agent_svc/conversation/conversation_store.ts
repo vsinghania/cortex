@@ -97,6 +97,15 @@ export class ConversationStore {
     return this.repo.listMessages(conversation_id);
   }
 
+  async deleteForUser(params: {
+    conversation_id: string;
+    user_id: string;
+  }): Promise<{ message_count: number } | null> {
+    const conv = await this.getForUser(params);
+    if (!conv) return null;
+    return this.repo.deleteConversation(conv.conversation_id);
+  }
+
   async appendTurn(input: AppendTurnInput): Promise<void> {
     if (!input.messages.length) return;
     const start_turn = await this.repo.nextTurn(input.conversation_id);

@@ -1,0 +1,15 @@
+info:
+  name: delete-conversation
+  type: http
+  seq: 9
+
+http:
+  method: DELETE
+  url: "{{base_url}}/agent/conversations/{{conversation_id}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

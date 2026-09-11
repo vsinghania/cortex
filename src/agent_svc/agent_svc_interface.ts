@@ -57,6 +57,11 @@ export type GetConversationInput = {
   user_id: string;
 };
 
+export type DeleteConversationInput = {
+  conversation_id: string;
+  user_id: string;
+};
+
 export type ConversationWithMessages = {
   conversation: Conversation;
   messages: ConversationMessageView[];
@@ -69,4 +74,5 @@ export interface AgentSvcInterface {
   runAdHoc(input: RunAdHocInput): Promise<AgentRunResponse>;
   listConversations(input: ListConversationsInput): Promise<Conversation[]>;
   getConversation(input: GetConversationInput): Promise<ConversationWithMessages>;
+  deleteConversation(input: DeleteConversationInput): Promise<void>;
 }

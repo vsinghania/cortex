@@ -27,4 +27,7 @@ export interface ConversationRepositoryInterface {
   listMessages(conversation_id: string): Promise<ConversationMessage[]>;
 
   nextTurn(conversation_id: string): Promise<number>;
+
+  /** Snapshots the conversation and its messages to trash, then deletes them. */
+  deleteConversation(conversation_id: string): Promise<{ message_count: number }>;
 }

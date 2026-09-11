@@ -30,6 +30,7 @@ export function ChatPage() {
   const [conversation_id, set_conversation_id] = useState<string | null>(null);
   const [pending, set_pending] = useState(false);
   const [thread_loading, set_thread_loading] = useState(false);
+  const [deleting_id, set_deleting_id] = useState<string | null>(null);
   const [error, set_error] = useState<string | null>(null);
   const thread_ref = useRef<HTMLDivElement>(null);
 
@@ -72,6 +73,21 @@ export function ChatPage() {
     set_messages([]);
     set_error(null);
     set_input('');
+  }
+
+  async function deleteConversation(target: Conversation) {
+    if (!window.confirm(`Delete "${target.title ?? 'Untitled'}"? This can't be undone.`)) return;
+    set_deleting_id(target.conversation_id);
+    set_error(null);
+    try {
+      await ApiClient.deleteConversation(target.conversation_id);
+      set_conversations((list) => list.filter((c) => c.conversation_id !== target.conversation_id));
+      if (target.conversation_id === conversation_id) startNewChat();
+    } catch (err) {
+      set_error(err instanceof Error ? err.message : 'Failed to delete conversation.');
+    } finally {
+      set_deleting_id(null);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -123,10 +139,25 @@ export function ChatPage() {
                 className={`chat-conv-item${conversation_id === c.conversation_id ? ' active' : ''}`}
                 onClick={() => void selectConversation(c.conversation_id)}
               >
-                <span className="chat-conv-title">{c.title ?? 'Untitled'}</span>
-                <span className="chat-conv-date">
-                  {new Date(c.updated_at).toLocaleDateString()}
-                </span>
+                <div className="chat-conv-text">
+                  <span className="chat-conv-title">{c.title ?? 'Untitled'}</span>
+                  <span className="chat-conv-date">
+                    {new Date(c.updated_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="chat-conv-delete"
+                  title="Delete chat"
+                  aria-label={`Delete ${c.title ?? 'Untitled'}`}
+                  disabled={deleting_id !== null || (pending && c.conversation_id === conversation_id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void deleteConversation(c);
+                  }}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ul>

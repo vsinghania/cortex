@@ -250,6 +250,12 @@ export class ApiClient {
     return ApiClient.request<ConversationWithMessages>(`/agent/conversations/${encodeURIComponent(conversation_id)}`);
   }
 
+  static async deleteConversation(conversation_id: string): Promise<void> {
+    await ApiClient.request<void>(`/agent/conversations/${encodeURIComponent(conversation_id)}`, {
+      method: 'DELETE',
+    });
+  }
+
   static async mintVoiceToken(): Promise<MintTokenResponse> {
     return ApiClient.request<MintTokenResponse>('/voice/session', { method: 'POST' });
   }

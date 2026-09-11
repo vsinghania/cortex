@@ -18,10 +18,11 @@ interface AgentSvcInterface {
   runAdHoc(input: RunAdHocInput): Promise<AgentRunResponse>;
   listConversations(input: ListConversationsInput): Promise<Conversation[]>;
   getConversation(input: GetConversationInput): Promise<ConversationWithMessages>;
+  deleteConversation(input: DeleteConversationInput): Promise<void>;
 }
 ```
 
-`runByAgentId` persists the conversation; `runAdHoc` (manifest + tools supplied inline) never does — it is for tests and scripts. Everything else — picking the LLM SDK, wiring tools and sub-agents, connecting MCP servers — is internal.
+`runByAgentId` persists the conversation; `runAdHoc` (manifest + tools supplied inline) never does — it is for tests and scripts. `deleteConversation` snapshots the conversation and its messages to `conversations_trash` / `conversation_messages_trash` (TTL'd at 30 days; no restore path yet), then hard-deletes them; like `getConversation` it is user-scoped, so another user's conversation is a `NotFoundError`. Everything else — picking the LLM SDK, wiring tools and sub-agents, connecting MCP servers — is internal.
 
 ## 2. Mental model
 

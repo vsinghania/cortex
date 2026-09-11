@@ -345,9 +345,33 @@ button.tag-chip-active:hover:not(:disabled) {
   cursor: pointer;
   border-bottom: 1px solid var(--border);
   display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-conv-text {
+  display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
+.chat-conv-delete {
+  flex-shrink: 0;
+  padding: 0 6px;
+  font-size: 16px;
+  line-height: 1.4;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+  visibility: hidden;
+}
+.chat-conv-item:hover .chat-conv-delete,
+.chat-conv-item.active .chat-conv-delete,
+.chat-conv-delete:focus-visible { visibility: visible; }
+@media (hover: none) {
+  .chat-conv-delete { visibility: visible; }
+}
+button.chat-conv-delete:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
 .chat-conv-item:hover { background: var(--bg); }
 .chat-conv-item.active { background: #eef2f7; }
 .chat-conv-title {
