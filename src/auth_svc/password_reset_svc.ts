@@ -89,6 +89,16 @@ export class PasswordResetSvc implements PasswordResetSvcInterface {
     // out on their next refresh.
     const revoked_sessions = await this.deps.rt_repo.revokeAllForUser(user_id);
 
-    logger.info({ user_id, revoked_sessions, duration_ms: Time.elapsedMs(start_ms) }, 'password reset completed');
+    // Reading the link proves the address is theirs, which is all verification asks
+    // for. `updated` predates this write, so an existing timestamp is left alone.
+    const verified_on_reset = !updated.email_verified_at;
+    if (verified_on_reset) {
+      await this.deps.user_repo.setEmailVerifiedAt(user_id, new Date());
+    }
+
+    logger.info(
+      { user_id, revoked_sessions, verified_on_reset, duration_ms: Time.elapsedMs(start_ms) },
+      'password reset completed'
+    );
   }
 }

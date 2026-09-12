@@ -1,0 +1,30 @@
+info:
+  name: verify-email
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: "{{base_url}}/auth/email/verify"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "token": "{{verification_token}}"
+      }
+  auth: inherit
+
+runtime:
+  variables:
+    # Paste the value after #token= in the verification email's link (Mailpit locally).
+    - name: verification_token
+      value:
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

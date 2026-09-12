@@ -5,6 +5,7 @@ import type { EmailTokenPurpose } from '../types/email_token.types.js';
 import { EmailTokenIssuer } from '../email_token_issuer.js';
 import { AppLinks } from '../app_links.js';
 import { PasswordResetEmail } from './password_reset_email.js';
+import { EmailVerificationEmail } from './email_verification_email.js';
 import type { MailerSvcInterface } from '../../mailer_svc/mailer_svc_interface.js';
 import { MailerSvc } from '../../mailer_svc/mailer_svc.js';
 import type { MailMessage, MailSendResult } from '../../mailer_svc/types/mail.types.js';
@@ -55,7 +56,9 @@ export class EmailTokenSender {
   }
 
   private compose(purpose: EmailTokenPurpose, user: User, token: string): MailMessage {
-    const expires_in_min = Time.msToMinutes(EmailTokenIssuer.ttlMs(purpose));
+    // Each case phrases its own expiry: the TTLs differ by orders of magnitude,
+    // and "1440 minutes" is not what a reader wants to see.
+    const ttl_ms = EmailTokenIssuer.ttlMs(purpose);
     switch (purpose) {
       case 'password_reset':
         return {
@@ -64,7 +67,17 @@ export class EmailTokenSender {
           ...PasswordResetEmail.render({
             name: user.name,
             link: this.deps.links().passwordReset(token),
-            expires_in_min
+            expires_in_min: Time.msToMinutes(ttl_ms)
+          })
+        };
+      case 'email_verification':
+        return {
+          to: user.email,
+          template: EmailVerificationEmail.template,
+          ...EmailVerificationEmail.render({
+            name: user.name,
+            link: this.deps.links().verifyEmail(token),
+            expires_in_hours: Time.msToHours(ttl_ms)
           })
         };
     }

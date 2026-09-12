@@ -2,7 +2,7 @@
 
 Registration, login, session refresh, logout, password reset. Issues the JWT every other route trusts, and owns the rotating refresh sessions behind it.
 
-Source: [src/auth_svc/](../src/auth_svc/) (flows + session store) and [src/user/](../src/user/) (the `User` entity). Contract: `AuthSvcInterface` — `register`, `login`, `refresh`, `logout`, `getMe`, each taking an optional `{ ip, user_agent }` recorded on the session. Password reset is `PasswordResetSvcInterface` — `requestReset`, `resetPassword`.
+Source: [src/auth_svc/](../src/auth_svc/) (flows + session store) and [src/user/](../src/user/) (the `User` entity). Contract: `AuthSvcInterface` — `register`, `login`, `refresh`, `logout`, `getMe`, each taking an optional `{ ip, user_agent }` recorded on the session. Password reset is `PasswordResetSvcInterface` — `requestReset`, `resetPassword`. Email verification is `EmailVerificationSvcInterface` — `requestVerification`, `verify`.
 
 ---
 
@@ -50,7 +50,31 @@ POST /auth/password/reset {token, password}                                → 2
 
 Delivery mechanics — transport, retries, what never gets logged — are in [mailer_svc.md](mailer_svc.md).
 
-## 4. Gotchas
+## 4. Email verification
+
+```
+POST /auth/register                                                        → 201
+  └► AuthSvc.register ─► EmailVerificationSvc.requestVerification (best effort)
+
+POST /auth/email/verify/resend        (requireAuth)                        → 202
+  └► EmailVerificationSvc.requestVerification ─► enqueue email_verification_email { user_id }
+                                                   │ worker
+     EmailVerificationEmailJobHandler ─► issue token ─► render ─► MailerSvc ─► email: /verify-email#token=…
+
+POST /auth/email/verify {token}                                            → 200
+  └► consume token ─► set User.email_verified_at
+```
+
+Reuses every piece of the reset machinery in §3 — the same `email_tokens` collection, hashing, single-use `consume`, dedup key and fragment-borne link — with `purpose: 'email_verification'` telling them apart. A token minted for one purpose cannot be redeemed for the other.
+
+- **Enforcement is soft.** An unverified user keeps full access; the SPA shows a banner with a Resend button and nothing else changes. Users created before this existed have no `email_verified_at` and are simply unverified — there was no backfill.
+- **Register never fails on a mail problem.** `requestVerification` is called best-effort and a throw is logged at `warn`; the account exists and the caller is already signed in, so a queue outage must not turn a successful registration into an error. The user can ask again from the banner.
+- **Verification links last 24 hours**, against the reset link's 30 minutes: nothing about it is urgent, and the mail may sit unread. `deadline_at` on the job is a day for the same reason.
+- **Resend is a no-op when already verified**, and returns the same 202 either way so the response says nothing beyond "the request was taken". It sits behind the same `EMAIL_SEND_RATE_LIMIT_*` limiter as `forgot`.
+- **A password reset also verifies the address.** Reading a link sent to that inbox is exactly the proof verification asks for, so `resetPassword` sets `email_verified_at` when it is unset — an already-verified user keeps their original timestamp.
+- **`email_verified_at` is set only through `UserRepository.setEmailVerifiedAt`**, deliberately kept off `UpdateUserPatch` so proof of ownership cannot be written through a generic patch. It flows out to the SPA via `redactUser` with no serializer change.
+
+## 5. Gotchas
 
 - **`JWT_ACCESS_SECRET` is required**; `TokenUtils` throws `missing_env:JWT_ACCESS_SECRET` on first use. Rotating it invalidates every access token in flight.
 - **Expired sessions are pruned nightly, but revoked ones still accumulate.** The collection has a plain index on `expires_at`, not a TTL index; a `refresh_token_prune` handler is registered with [jobs_svc](jobs_svc.md) and deletes anything past `expires_at`, but it only runs if a schedule exists for it - create one under `/api/v1/admin/jobs/schedules` (a nightly cron is the intended shape). Nothing is seeded automatically. A session revoked before its expiry — by logout, or all of a user's sessions on a password reset — sticks around until that expiry passes.

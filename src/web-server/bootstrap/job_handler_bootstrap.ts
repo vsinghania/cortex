@@ -2,6 +2,7 @@ import { JobHandlerRegistry } from '../../jobs_svc/handlers/job_handler_registry
 import { NotesReindexJobHandler } from '../../notes_svc/jobs/notes_reindex_job_handler.js';
 import { RefreshTokenPruneJobHandler } from '../../auth_svc/jobs/refresh_token_prune_job_handler.js';
 import { PasswordResetEmailJobHandler } from '../../auth_svc/jobs/password_reset_email_job_handler.js';
+import { EmailVerificationEmailJobHandler } from '../../auth_svc/jobs/email_verification_email_job_handler.js';
 import { logger } from '../../common/logger.js';
 
 /**
@@ -22,6 +23,7 @@ export class JobHandlerBootstrap {
     registry.register(await NotesReindexJobHandler.create());
     registry.register(await RefreshTokenPruneJobHandler.create());
     registry.register(await PasswordResetEmailJobHandler.create());
+    registry.register(await EmailVerificationEmailJobHandler.create());
     logger.info({ job_names: registry.registeredNames() }, 'Job handlers registered');
   }
 }

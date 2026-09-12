@@ -6,7 +6,10 @@ import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 import { Time } from '../lib/time.js';
 
 const TOKEN_TTL_MS: Record<EmailTokenPurpose, number> = {
-  password_reset: Time.minutesToMs(30)
+  password_reset: Time.minutesToMs(30),
+  // Longer than a reset link: verification is not urgent, and the mail may sit
+  // unread for a while before anyone acts on it.
+  email_verification: Time.hoursToMs(24)
 };
 
 /**

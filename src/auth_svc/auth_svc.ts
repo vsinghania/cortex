@@ -12,6 +12,8 @@ import type { User } from '../user/types/user.types.js';
 import { MongooseUserRepository } from '../user/repositories/user_repository.js';
 import type { UserRepository } from '../user/repositories/user_repository_interface.js';
 import { MongooseRefreshTokenRepository } from './repositories/refresh_token_repository.js';
+import type { EmailVerificationSvcInterface } from './email_verification_svc_interface.js';
+import { EmailVerificationSvc } from './email_verification_svc.js';
 import type { RefreshTokenRepository } from './repositories/refresh_token_repository_interface.js';
 import { PasswordUtils } from './utils/password_utils.js';
 import { TokenUtils } from './utils/token_utils.js';
@@ -24,10 +26,14 @@ import { logger } from '../common/logger.js';
 const USER_DB = DbNameResolver.resolve('user');
 const AUTH_DB = DbNameResolver.resolve('auth');
 
+type AuthSvcDeps = {
+  user_repo: UserRepository;
+  rt_repo: RefreshTokenRepository;
+  email_verification: Pick<EmailVerificationSvcInterface, 'requestVerification'>;
+};
 
 export class AuthSvc implements AuthSvcInterface {
-  private user_repo!: UserRepository;
-  private rt_repo!: RefreshTokenRepository;
+  private constructor(private readonly deps: AuthSvcDeps) {}
 
   private static redactUser(user: User): Omit<User, 'password_hash'> {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -35,20 +41,17 @@ export class AuthSvc implements AuthSvcInterface {
     return rest;
   }
 
-  async init(): Promise<void> {
-    this.user_repo = await MongooseUserRepository.create({ db: USER_DB });
-    this.rt_repo = await MongooseRefreshTokenRepository.create({ db: AUTH_DB });
-  }
-
-  static async create(): Promise<AuthSvc> {
-    const svc = new AuthSvc();
-    await svc.init();
-    return svc;
+  static async create(overrides?: Partial<AuthSvcDeps>): Promise<AuthSvc> {
+    return new AuthSvc({
+      user_repo: overrides?.user_repo ?? (await MongooseUserRepository.create({ db: USER_DB })),
+      rt_repo: overrides?.rt_repo ?? (await MongooseRefreshTokenRepository.create({ db: AUTH_DB })),
+      email_verification: overrides?.email_verification ?? (await EmailVerificationSvc.create())
+    });
   }
 
   async register(input: RegisterInput, ctx?: AuthContext): Promise<AuthResult> {
     const start_ms = performance.now();
-    const user_repo = this.user_repo;
+    const user_repo = this.deps.user_repo;
     const existing = await user_repo.findByEmail(input.email);
     if (existing) {
       logger.warn({ reason: 'email_taken' }, 'user registration rejected');
@@ -68,7 +71,7 @@ export class AuthSvc implements AuthSvcInterface {
 
     const { token: access_token } = TokenUtils.signAccessToken({ user_id: created.user_id, roles: created.roles });
     const { token: refresh_token, token_hash, expires_at } = TokenUtils.issueRefreshToken();
-    const rt_repo = this.rt_repo;
+    const rt_repo = this.deps.rt_repo;
     await rt_repo.createSession({
       user_id: created.user_id,
       token_hash,
@@ -76,6 +79,8 @@ export class AuthSvc implements AuthSvcInterface {
       ip: ctx?.ip ?? null,
       expires_at
     });
+
+    await this.requestVerificationEmail(created.user_id);
 
     logger.info(
       {
@@ -99,7 +104,7 @@ export class AuthSvc implements AuthSvcInterface {
 
   async login(input: LoginInput, ctx?: AuthContext): Promise<AuthResult> {
     const start_ms = performance.now();
-    const user_repo = this.user_repo;
+    const user_repo = this.deps.user_repo;
     const user = await user_repo.findByEmail(input.email);
     if (!user) {
       logger.warn({ reason: 'user_not_found' }, 'login rejected');
@@ -117,7 +122,7 @@ export class AuthSvc implements AuthSvcInterface {
 
     const { token: access_token } = TokenUtils.signAccessToken({ user_id: user.user_id, roles: user.roles });
     const { token: refresh_token, token_hash, expires_at } = TokenUtils.issueRefreshToken();
-    const rt_repo = this.rt_repo;
+    const rt_repo = this.deps.rt_repo;
     await rt_repo.createSession({
       user_id: user.user_id,
       token_hash,
@@ -148,7 +153,7 @@ export class AuthSvc implements AuthSvcInterface {
     }
 
     const token_hash = TokenUtils.sha256Base64Url(refresh_token);
-    const rt_repo = this.rt_repo;
+    const rt_repo = this.deps.rt_repo;
     const session = await rt_repo.findByTokenHash(token_hash);
     if (!session) {
       logger.warn({ reason: 'session_not_found' }, 'refresh rejected');
@@ -166,7 +171,7 @@ export class AuthSvc implements AuthSvcInterface {
     }
 
     // Load user
-    const user_repo = this.user_repo;
+    const user_repo = this.deps.user_repo;
     const user = await user_repo.findByUserId(session.user_id);
     if (!user) {
       // Revoke session if user missing
@@ -208,18 +213,31 @@ export class AuthSvc implements AuthSvcInterface {
   async logout(refresh_token: string): Promise<LogoutResult> {
     if (!refresh_token) return { success: true };
     const token_hash = TokenUtils.sha256Base64Url(refresh_token);
-    const rt_repo = this.rt_repo;
+    const rt_repo = this.deps.rt_repo;
     await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
     logger.info({}, 'user logged out');
     return { success: true };
   }
 
   async getMe(user_id: string): Promise<MeResult> {
-    const user_repo = this.user_repo;
+    const user_repo = this.deps.user_repo;
     const user = await user_repo.findByUserId(user_id);
     if (!user) {
       throw new NotFoundError('User not found');
     }
     return AuthSvc.redactUser(user);
+  }
+
+  /**
+   * Best effort. The account exists and the caller is already signed in, so a queue
+   * that is down must not turn a successful registration into an error; the user can
+   * still ask for the mail again from the banner.
+   */
+  private async requestVerificationEmail(user_id: string): Promise<void> {
+    try {
+      await this.deps.email_verification.requestVerification(user_id);
+    } catch (err) {
+      logger.warn({ err, user_id }, 'verification email could not be requested');
+    }
   }
 }

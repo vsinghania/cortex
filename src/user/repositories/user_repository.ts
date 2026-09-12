@@ -65,4 +65,13 @@ export class MongooseUserRepository implements IUserRepository {
     ).lean();
     return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
   }
+
+  async setEmailVerifiedAt(user_id: string, at: Date): Promise<User | null> {
+    const updated = await this.model.findOneAndUpdate(
+      { user_id },
+      { $set: { email_verified_at: at } },
+      { new: true }
+    ).lean();
+    return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
+  }
 }

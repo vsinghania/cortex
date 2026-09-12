@@ -66,7 +66,14 @@ class InMemoryUserRepo implements UserRepository {
     return user;
   }
   async setLastLoginAt(user_id: string, at: Date) {
-    return this.updateByUserId(user_id, { last_login_at: at });
+    const user = await this.findByUserId(user_id);
+    if (user) user.last_login_at = at;
+    return user;
+  }
+  async setEmailVerifiedAt(user_id: string, at: Date) {
+    const user = await this.findByUserId(user_id);
+    if (user) user.email_verified_at = at;
+    return user;
   }
 }
 
@@ -190,6 +197,20 @@ test('the full flow changes the password, revokes sessions, and the link works o
   assert.equal(await PasswordUtils.verifyPassword('old-password', h.user.password_hash), false);
   assert.deepEqual(h.revoked_for, ['user-1']);
   await assert.rejects(h.svc.resetPassword({ token, new_password: 'again-password' }), BadRequestError);
+});
+
+test('reading the reset link also verifies the address, and does not move an existing timestamp', async () => {
+  const h = await buildHarness();
+  await h.svc.requestReset('ada@example.com');
+  await deliverQueued(h);
+  await h.svc.resetPassword({ token: tokenFromLastEmail(h), new_password: 'new-password' });
+  assert.ok(h.user.email_verified_at, 'clicking the link proves the address is theirs');
+
+  const verified_at = h.user.email_verified_at;
+  await h.svc.requestReset('ada@example.com');
+  await deliverQueued(h);
+  await h.svc.resetPassword({ token: tokenFromLastEmail(h), new_password: 'newer-password' });
+  assert.equal(h.user.email_verified_at, verified_at, 'already-verified users keep their original timestamp');
 });
 
 test('a newer email invalidates the older link', async () => {
