@@ -14,7 +14,8 @@ import { Time } from '../lib/time.js';
 // Far longer than the reset flow's deadline: nobody waits on the registration screen
 // for this mail, and a verification link is still worth sending hours later.
 const SEND_DEADLINE_MS = Time.daysToMs(1);
-const INVALID_LINK_MESSAGE = 'This verification link is invalid or has expired. Request a new one.';
+const INVALID_LINK_MESSAGE =
+  'This link is no longer valid - it has either expired or already been used. Log in to Cortex and use the banner to send yourself a fresh one.';
 
 type EmailVerificationSvcDeps = {
   user_repo: UserRepository;

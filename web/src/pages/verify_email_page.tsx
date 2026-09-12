@@ -56,8 +56,8 @@ export function VerifyEmailPage() {
             <h1>Link incomplete</h1>
           </div>
           <p className="auth-note">
-            This verification link is missing its token. Open the link from the email again, or ask for a new
-            one from the banner after you log in.
+            This link is missing its token — it may have been clipped by your email client. Open the original
+            link again, or log in and send yourself a fresh one from the banner.
           </p>
           <p className="auth-alt">
             <Link to="/login">Go to login</Link>
@@ -72,17 +72,20 @@ export function VerifyEmailPage() {
       <div className="auth-form">
         <div className="auth-heading">
           <h1>
-            {status === 'verifying' && 'Verifying your email…'}
-            {status === 'verified' && 'Email verified'}
-            {status === 'failed' && 'Verification failed'}
+            {status === 'verifying' && 'Confirming your address…'}
+            {status === 'verified' && 'Email confirmed'}
+            {status === 'failed' && "That link didn't work"}
           </h1>
         </div>
 
-        {status === 'verifying' && <p className="auth-note">One moment while we confirm your address.</p>}
+        {status === 'verifying' && <p className="auth-note">One moment while we check your link.</p>}
 
         {status === 'verified' && (
           <>
-            <p className="auth-note">Thanks — your email address is confirmed.</p>
+            <p className="auth-note">
+              That's it. Your address is confirmed, and a password reset link will reach you here if you ever
+              need one.
+            </p>
             <p className="auth-alt">
               {is_authenticated ? <Link to="/notes">Back to your notes</Link> : <Link to="/login">Log in</Link>}
             </p>

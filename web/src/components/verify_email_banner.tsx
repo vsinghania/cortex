@@ -21,8 +21,8 @@ export function VerifyEmailBanner() {
     } catch (err) {
       set_error(
         err instanceof ApiError && err.status === 429
-          ? 'Too many requests. Wait a few minutes and try again.'
-          : 'Could not send the email. Try again in a moment.',
+          ? 'That is a few too many requests in a row — give it a couple of minutes, then try again.'
+          : 'The email could not go out just now. Try again in a moment.',
       );
       set_state('error');
     }
@@ -32,13 +32,13 @@ export function VerifyEmailBanner() {
     <div className="verify-banner" role="status">
       <p className="verify-banner-text">
         {state === 'sent'
-          ? `Verification email sent to ${user.email}. Check your inbox.`
-          : 'Verify your email address so we can reach you about your account.'}
+          ? `A confirmation link is on its way to ${user.email}. It can take a minute to land — check your spam folder if it doesn't.`
+          : "Your email address isn't confirmed yet — it's where a password reset link would go if you ever lose your way in."}
         {error && <span className="verify-banner-error"> {error}</span>}
       </p>
       {state !== 'sent' && (
         <button type="button" className="ghost small" onClick={handleResend} disabled={state === 'sending'}>
-          {state === 'sending' ? 'Sending…' : 'Resend email'}
+          {state === 'sending' ? 'Sending…' : 'Send me a link'}
         </button>
       )}
     </div>
