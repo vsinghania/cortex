@@ -1,17 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ApiClient, ApiError } from '../lib/api_client';
 import { useAuth } from '../lib/use_auth';
 import { Icon } from './icon';
 
 type SendState = 'idle' | 'sending' | 'sent' | 'error';
+type BannerLocationState = { verification_sent?: boolean } | null;
 
 export function VerifyEmailBanner() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [state, set_state] = useState<SendState>('idle');
   const [error, set_error] = useState<string | null>(null);
   // Deliberately not persisted: dismissing quiets the nudge for this visit, and a
   // reload brings it back until the address is actually confirmed.
   const [dismissed, set_dismissed] = useState(false);
+
+  // Registration hands this over on its way to /notes. It cannot be read in a
+  // useState initializer: the banner sits outside <Routes> and so was already
+  // mounted, back on /register, before the flag existed. Consumed once, so a
+  // reload does not replay "we just sent it" days later.
+  useEffect(() => {
+    if ((location.state as BannerLocationState)?.verification_sent) {
+      set_state('sent');
+      navigate(`${location.pathname}${location.search}${location.hash}`, { replace: true, state: null });
+    }
+  }, [location, navigate]);
 
   // Logged out, already verified, or waved away for now: nothing to nudge about.
   if (!user || user.email_verified_at || dismissed) return null;

@@ -23,7 +23,9 @@ export function RegisterPage() {
     set_error(null);
     try {
       await ApiClient.register(email, name, password);
-      navigate('/notes', { replace: true });
+      // The server enqueues a confirmation email on register; tell the banner so it
+      // says so, rather than inviting a resend of the link already on its way.
+      navigate('/notes', { replace: true, state: { verification_sent: true } });
     } catch (err) {
       set_error(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
