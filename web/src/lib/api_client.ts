@@ -37,6 +37,7 @@ export class ApiClient {
     '/auth/register',
     '/auth/password/forgot',
     '/auth/password/reset',
+    '/auth/email/verify',
   ]);
 
   private static async request<T>(
@@ -134,13 +135,19 @@ export class ApiClient {
   static async bootstrapSession(): Promise<boolean> {
     try {
       await ApiClient.doRefresh();
-      const user = await ApiClient.me();
-      AuthStore.instance().setUser(user);
+      await ApiClient.refreshUser();
       return true;
     } catch {
       AuthStore.instance().clear();
       return false;
     }
+  }
+
+  /** Re-reads the user into the store, for fields the server changed behind our back. */
+  static async refreshUser(): Promise<User> {
+    const user = await ApiClient.me();
+    AuthStore.instance().setUser(user);
+    return user;
   }
 
   static async login(email: string, password: string): Promise<AuthResponse> {
@@ -185,6 +192,17 @@ export class ApiClient {
       method: 'POST',
       body: JSON.stringify({ token, password }),
     });
+  }
+
+  static async verifyEmail(token: string): Promise<void> {
+    await ApiClient.request<{ success: true }>('/auth/email/verify', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  static async resendVerification(): Promise<void> {
+    await ApiClient.request<{ accepted: true }>('/auth/email/verify/resend', { method: 'POST' });
   }
 
   static async listNotes(

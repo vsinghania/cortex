@@ -6,4 +6,6 @@ export interface UserRepository {
   findByEmail(email: string): Promise<User | null>;
   updateByUserId(user_id: string, patch: UpdateUserPatch): Promise<User | null>;
   setLastLoginAt(user_id: string, at: Date): Promise<User | null>;
+  /** Kept off UpdateUserPatch so proof-of-ownership cannot be set through a generic patch. */
+  setEmailVerifiedAt(user_id: string, at: Date): Promise<User | null>;
 }

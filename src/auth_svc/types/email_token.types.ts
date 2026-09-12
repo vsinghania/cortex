@@ -2,7 +2,7 @@
  * What a token proves. Adding one also needs a TTL (EmailTokenIssuer), a link
  * (AppLinks) and a renderer (EmailTokenSender) - the compiler points at each.
  */
-export const EMAIL_TOKEN_PURPOSES = ['password_reset'] as const;
+export const EMAIL_TOKEN_PURPOSES = ['password_reset', 'email_verification'] as const;
 export type EmailTokenPurpose = (typeof EMAIL_TOKEN_PURPOSES)[number];
 
 export type EmailToken = {

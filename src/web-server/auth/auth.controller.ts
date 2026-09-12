@@ -5,13 +5,14 @@ import { RateLimitMiddleware } from '../../common/middlewares/rate_limit.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
 import { AuthSvc } from '../../auth_svc/auth_svc.js';
 import { PasswordResetSvc } from '../../auth_svc/password_reset_svc.js';
+import { EmailVerificationSvc } from '../../auth_svc/email_verification_svc.js';
 import { REFRESH_COOKIE_NAME, TokenUtils } from '../../auth_svc/utils/token_utils.js';
 import { Time } from '../../lib/time.js';
 
 const EmailSchema = z.string().email();
 const PasswordSchema = z.string().min(8);
 const NameSchema = z.string().trim().min(1).max(100);
-const ResetTokenSchema = z.string().min(1).max(512);
+const EmailTokenSchema = z.string().min(1).max(512);
 
 
 
@@ -56,6 +57,13 @@ export class AuthController {
     this.router.get('/me', RequireAuthMiddleware.requireAuth, this.me.bind(this));
     this.router.post('/password/forgot', RateLimitMiddleware.emailSendRateLimiter, this.forgotPassword.bind(this));
     this.router.post('/password/reset', this.resetPassword.bind(this));
+    this.router.post('/email/verify', this.verifyEmail.bind(this));
+    this.router.post(
+      '/email/verify/resend',
+      RequireAuthMiddleware.requireAuth,
+      RateLimitMiddleware.emailSendRateLimiter,
+      this.resendVerification.bind(this)
+    );
   }
 
   @validateRequest({ body: z.object({ email: EmailSchema, name: NameSchema, password: PasswordSchema }) })
@@ -167,7 +175,7 @@ export class AuthController {
     }
   }
 
-  @validateRequest({ body: z.object({ token: ResetTokenSchema, password: PasswordSchema }) })
+  @validateRequest({ body: z.object({ token: EmailTokenSchema, password: PasswordSchema }) })
   private async resetPassword(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const { token, password } = req.body as { token: string; password: string };
@@ -177,6 +185,31 @@ export class AuthController {
       // Every session was just revoked, this browser's included, so drop its dead cookie.
       res.clearCookie(REFRESH_COOKIE_NAME, AuthController.refreshCookieOptions());
       res.status(200).json({ response: { success: true } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ body: z.object({ token: EmailTokenSchema }) })
+  private async verifyEmail(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { token } = req.body as { token: string };
+      const email_verification_svc = await EmailVerificationSvc.create();
+      await email_verification_svc.verify(token);
+      res.status(200).json({ response: { success: true } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  private async resendVerification(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const user_id = req.auth!.user_id;
+      const email_verification_svc = await EmailVerificationSvc.create();
+      // 202 either way: an already-verified account and a queued send look the same
+      // to the caller, and the banner only needs to know the request was taken.
+      await email_verification_svc.requestVerification(user_id);
+      res.status(202).json({ response: { accepted: true } });
     } catch (e) {
       next(e);
     }

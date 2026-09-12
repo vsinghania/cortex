@@ -9,6 +9,8 @@ export type User = {
   created_at: Date;
   updated_at: Date;
   last_login_at?: Date;
+  /** Absent until the user clicks a verification link. Pre-existing users start unverified. */
+  email_verified_at?: Date;
 };
 
 // Service boundary identifier alias to avoid leaking storage concerns

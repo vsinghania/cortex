@@ -6,7 +6,8 @@ import { z } from 'zod';
  */
 export const AuthJobName = {
   RefreshTokenPrune: 'refresh_token_prune',
-  PasswordResetEmail: 'password_reset_email'
+  PasswordResetEmail: 'password_reset_email',
+  EmailVerificationEmail: 'email_verification_email'
 } as const;
 
 /**

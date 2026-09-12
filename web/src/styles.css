@@ -29,6 +29,8 @@
   --success: #15803d;
   --success-soft: #f0fdf4;
   --warning: #f59e0b;
+  --warning-soft: #fffbeb;
+  --warning-text: #92400e;
 
   --highlight: #fdf0a6;
   --highlight-ring: rgba(250, 204, 21, 0.55);
@@ -84,6 +86,9 @@
     --danger-text: #fca5a5;
     --success: #4ade80;
     --success-soft: rgba(74, 222, 128, 0.12);
+    --warning: #fbbf24;
+    --warning-soft: rgba(251, 191, 36, 0.12);
+    --warning-text: #fcd34d;
 
     --highlight: rgba(250, 204, 21, 0.26);
     --highlight-ring: rgba(250, 204, 21, 0.45);
@@ -445,6 +450,22 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.55; }
   border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
   border-radius: var(--radius-md);
 }
+
+/* Sits under the sticky nav, above both the reading column and the full-bleed chat. */
+.verify-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 24px;
+  font-size: 13.5px;
+  color: var(--warning-text);
+  background: var(--warning-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
+}
+.verify-banner-text { margin: 0; }
+.verify-banner-error { color: var(--danger-text); }
+.verify-banner button { flex-shrink: 0; }
 
 .empty-state {
   display: flex;
@@ -1574,6 +1595,13 @@ button.voice-button-active {
   .nav-user { display: none; }
   .nav-links { justify-self: center; }
   .nav-link { padding: 0 11px; }
+
+  .verify-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 16px;
+  }
 
   .app-main { padding: 20px 16px 56px; }
   .app-main-full { padding: 0; }

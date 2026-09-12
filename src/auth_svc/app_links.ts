@@ -22,6 +22,10 @@ export class AppLinks {
     return this.build('/reset-password', { token });
   }
 
+  verifyEmail(token: string): string {
+    return this.build('/verify-email', { token });
+  }
+
   private build(path: string, fragment: Record<string, string>): string {
     const url = new URL(path, this.base_url);
     url.hash = new URLSearchParams(fragment).toString();
