@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiClient, ApiError } from '../lib/api_client';
 import { useAuth } from '../lib/use_auth';
+import { Icon } from './icon';
 
 type SendState = 'idle' | 'sending' | 'sent' | 'error';
 
@@ -8,9 +9,12 @@ export function VerifyEmailBanner() {
   const { user } = useAuth();
   const [state, set_state] = useState<SendState>('idle');
   const [error, set_error] = useState<string | null>(null);
+  // Deliberately not persisted: dismissing quiets the nudge for this visit, and a
+  // reload brings it back until the address is actually confirmed.
+  const [dismissed, set_dismissed] = useState(false);
 
-  // Logged out, or already verified: nothing to nudge about.
-  if (!user || user.email_verified_at) return null;
+  // Logged out, already verified, or waved away for now: nothing to nudge about.
+  if (!user || user.email_verified_at || dismissed) return null;
 
   async function handleResend() {
     set_state('sending');
@@ -36,11 +40,22 @@ export function VerifyEmailBanner() {
           : "Your email address isn't confirmed yet — it's where a password reset link would go if you ever lose your way in."}
         {error && <span className="verify-banner-error"> {error}</span>}
       </p>
-      {state !== 'sent' && (
-        <button type="button" className="ghost small" onClick={handleResend} disabled={state === 'sending'}>
-          {state === 'sending' ? 'Sending…' : 'Send me a link'}
+      <div className="verify-banner-actions">
+        {state !== 'sent' && (
+          <button type="button" className="ghost small" onClick={handleResend} disabled={state === 'sending'}>
+            {state === 'sending' ? 'Sending…' : 'Send me a link'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="ghost icon-button"
+          onClick={() => set_dismissed(true)}
+          aria-label="Dismiss until the next page load"
+          title="Dismiss"
+        >
+          <Icon name="close" />
         </button>
-      )}
+      </div>
     </div>
   );
 }

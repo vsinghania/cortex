@@ -17,6 +17,7 @@ const ICON_PATHS = {
   logout: ['M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4', 'M16 17l5-5-5-5', 'M21 12H9'],
   sparkle: ['M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z', 'M19 15v4', 'M17 17h4'],
   search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'M21 21l-4.35-4.35'],
+  close: ['M18 6L6 18', 'M6 6l12 12'],
 } satisfies Record<string, string[]>;
 
 export type IconName = keyof typeof ICON_PATHS;
