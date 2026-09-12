@@ -419,9 +419,14 @@ export class NotesMcpModule extends McpModule {
     return user_id;
   }
 
+  /**
+   * Compact on purpose: agent runtimes hand `content` to the model verbatim (the OpenAI
+   * agents SDK drops `structuredContent` and re-encodes this text), so indentation is
+   * paid for in tokens on every tool call.
+   */
   private static toStructuredTextResult<T>(result: T) {
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       structuredContent: result
     };
   }
