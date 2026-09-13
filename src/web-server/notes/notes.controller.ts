@@ -6,6 +6,7 @@ import { NotesSvc } from '../../notes_svc/notes_svc.js';
 import { NotFoundError } from '../../common/errors.js';
 import type { NoteContainer } from '../../notes_svc/types/note.types.js';
 import type { NoteChunk, NoteChunkRef } from '../../notes_svc/types/note_chunk.types.js';
+import { NoteDocSchema } from './note_doc.schema.js';
 
 const NoteContainerSchema: z.ZodType<NoteContainer> = z.object({
   container_type: z.enum(['notebook', 'database', 'folder', 'page', 'section', 'collection', 'other']),
@@ -13,22 +14,31 @@ const NoteContainerSchema: z.ZodType<NoteContainer> = z.object({
   container_name: z.string().min(1).optional()
 });
 
+const BODY_DOC_REQUIRES_BODY = {
+  message: 'body_doc and body_doc_version must be sent together with the body derived from them.',
+  path: ['body']
+};
+
 const NoteCreateBodySchema = z.object({
   title: z.string().min(1),
   body: z.string().default(''),
   body_raw: z.string().optional(),
+  body_doc: NoteDocSchema.doc.optional(),
+  body_doc_version: NoteDocSchema.version.optional(),
   tags: z.array(z.string()).optional(),
   container: NoteContainerSchema.optional()
-}).strict();
+}).strict().refine(NoteDocSchema.isSentWithBody, BODY_DOC_REQUIRES_BODY);
 
 const NotePatchBodySchema = z.object({
   title: z.string().min(1).optional(),
   body: z.string().optional(),
   body_raw: z.string().optional(),
+  body_doc: NoteDocSchema.doc.optional(),
+  body_doc_version: NoteDocSchema.version.optional(),
   tags: z.array(z.string()).optional(),
   container: NoteContainerSchema.optional(),
   is_archived: z.boolean().optional()
-}).strict();
+}).strict().refine(NoteDocSchema.isSentWithBody, BODY_DOC_REQUIRES_BODY);
 
 const MAX_TAG_FILTER_COUNT = 10;
 

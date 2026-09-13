@@ -56,6 +56,8 @@ export class NoteTrashModelFactory extends BaseModelFactory<TrashedNote> {
         title: { type: String, required: true, default: '' },
         body: { type: String, required: true, default: '' },
         body_raw: { type: String, default: undefined },
+        body_doc: { type: Schema.Types.Mixed, default: undefined },
+        body_doc_version: { type: Number, default: undefined },
 
         tags: { type: [String], default: [] },
 

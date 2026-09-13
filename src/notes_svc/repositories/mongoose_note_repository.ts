@@ -1,5 +1,5 @@
 import type { Connection } from 'mongoose';
-import type { Note } from '../types/note.types.js';
+import type { Note, NotePatch } from '../types/note.types.js';
 import type {
   NoteRepository,
   NoteListParams,
@@ -22,6 +22,8 @@ export class MongooseNoteRepository implements NoteRepository {
   private static readonly factory = new NoteModelFactory();
   private static readonly trash_factory = new NoteTrashModelFactory();
   private static readonly MAX_TAG_FACET_ROWS = 200;
+  /** The rich document can dwarf the markdown body, and list rows only preview `body`. */
+  private static readonly LIST_EXCLUDED_FIELDS = { body_doc: 0 } as const;
 
   private constructor(
     private readonly conn: Connection,
@@ -76,9 +78,11 @@ export class MongooseNoteRepository implements NoteRepository {
 
     let cursor = this.model.find(filter);
     if (useText) {
-      cursor = cursor.select({ score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, updated_at: -1 });
+      cursor = cursor
+        .select({ ...MongooseNoteRepository.LIST_EXCLUDED_FIELDS, score: { $meta: 'textScore' } })
+        .sort({ score: { $meta: 'textScore' }, updated_at: -1 });
     } else {
-      cursor = cursor.sort({ updated_at: -1 });
+      cursor = cursor.select(MongooseNoteRepository.LIST_EXCLUDED_FIELDS).sort({ updated_at: -1 });
     }
 
     // Only the non-text path can ask for the collated index: text indexes support simple
@@ -122,25 +126,23 @@ export class MongooseNoteRepository implements NoteRepository {
     return rows as NoteTagCount[];
   }
 
-  async updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null> {
-    const allowed = MongooseNoteRepository.buildAllowedPatch(params.patch);
+  async updateNoteById(params: NoteByIdKey & { patch: NotePatch }): Promise<Note | null> {
     const updated = await this.model.findOneAndUpdate(
       { user_id: params.user_id, id: params.id },
-      { $set: allowed },
+      MongooseNoteRepository.buildUpdate(params.patch),
       { new: true }
     ).lean();
     return updated ? (MongooseUtils.toDomain<Note>(updated) as Note) : null;
   }
 
-  async updateNoteByKey(params: NoteBySourceKey & { patch: Partial<Note> }): Promise<Note | null> {
-    const allowed = MongooseNoteRepository.buildAllowedPatch(params.patch);
+  async updateNoteByKey(params: NoteBySourceKey & { patch: NotePatch }): Promise<Note | null> {
     const updated = await this.model.findOneAndUpdate(
       {
         user_id: params.user_id,
         source: params.source,
         external_id: params.external_id
       },
-      { $set: allowed },
+      MongooseNoteRepository.buildUpdate(params.patch),
       { new: true }
     ).lean();
     return updated ? (MongooseUtils.toDomain<Note>(updated) as Note) : null;
@@ -175,7 +177,7 @@ export class MongooseNoteRepository implements NoteRepository {
       MongooseNoteRepository.isCountOnly(limit)
         ? []
         : this.model.find(filter)
-          .select({ score: { $meta: 'textScore' } })
+          .select({ ...MongooseNoteRepository.LIST_EXCLUDED_FIELDS, score: { $meta: 'textScore' } })
           .sort({ score: { $meta: 'textScore' }, updated_at: -1 })
           .skip(offset)
           .limit(limit)
@@ -295,9 +297,25 @@ export class MongooseNoteRepository implements NoteRepository {
     return limit === 0;
   }
 
-  private static buildAllowedPatch(patch: Partial<Note> | undefined): Partial<Note> {
+  /** `$set` silently drops undefined, so fields the patch clears with `null` go through `$unset`. */
+  private static buildUpdate(patch: NotePatch | undefined): Record<string, unknown> {
+    const { set, unset } = MongooseNoteRepository.buildAllowedPatch(patch);
+    const update: Record<string, unknown> = { $set: set };
+    if (unset.length > 0) {
+      update.$unset = Object.fromEntries(unset.map((field) => [field, '']));
+    }
+    return update;
+  }
+
+  private static buildAllowedPatch(patch: NotePatch | undefined): { set: Partial<Note>; unset: Array<keyof Note> } {
     const p = patch ?? {};
     const allowed: Partial<Note> = {};
+    const unset: Array<keyof Note> = [];
+
+    if (p.body_doc === null) unset.push('body_doc');
+    else if (p.body_doc !== undefined) allowed.body_doc = p.body_doc;
+    if (p.body_doc_version === null) unset.push('body_doc_version');
+    else if (p.body_doc_version !== undefined) allowed.body_doc_version = p.body_doc_version;
 
     if (p.title !== undefined) allowed.title = p.title;
     if (p.body !== undefined) allowed.body = p.body;
@@ -316,6 +334,6 @@ export class MongooseNoteRepository implements NoteRepository {
     if (p.metadata !== undefined) allowed.metadata = p.metadata;
     if (p.vectorization !== undefined) allowed.vectorization = p.vectorization;
 
-    return allowed;
+    return { set: allowed, unset };
   }
 }

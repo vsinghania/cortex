@@ -1,4 +1,4 @@
-import type { Note, NoteContainer, NoteLocator, NoteMetadata, NoteVectorization } from './types/note.types.js';
+import type { Note, NoteContainer, NoteDocNode, NoteLocator, NoteMetadata, NotePatch, NoteVectorization } from './types/note.types.js';
 import { NoteSource, SyncStatus } from './types/note.types.js';
 import type {
   NoteRepository,
@@ -36,6 +36,8 @@ export type NoteCreateInput = {
   title: string;
   body: string;
   body_raw?: string;
+  body_doc?: NoteDocNode;
+  body_doc_version?: number;
   tags?: string[];
   container?: NoteContainer;
 
@@ -49,7 +51,7 @@ export type NoteCreateInput = {
   vectorization?: NoteVectorization;
 };
 
-export type NotePatch = Partial<Omit<Note, 'id' | 'user_id' | 'source' | 'external_id' | 'created_at' | 'updated_at'>>;
+export type { NotePatch };
 
 /**
  * NotesSvc - domain service for CRUD/search on notes.
@@ -105,8 +107,9 @@ export class NotesSvc {
     return note;
   }
 
-  async updateNote(user_id: string, locator: NoteLocator, patch: NotePatch): Promise<Note | null> {
+  async updateNote(user_id: string, locator: NoteLocator, input_patch: NotePatch): Promise<Note | null> {
     const start_ms = performance.now();
+    const patch = NotesSvc.withDocConsistency(input_patch);
     const updated = 'id' in locator
       ? await this.notes_repo.updateNoteById({ user_id, id: locator.id, patch })
       : await this.notes_repo.updateNoteByKey({
@@ -266,6 +269,15 @@ export class NotesSvc {
     }));
   }
 
+  /**
+   * A markdown-only body write (an agent over MCP, an importer) makes any stored rich
+   * document stale, so it is dropped and the editor re-imports the markdown on next open.
+   */
+  private static withDocConsistency(patch: NotePatch): NotePatch {
+    if (patch.body === undefined || patch.body_doc !== undefined) return patch;
+    return { ...patch, body_doc: null, body_doc_version: null };
+  }
+
   private static patchTouchesBody(patch: NotePatch): boolean {
     return patch.body !== undefined || patch.title !== undefined;
   }
@@ -285,10 +297,12 @@ export class NotesSvc {
     const now = new Date();
 
     if (existing) {
-      const patch: NotePatch = {
+      const patch = NotesSvc.withDocConsistency({
         title: input.title ?? existing.title,
         body: input.body ?? existing.body,
         body_raw: input.body_raw ?? existing.body_raw,
+        body_doc: input.body_doc,
+        body_doc_version: input.body_doc_version,
         tags: input.tags ?? existing.tags,
         container: input.container ?? existing.container,
 
@@ -300,7 +314,7 @@ export class NotesSvc {
 
         metadata: input.metadata ?? existing.metadata,
         vectorization: input.vectorization ?? existing.vectorization
-      };
+      });
 
       const updated = await this.notes_repo.updateNoteByKey({
         user_id: input.user_id,
@@ -320,6 +334,8 @@ export class NotesSvc {
       title: input.title,
       body: input.body,
       body_raw: input.body_raw,
+      body_doc: input.body_doc,
+      body_doc_version: input.body_doc_version,
 
       tags: input.tags ?? [],
       container: input.container,
@@ -353,6 +369,8 @@ export class NotesSvc {
       title: input.title,
       body: input.body,
       body_raw: input.body_raw,
+      body_doc: input.body_doc,
+      body_doc_version: input.body_doc_version,
 
       tags: input.tags ?? [],
       container: input.container,

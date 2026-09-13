@@ -13,6 +13,22 @@ export type NoteContainer = {
   container_name?: string;
 };
 
+/** Mirrors NoteDocNode in src/notes_svc/types/note.types.ts */
+export type NoteDocAttrs = Record<string, string | number | boolean | null>;
+
+export type NoteDocMark = {
+  type: string;
+  attrs?: NoteDocAttrs;
+};
+
+export type NoteDocNode = {
+  type: string;
+  attrs?: NoteDocAttrs;
+  content?: NoteDocNode[];
+  marks?: NoteDocMark[];
+  text?: string;
+};
+
 export type Note = {
   id: string;
   user_id: string;
@@ -20,6 +36,9 @@ export type Note = {
   title: string;
   body: string;
   body_raw?: string;
+  /** Absent in list responses, and on notes last written as markdown only. */
+  body_doc?: NoteDocNode;
+  body_doc_version?: number;
   tags: string[];
   container?: NoteContainer;
   is_archived: boolean;
@@ -31,6 +50,8 @@ export type Note = {
 export type NoteCreateBody = {
   title: string;
   body?: string;
+  body_doc?: NoteDocNode;
+  body_doc_version?: number;
   tags?: string[];
   container?: NoteContainer;
 };
@@ -38,6 +59,8 @@ export type NoteCreateBody = {
 export type NotePatchBody = {
   title?: string;
   body?: string;
+  body_doc?: NoteDocNode;
+  body_doc_version?: number;
   tags?: string[];
   container?: NoteContainer;
   is_archived?: boolean;

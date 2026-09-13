@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { McpModule } from '../mcp_module.js';
 import { NotesSvc } from '../../../notes_svc/notes_svc.js';
-import { NoteSource, type NoteContainer, type NoteLocator } from '../../../notes_svc/types/note.types.js';
+import { NoteSource, type Note, type NoteContainer, type NoteLocator } from '../../../notes_svc/types/note.types.js';
 import { MongooseConnectionManager } from '../../../db/mongo/mongoose_connection_manager.js';
 import { DbNameResolver } from '../../../db/mongo/db_name_resolver.js';
 import { QdrantCollectionBootstrap } from '../../../db/qdrant/qdrant_collection_bootstrap.js';
@@ -293,7 +293,7 @@ export class NotesMcpModule extends McpModule {
         const user_id = NotesMcpModule.requireUserId();
         const { locator } = zGetInput.parse(raw ?? {});
         const note = await this.requireNotesSvc().getNote(user_id, locator);
-        return NotesMcpModule.toStructuredTextResult({ found: !!note, note: note ?? null });
+        return NotesMcpModule.toStructuredTextResult({ found: !!note, note: NotesMcpModule.toAgentNote(note) });
       }
     );
   }
@@ -315,7 +315,7 @@ export class NotesMcpModule extends McpModule {
         const user_id = NotesMcpModule.requireUserId();
         const input = zCreateInput.parse(raw ?? {});
         const note = await this.requireNotesSvc().createNote({ ...input, user_id });
-        return NotesMcpModule.toStructuredTextResult({ note });
+        return NotesMcpModule.toStructuredTextResult({ note: NotesMcpModule.toAgentNote(note) });
       }
     );
   }
@@ -328,7 +328,10 @@ export class NotesMcpModule extends McpModule {
         title: 'Update Note (partial)',
         description: 'Partially update one existing note identified by locator. Use only when the user ' +
           'intends to modify a note. If the intended note is not yet identified, first resolve ' +
-          'it using notes_list, notes_search, or notes_search_semantic as appropriate.',
+          'it using notes_list, notes_search, or notes_search_semantic as appropriate. ' +
+          'Writing `body` replaces the note content with that markdown and discards any rich ' +
+          'formatting (colors, underline, alignment) the user applied in the editor; omit `body` ' +
+          'when only changing other fields.',
         inputSchema: zUpdateInput.shape,
         outputSchema: {
           found: z.boolean(),
@@ -339,7 +342,7 @@ export class NotesMcpModule extends McpModule {
         const user_id = NotesMcpModule.requireUserId();
         const { locator, patch } = zUpdateInput.parse(raw ?? {});
         const updated = await this.requireNotesSvc().updateNote(user_id, locator, patch);
-        return NotesMcpModule.toStructuredTextResult({ found: !!updated, note: updated ?? null });
+        return NotesMcpModule.toStructuredTextResult({ found: !!updated, note: NotesMcpModule.toAgentNote(updated) });
       }
     );
   }
@@ -417,6 +420,13 @@ export class NotesMcpModule extends McpModule {
       throw new Error('Missing X-User-Id on MCP request; tool requires authenticated user.');
     }
     return user_id;
+  }
+
+  /** The rich editor document is UI-only; `body` already carries its content as markdown. */
+  private static toAgentNote(note: Note | null): Omit<Note, 'body_doc' | 'body_doc_version'> | null {
+    if (!note) return null;
+    const { body_doc: _body_doc, body_doc_version: _body_doc_version, ...agent_note } = note;
+    return agent_note;
   }
 
   /**

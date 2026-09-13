@@ -16,6 +16,9 @@ import { McpProxyRouter } from './mcp/mcp_proxy_router.js';
 
 export class App {
 
+  /** Sized above NoteDocSchema.MAX_BYTES, since the markdown body travels in the same request. */
+  private static readonly JSON_BODY_LIMIT = '2mb';
+
   private app: express.Express = express();
 
   constructor() {}
@@ -40,7 +43,8 @@ export class App {
     // body remains a raw stream that can be piped to upstream MCP servers.
     this.registerMcpProxyRoutes();
 
-    this.app.use(express.json());
+    // Rich notes send the editor document alongside its markdown projection.
+    this.app.use(express.json({ limit: App.JSON_BODY_LIMIT }));
     this.app.use(cookieParser());
 
     this.registerRoutes();

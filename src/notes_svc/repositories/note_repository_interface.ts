@@ -1,4 +1,4 @@
-import type { Note, NoteSource } from '../types/note.types.js';
+import type { Note, NotePatch, NoteSource } from '../types/note.types.js';
 
 /**
  * Structured, additive note filters. Add named fields here as new filters are needed;
@@ -17,6 +17,7 @@ export type NoteListParams = {
   offset?: number;
 };
 
+/** List and search items omit `body_doc`; fetch the note itself for the rich document. */
 export type NoteListResult = {
   items: Note[];
   total: number;
@@ -65,8 +66,8 @@ export interface NoteRepository {
   /** Distinct tags for one user with note counts, case-folded, most-used first. */
   listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]>;
 
-  updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null>;
-  updateNoteByKey(params: NoteBySourceKey & { patch: Partial<Note> }): Promise<Note | null>;
+  updateNoteById(params: NoteByIdKey & { patch: NotePatch }): Promise<Note | null>;
+  updateNoteByKey(params: NoteBySourceKey & { patch: NotePatch }): Promise<Note | null>;
 
   deleteNoteById(params: NoteByIdKey): Promise<boolean>;
   deleteNoteByKey(params: NoteBySourceKey): Promise<boolean>;
