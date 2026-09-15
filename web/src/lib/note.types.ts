@@ -74,6 +74,24 @@ export type NoteListResponse = {
   total: number;
 };
 
+/** Mirrors NoteBulkAction in src/notes_svc/types/note_bulk.types.ts */
+export type NoteBulkAction =
+  | { action: 'move'; folder_id: string | null }
+  | { action: 'archive' }
+  | { action: 'unarchive' }
+  | { action: 'pin' }
+  | { action: 'unpin' }
+  | { action: 'add_tags'; tags: string[] }
+  | { action: 'remove_tags'; tags: string[] }
+  | { action: 'delete' };
+
+/** Mirrors NoteBulkResult in src/notes_svc/types/note_bulk.types.ts */
+export type NoteBulkResult = {
+  action: NoteBulkAction['action'];
+  matched: number;
+  modified: number;
+};
+
 /** Mirrors NoteTagCount in src/notes_svc/repositories/note_repository_interface.ts */
 export type NoteTagCount = {
   tag: string;

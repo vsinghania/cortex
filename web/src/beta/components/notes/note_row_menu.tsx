@@ -10,19 +10,29 @@ type Props = {
   folder_tree: FolderTreeNode[];
   onOrganize: (note: Note, patch: NotePatchBody) => void;
   onDelete: (note: Note) => void;
+  onStartSelection: (note: Note) => void;
 };
 
-export function NoteRowMenu({ note, folder_tree, onOrganize, onDelete }: Props) {
+export function NoteRowMenu({ note, folder_tree, onOrganize, onDelete, onStartSelection }: Props) {
   const title = note.title || 'Untitled';
   return (
     <PopoverMenu label={`Actions for ${title}`} trigger={<Icon name="more" size={14} />} trigger_class="icon-btn icon-btn-sm" align="end">
-      {(close) => <MenuContent note={note} folder_tree={folder_tree} onOrganize={onOrganize} onDelete={onDelete} close={close} />}
+      {(close) => (
+        <MenuContent
+          note={note}
+          folder_tree={folder_tree}
+          onOrganize={onOrganize}
+          onDelete={onDelete}
+          onStartSelection={onStartSelection}
+          close={close}
+        />
+      )}
     </PopoverMenu>
   );
 }
 
 /** Mounted only while the menu is open, so it always reopens on the main actions rather than the folder list. */
-function MenuContent({ note, folder_tree, onOrganize, onDelete, close }: Props & { close: () => void }) {
+function MenuContent({ note, folder_tree, onOrganize, onDelete, onStartSelection, close }: Props & { close: () => void }) {
   const [view, set_view] = useState<'actions' | 'move'>('actions');
 
   function act(action: () => void) {
@@ -50,6 +60,11 @@ function MenuContent({ note, folder_tree, onOrganize, onDelete, close }: Props &
 
   return (
     <>
+      <button type="button" role="menuitem" className="menu-item" onClick={() => act(() => onStartSelection(note))}>
+        <Icon name="check" size={14} />
+        <span className="menu-item-label">Select</span>
+      </button>
+      <div className="menu-divider" />
       <button type="button" role="menuitem" className="menu-item" onClick={() => act(() => onOrganize(note, { is_pinned: !note.is_pinned }))}>
         <Icon name="pin" size={14} />
         <span className="menu-item-label">{note.is_pinned ? 'Unpin' : 'Pin'}</span>
