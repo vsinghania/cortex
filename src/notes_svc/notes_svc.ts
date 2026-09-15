@@ -7,12 +7,16 @@ import type {
   NoteListFilter as RepoListFilter,
   NoteTagCount as RepoTagCount,
   NoteSearchParams,
-  NotePatchFields
+  NotePatchFields,
+  NoteFolderCount
 } from './repositories/note_repository_interface.js';
+import type { NoteFolderRepository } from './repositories/note_folder_repository_interface.js';
+import type { NoteFolder } from './types/note_folder.types.js';
 import type { NoteChunkRepository } from './repositories/note_chunk_repository_interface.js';
 import type { NoteChunk } from './types/note_chunk.types.js';
 import { MongooseNoteRepository } from './repositories/mongoose_note_repository.js';
 import { MongooseNoteChunkRepository } from './repositories/mongoose_note_chunk_repository.js';
+import { MongooseNoteFolderRepository } from './repositories/mongoose_note_folder_repository.js';
 import { NotePatchKind } from './note_patch_kind.js';
 import { NotesVectorizationSvc } from './notes_vectorization_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
@@ -21,12 +25,25 @@ import { Corpus } from '../retrieval_svc/types/retrieval.types.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 import { Id } from '../lib/id.js';
 import { Time } from '../lib/time.js';
+import { NotFoundError } from '../common/errors.js';
 import { logger } from '../common/logger.js';
 
-export type NoteListParams = RepoListParams;
 export type NoteListResult = RepoListResult;
-export type NoteListFilter = RepoListFilter;
 export type NoteTagCount = RepoTagCount;
+
+/** `folder_id: null` selects unfiled notes. */
+export type NoteFolderFilter = {
+  folder_id: string | null;
+  include_subfolders?: boolean;
+};
+
+export type NoteListFilter = Omit<RepoListFilter, 'folder_ids' | 'unfiled'> & {
+  folder?: NoteFolderFilter;
+};
+
+export type NoteListParams = Omit<RepoListParams, 'filter'> & {
+  filter?: NoteListFilter;
+};
 
 export type NoteCreateInput = {
   user_id: string;
@@ -41,6 +58,7 @@ export type NoteCreateInput = {
   body_raw?: string;
   tags?: string[];
   container?: NoteContainer;
+  folder_id?: string;
 
   provider_created_at?: Date;
   provider_updated_at?: Date;
@@ -55,6 +73,8 @@ export type NoteCreateInput = {
 
 export type NotePatch = Omit<NotePatchFields, 'id' | 'user_id' | 'source' | 'external_id' | 'created_at' | 'updated_at'>;
 
+const DELETE_BATCH_SIZE = 500;
+
 /**
  * NotesSvc - domain service for CRUD/search on notes.
  *
@@ -67,16 +87,31 @@ export class NotesSvc {
   private vectorization_svc?: NotesVectorizationSvc;
   private chunk_repo?: NoteChunkRepository;
 
-  private constructor(private readonly notes_repo: NoteRepository) {}
+  private constructor(
+    private readonly notes_repo: NoteRepository,
+    private readonly folder_repo: NoteFolderRepository
+  ) {}
 
   static async create(params?: { db?: string; host?: string; port?: number }): Promise<NotesSvc> {
     const db = params?.db ?? DbNameResolver.resolve('notes');
-    const notes_repo = await MongooseNoteRepository.create({ db, host: params?.host, port: params?.port });
-    return new NotesSvc(notes_repo);
+    const [notes_repo, folder_repo] = await Promise.all([
+      MongooseNoteRepository.create({ db, host: params?.host, port: params?.port }),
+      MongooseNoteFolderRepository.create({ db, host: params?.host, port: params?.port })
+    ]);
+    return new NotesSvc(notes_repo, folder_repo);
   }
 
   async listNotes(params: NoteListParams): Promise<NoteListResult> {
-    return this.notes_repo.listNotes(params);
+    const filter = await this.resolveListFilter(params.user_id, params.filter);
+    return this.notes_repo.listNotes({ ...params, filter });
+  }
+
+  async countNotesByFolder(params: { user_id: string }): Promise<NoteFolderCount[]> {
+    return this.notes_repo.countNotesByFolder(params);
+  }
+
+  async listNoteIdsInFolders(params: { user_id: string; folder_ids: string[] }): Promise<string[]> {
+    return this.notes_repo.listNoteIdsInFolders(params);
   }
 
   async listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]> {
@@ -92,6 +127,7 @@ export class NotesSvc {
 
   async createNote(input: NoteCreateInput): Promise<Note> {
     const start_ms = performance.now();
+    if (input.folder_id) await this.requireFolder(input.user_id, input.folder_id);
     const note = NotesSvc.isSourceKeyedInput(input)
       ? await this.upsertSourceKeyed(input)
       : await this.createNative(input);
@@ -111,6 +147,7 @@ export class NotesSvc {
 
   async updateNote(user_id: string, locator: NoteLocator, patch: NotePatch): Promise<Note | null> {
     const start_ms = performance.now();
+    if (patch.folder_id) await this.requireFolder(user_id, patch.folder_id);
     const updated = 'id' in locator
       ? await this.notes_repo.updateNoteById({ user_id, id: locator.id, patch })
       : await this.notes_repo.updateNoteByKey({
@@ -168,6 +205,20 @@ export class NotesSvc {
       logger.warn({ reason: 'not_found' }, 'note delete missed');
     }
     return deleted;
+  }
+
+  /**
+   * Deletes in fixed-size batches so a large folder cascade never loads every note at once.
+   * Each note keeps its trash snapshot; vector cleanup failures are logged, not thrown.
+   */
+  async deleteNotes(params: { user_id: string; ids: string[] }): Promise<number> {
+    let deleted_count = 0;
+    for (const batch of NotesSvc.toBatches(params.ids, DELETE_BATCH_SIZE)) {
+      const deleted_ids = await this.notes_repo.deleteNotesByIds({ user_id: params.user_id, ids: batch });
+      await this.removeVectorsForNotesSafely(params.user_id, deleted_ids);
+      deleted_count += deleted_ids.length;
+    }
+    return deleted_count;
   }
 
   async searchNotes(params: NoteSearchParams): Promise<NoteListResult> {
@@ -229,6 +280,24 @@ export class NotesSvc {
     return svc.revectorizeNote(params);
   }
 
+  private async resolveListFilter(user_id: string, filter: NoteListFilter | undefined): Promise<RepoListFilter | undefined> {
+    if (!filter) return undefined;
+    const { folder, ...rest } = filter;
+    if (!folder) return rest;
+    if (folder.folder_id === null) return { ...rest, unfiled: true };
+
+    const root = await this.requireFolder(user_id, folder.folder_id);
+    if (!folder.include_subfolders) return { ...rest, folder_ids: [root.id] };
+    const descendants = await this.folder_repo.listDescendants({ user_id, id: root.id });
+    return { ...rest, folder_ids: [root.id, ...descendants.map((d) => d.id)] };
+  }
+
+  private async requireFolder(user_id: string, folder_id: string): Promise<NoteFolder> {
+    const folder = await this.folder_repo.getFolder({ user_id, id: folder_id });
+    if (!folder) throw new NotFoundError('Folder not found');
+    return folder;
+  }
+
   private async setArchivedSafely(params: { user_id: string; note_ids: string[]; is_archived: boolean }): Promise<void> {
     try {
       const svc = await this.vectorizationSvc();
@@ -236,6 +305,23 @@ export class NotesSvc {
     } catch (err) {
       logger.warn({ err, note_count: params.note_ids.length }, 'note archive vector sync failed');
     }
+  }
+
+  private async removeVectorsForNotesSafely(user_id: string, note_ids: string[]): Promise<void> {
+    try {
+      const svc = await this.vectorizationSvc();
+      await svc.removeVectorsForNotes({ user_id, note_ids });
+    } catch (err) {
+      logger.warn({ err, note_count: note_ids.length }, 'bulk note vector cleanup failed');
+    }
+  }
+
+  private static toBatches<T>(items: T[], size: number): T[][] {
+    const batches: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+      batches.push(items.slice(i, i + size));
+    }
+    return batches;
   }
 
   private async vectorizeSafely(note: Note): Promise<void> {
@@ -304,6 +390,7 @@ export class NotesSvc {
         body_raw: input.body_raw ?? existing.body_raw,
         tags: input.tags ?? existing.tags,
         container: input.container ?? existing.container,
+        folder_id: input.folder_id ?? existing.folder_id,
 
         provider_created_at: input.provider_created_at ?? existing.provider_created_at,
         provider_updated_at: input.provider_updated_at ?? now,
@@ -337,6 +424,7 @@ export class NotesSvc {
 
       tags: input.tags ?? [],
       container: input.container,
+      folder_id: input.folder_id,
 
       provider_created_at: input.provider_created_at,
       provider_updated_at: input.provider_updated_at,
@@ -371,6 +459,7 @@ export class NotesSvc {
 
       tags: input.tags ?? [],
       container: input.container,
+      folder_id: input.folder_id,
 
       provider_created_at: undefined,
       provider_updated_at: undefined,

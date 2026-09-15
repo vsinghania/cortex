@@ -74,6 +74,14 @@ export class QdrantChunkVectorRepository implements ChunkVectorRepository {
     });
   }
 
+  async deleteByNoteIds(params: { user_id: string; note_ids: string[] }): Promise<void> {
+    if (params.note_ids.length === 0) return;
+    await this.client.delete(COLLECTION_NAME, {
+      wait: true,
+      filter: QdrantChunkVectorRepository.notesFilter(params)
+    });
+  }
+
   async setArchived(params: { user_id: string; note_ids: string[]; is_archived: boolean }): Promise<void> {
     if (params.note_ids.length === 0) return;
     await this.client.setPayload(COLLECTION_NAME, {

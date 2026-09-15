@@ -216,6 +216,13 @@ export class NotesVectorizationSvc {
     logger.info({ note_id: params.note_id, deleted_chunks: ids.length }, 'note vectors removed');
   }
 
+  async removeVectorsForNotes(params: { user_id: string; note_ids: string[] }): Promise<void> {
+    if (params.note_ids.length === 0) return;
+    const deleted_chunks = await this.chunk_repo.deleteByNoteIds(params);
+    await this.vector_repo.deleteByNoteIds(params);
+    logger.debug({ note_count: params.note_ids.length, deleted_chunks }, 'vectors removed for notes');
+  }
+
   async setArchived(params: { user_id: string; note_ids: string[]; is_archived: boolean }): Promise<void> {
     await this.vector_repo.setArchived(params);
   }

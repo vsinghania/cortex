@@ -67,6 +67,7 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
         tags: { type: [String], default: [] },
 
         container: { type: ContainerSchema, default: undefined },
+        folder_id: { type: String, default: undefined },
 
         provider_created_at: { type: Date, default: undefined },
         provider_updated_at: { type: Date, default: undefined },
@@ -121,6 +122,7 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
       { user_id: 1, is_archived: 1, is_pinned: -1, title: 1 },
       { name: 'by_user_archived_pinned_title', collation: NoteModelFactory.CASE_INSENSITIVE_COLLATION }
     );
+    NoteSchemaMongoose.index({ user_id: 1, folder_id: 1, updated_at: -1 }, { name: 'by_user_folder_updated' });
     // Optional text index for basic search/fallbacks
     NoteSchemaMongoose.index({ title: 'text', body: 'text' }, { name: 'note_text_index' });
 

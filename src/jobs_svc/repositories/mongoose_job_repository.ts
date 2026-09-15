@@ -15,7 +15,6 @@ import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_ma
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 import { DbNameResolver } from '../../db/mongo/db_name_resolver.js';
 
-const DUPLICATE_KEY_ERROR = 11000;
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
 
@@ -45,7 +44,7 @@ export class MongooseJobRepository implements JobRepository {
       const created = await this.model.create(job);
       return { job: MongooseJobRepository.toDomainJob(created), created: true };
     } catch (err) {
-      if (!MongooseJobRepository.isDuplicateKeyError(err)) throw err;
+      if (!MongooseUtils.isDuplicateKeyError(err)) throw err;
 
       const conflict_on = MongooseJobRepository.conflictField(err);
       const existing = await this.findConflicting(job, conflict_on);
@@ -299,10 +298,6 @@ export class MongooseJobRepository implements JobRepository {
     const job = MongooseUtils.toDomain<Job>(doc);
     if (job.user_id === null) delete (job as { user_id?: string | null }).user_id;
     return job;
-  }
-
-  private static isDuplicateKeyError(err: unknown): boolean {
-    return !!err && typeof err === 'object' && (err as { code?: number }).code === DUPLICATE_KEY_ERROR;
   }
 
   /** Mongo reports the offending index's keys, which is how the two are told apart. */

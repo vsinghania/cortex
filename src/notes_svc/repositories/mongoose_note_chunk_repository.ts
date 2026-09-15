@@ -59,6 +59,12 @@ export class MongooseNoteChunkRepository implements NoteChunkRepository {
     return ids;
   }
 
+  async deleteByNoteIds(params: { user_id: string; note_ids: string[] }): Promise<number> {
+    if (params.note_ids.length === 0) return 0;
+    const res = await this.model.deleteMany({ user_id: params.user_id, note_id: { $in: params.note_ids } });
+    return res.deletedCount ?? 0;
+  }
+
   async deleteByIds(params: { user_id: string; ids: string[] }): Promise<number> {
     if (params.ids.length === 0) return 0;
     const res = await this.model.deleteMany({ user_id: params.user_id, id: { $in: params.ids } });

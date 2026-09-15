@@ -1,6 +1,6 @@
 import type { NotePatchFields } from './repositories/note_repository_interface.js';
 
-const ORGANIZATIONAL_KEYS: ReadonlySet<string> = new Set(['is_pinned', 'is_archived']);
+const ORGANIZATIONAL_KEYS: ReadonlySet<string> = new Set(['is_pinned', 'is_archived', 'folder_id']);
 
 export class NotePatchKind {
   private constructor() {}
@@ -14,7 +14,7 @@ export class NotePatchKind {
   }
 
   /**
-   * Pinning and archiving are not edits to the note, so they must not bump
+   * Pinning, archiving and filing are not edits to the note, so they must not bump
    * `updated_at` - otherwise the default date-sorted list reorders on every pin.
    */
   static isOrganizationalOnly(patch: NotePatchFields): boolean {

@@ -1,0 +1,15 @@
+info:
+  name: list-notes-in-folder
+  type: http
+  seq: 12
+
+http:
+  method: GET
+  url: "{{base_url}}/notes?folder_id={{folder_id}}&include_subfolders=true"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

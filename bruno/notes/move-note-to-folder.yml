@@ -1,0 +1,24 @@
+info:
+  name: move-note-to-folder
+  type: http
+  seq: 15
+
+http:
+  method: PATCH
+  url: "{{base_url}}/notes/{{note_id}}"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "folder_id": "{{folder_id}}"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

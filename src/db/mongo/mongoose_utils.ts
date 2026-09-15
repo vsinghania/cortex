@@ -1,5 +1,11 @@
 export class MongooseUtils {
+  private static readonly DUPLICATE_KEY_ERROR_CODE = 11000;
+
   private constructor() {}
+
+  public static isDuplicateKeyError(err: unknown): boolean {
+    return !!err && typeof err === 'object' && (err as { code?: number }).code === MongooseUtils.DUPLICATE_KEY_ERROR_CODE;
+  }
 
   public static stripMongoFields(ret: unknown): unknown {
     if (!ret || typeof ret !== 'object') return ret;

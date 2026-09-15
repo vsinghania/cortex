@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NotePatchKind } from '../src/notes_svc/note_patch_kind.js';
 
-test('pin and archive changes are organizational', () => {
+test('pin, archive and folder changes are organizational', () => {
   assert.equal(NotePatchKind.isOrganizationalOnly({ is_pinned: true }), true);
-  assert.equal(NotePatchKind.isOrganizationalOnly({ is_archived: false, is_pinned: false }), true);
+  assert.equal(NotePatchKind.isOrganizationalOnly({ is_archived: false, folder_id: null }), true);
+  assert.equal(NotePatchKind.isOrganizationalOnly({ folder_id: 'f1' }), true);
 });
 
 test('any content field makes a patch a real edit', () => {

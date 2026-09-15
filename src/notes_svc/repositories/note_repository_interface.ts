@@ -13,6 +13,10 @@ export type NoteListFilter = {
   /** Defaults to 'exclude': archived notes stay out of lists unless asked for. */
   archived?: NoteArchivedFilter;
   pinned?: boolean;
+  /** Notes filed directly in any of these folders. Resolved from a folder tree by the service. */
+  folder_ids?: string[];
+  /** Notes not filed in any folder. */
+  unfiled?: boolean;
 };
 
 export type NoteListParams = {
@@ -32,7 +36,13 @@ export type NoteSearchParams = {
   offset?: number;
 };
 
-export type NotePatchFields = Partial<Note>;
+/** `folder_id: null` files the note out of its folder. */
+export type NotePatchFields = Partial<Omit<Note, 'folder_id'>> & { folder_id?: string | null };
+
+export type NoteFolderCount = {
+  folder_id: string;
+  count: number;
+};
 
 export type NoteListResult = {
   items: Note[];
@@ -82,11 +92,19 @@ export interface NoteRepository {
   /** Distinct tags for one user with note counts, case-folded, most-used first. */
   listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]>;
 
+  /** Non-archived note counts per folder, for folder tree badges. Unfiled notes are omitted. */
+  countNotesByFolder(params: { user_id: string }): Promise<NoteFolderCount[]>;
+
+  listNoteIdsInFolders(params: { user_id: string; folder_ids: string[] }): Promise<string[]>;
+
   updateNoteById(params: NoteByIdKey & { patch: NotePatchFields }): Promise<Note | null>;
   updateNoteByKey(params: NoteBySourceKey & { patch: NotePatchFields }): Promise<Note | null>;
 
   deleteNoteById(params: NoteByIdKey): Promise<boolean>;
   deleteNoteByKey(params: NoteBySourceKey): Promise<boolean>;
+
+  /** Snapshots every matching note to trash, then deletes them; returns the ids actually deleted. */
+  deleteNotesByIds(params: { user_id: string; ids: string[] }): Promise<string[]>;
 
   searchNotes(params: NoteSearchParams): Promise<NoteListResult>;
 

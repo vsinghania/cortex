@@ -60,6 +60,7 @@ export class NoteTrashModelFactory extends BaseModelFactory<TrashedNote> {
         tags: { type: [String], default: [] },
 
         container: { type: ContainerSchema, default: undefined },
+        folder_id: { type: String, default: undefined },
 
         provider_created_at: { type: Date, default: undefined },
         provider_updated_at: { type: Date, default: undefined },

@@ -131,7 +131,7 @@ Audio never touches our servers. The browser gets a short-lived secret; the inst
 | Service key | Holds |
 | --- | --- |
 | `user` / `auth` | users / refresh-token sessions, single-use email tokens |
-| `notes` | notes, note chunks, note trash |
+| `notes` | notes, note folders, note chunks, note trash |
 | `agent` | agent + MCP server manifests, conversations, messages, conversation trash |
 | `jobs` | background jobs (claim, lease, checkpoint, TTL'd history) |
 

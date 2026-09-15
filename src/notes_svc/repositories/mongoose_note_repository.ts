@@ -11,7 +11,8 @@ import type {
   NoteMaintenanceParams,
   NoteSearchParams,
   NoteArchivedFilter,
-  NotePatchFields
+  NotePatchFields,
+  NoteFolderCount
 } from './note_repository_interface.js';
 import { NoteListSort, type ResolvedNoteSort } from '../note_list_sort.js';
 import { NotePatchKind } from '../note_patch_kind.js';
@@ -128,6 +129,30 @@ export class MongooseNoteRepository implements NoteRepository {
     return rows as NoteTagCount[];
   }
 
+  async countNotesByFolder(params: { user_id: string }): Promise<NoteFolderCount[]> {
+    const rows = await this.model.aggregate([
+      {
+        $match: {
+          user_id: params.user_id,
+          folder_id: { $exists: true, $type: 'string' },
+          ...MongooseNoteRepository.archivedClause('exclude')
+        }
+      },
+      { $group: { _id: '$folder_id', count: { $sum: 1 } } },
+      { $project: { _id: 0, folder_id: '$_id', count: 1 } }
+    ]);
+    return rows as NoteFolderCount[];
+  }
+
+  async listNoteIdsInFolders(params: { user_id: string; folder_ids: string[] }): Promise<string[]> {
+    if (params.folder_ids.length === 0) return [];
+    const docs = await this.model
+      .find({ user_id: params.user_id, folder_id: { $in: params.folder_ids } })
+      .select({ _id: 0, id: 1 })
+      .lean();
+    return docs.map((d: { id: string }) => d.id);
+  }
+
   async updateNoteById(params: NoteByIdKey & { patch: NotePatchFields }): Promise<Note | null> {
     return this.findOneAndPatch({ user_id: params.user_id, id: params.id }, params.patch);
   }
@@ -162,6 +187,30 @@ export class MongooseNoteRepository implements NoteRepository {
       source: params.source,
       external_id: params.external_id
     });
+  }
+
+  async deleteNotesByIds(params: { user_id: string; ids: string[] }): Promise<string[]> {
+    if (params.ids.length === 0) return [];
+    const filter = { user_id: params.user_id, id: { $in: params.ids } };
+    const snapshots = await this.model.find(filter).lean();
+    if (snapshots.length === 0) return [];
+
+    const deleted_at = new Date();
+    await this.trash_model.insertMany(
+      snapshots.map((snapshot: Record<string, unknown>) => MongooseNoteRepository.toTrashDoc(snapshot, deleted_at))
+    );
+
+    const snapshot_ids = snapshots.map((snapshot: { id: string }) => snapshot.id);
+    try {
+      await this.model.deleteMany({ user_id: params.user_id, id: { $in: snapshot_ids } });
+    } catch (err) {
+      logger.warn(
+        { err, note_count: snapshot_ids.length },
+        'bulk note delete failed after trash snapshots were written; trash entries will TTL out'
+      );
+      throw err;
+    }
+    return snapshot_ids;
   }
 
   async searchNotes(params: NoteSearchParams): Promise<NoteListResult> {
@@ -232,10 +281,7 @@ export class MongooseNoteRepository implements NoteRepository {
     const snapshot = await this.model.findOne(filter).lean();
     if (!snapshot) return false;
 
-    const trash_doc = { ...snapshot, deleted_at: new Date() };
-    Reflect.deleteProperty(trash_doc as any, '_id');
-    Reflect.deleteProperty(trash_doc as any, '__v');
-    await this.trash_model.create(trash_doc);
+    await this.trash_model.create(MongooseNoteRepository.toTrashDoc(snapshot, new Date()));
 
     try {
       await this.model.deleteOne(filter);
@@ -250,6 +296,13 @@ export class MongooseNoteRepository implements NoteRepository {
     return true;
   }
 
+  private static toTrashDoc(snapshot: Record<string, unknown>, deleted_at: Date): Record<string, unknown> {
+    const trash_doc = { ...snapshot, deleted_at };
+    Reflect.deleteProperty(trash_doc, '_id');
+    Reflect.deleteProperty(trash_doc, '__v');
+    return trash_doc;
+  }
+
   private static buildListFilter(params: NoteListParams & { use_text: boolean }): Record<string, unknown> {
     const filter: Record<string, unknown> = {
       user_id: params.user_id,
@@ -258,6 +311,12 @@ export class MongooseNoteRepository implements NoteRepository {
 
     if (params.filter?.pinned !== undefined) {
       filter.is_pinned = params.filter.pinned ? true : { $ne: true };
+    }
+
+    if (params.filter?.unfiled) {
+      filter.folder_id = { $exists: false };
+    } else if (params.filter?.folder_ids) {
+      filter.folder_id = { $in: params.filter.folder_ids };
     }
 
     if (params.use_text) {
@@ -321,7 +380,14 @@ export class MongooseNoteRepository implements NoteRepository {
   }
 
   private static buildPatchUpdate(patch: NotePatchFields): Record<string, unknown> {
-    return { $set: MongooseNoteRepository.buildAllowedPatch(patch) };
+    const { folder_id, ...rest } = patch;
+    const update: Record<string, unknown> = { $set: MongooseNoteRepository.buildAllowedPatch(rest) };
+    if (folder_id === null) {
+      update.$unset = { folder_id: '' };
+    } else if (folder_id !== undefined) {
+      (update.$set as Record<string, unknown>).folder_id = folder_id;
+    }
+    return update;
   }
 
   private static buildAllowedPatch(patch: Partial<Note> | undefined): Partial<Note> {

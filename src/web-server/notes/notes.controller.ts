@@ -5,6 +5,7 @@ import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js'
 import { NotesSvc, type NoteListFilter } from '../../notes_svc/notes_svc.js';
 import { NoteListSort } from '../../notes_svc/note_list_sort.js';
 import { NotFoundError } from '../../common/errors.js';
+import { NoteFoldersController } from './note_folders.controller.js';
 import type { NoteContainer } from '../../notes_svc/types/note.types.js';
 import type { NoteChunk, NoteChunkRef } from '../../notes_svc/types/note_chunk.types.js';
 
@@ -19,7 +20,8 @@ const NoteCreateBodySchema = z.object({
   body: z.string().default(''),
   body_raw: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  container: NoteContainerSchema.optional()
+  container: NoteContainerSchema.optional(),
+  folder_id: z.string().min(1).optional()
 }).strict();
 
 const NotePatchBodySchema = z.object({
@@ -28,6 +30,7 @@ const NotePatchBodySchema = z.object({
   body_raw: z.string().optional(),
   tags: z.array(z.string()).optional(),
   container: NoteContainerSchema.optional(),
+  folder_id: z.string().min(1).nullable().optional(),
   is_archived: z.boolean().optional(),
   is_pinned: z.boolean().optional()
 }).strict();
@@ -43,11 +46,16 @@ const NoteTagsQuerySchema = z
 
 const BooleanQuerySchema = z.enum(['true', 'false']).transform((v) => v === 'true');
 
+/** `folder_id=none` lists unfiled notes. */
+const UNFILED_FOLDER_QUERY_VALUE = 'none';
+
 const NoteListQuerySchema = z.object({
   q: z.string().optional(),
   tags: NoteTagsQuerySchema.optional(),
   archived: z.enum(['exclude', 'only', 'include']).optional(),
   pinned: BooleanQuerySchema.optional(),
+  folder_id: z.string().min(1).optional(),
+  include_subfolders: BooleanQuerySchema.optional(),
   sort: z.enum(NoteListSort.FIELDS).optional(),
   order: z.enum(NoteListSort.ORDERS).optional(),
   limit: z
@@ -103,8 +111,9 @@ export class NotesController {
     this.router.use(RequireAuthMiddleware.requireAuth);
     this.router.post('/', this.createNote.bind(this));
     this.router.get('/', this.listNotes.bind(this));
-    // Must precede '/:id', or this resolves to getNote with id='tags'.
+    // Must precede '/:id', or these resolve to getNote with id='tags' / id='folders'.
     this.router.get('/tags', this.listTags.bind(this));
+    this.router.use('/folders', new NoteFoldersController().getRouter());
     this.router.get('/:id/chunks/:chunk_id', this.getNoteChunk.bind(this));
     this.router.get('/:id', this.getNote.bind(this));
     this.router.patch('/:id', this.updateNote.bind(this));
@@ -148,7 +157,13 @@ export class NotesController {
     return {
       tags: query.tags,
       archived: query.archived,
-      pinned: query.pinned
+      pinned: query.pinned,
+      folder: query.folder_id
+        ? {
+            folder_id: query.folder_id === UNFILED_FOLDER_QUERY_VALUE ? null : query.folder_id,
+            include_subfolders: query.include_subfolders
+          }
+        : undefined
     };
   }
 

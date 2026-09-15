@@ -14,7 +14,7 @@ NotesSvc ─┬─► NoteRepository ──────────────�
 
 ## 1. Notes
 
-`NotesSvc`: `listNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `searchNotes` (lexical), `retrieveChunks` (semantic), `revectorizeNote`.
+`NotesSvc`: `listNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `deleteNotes` (batched), `searchNotes` (lexical), `retrieveChunks` (semantic), `revectorizeNote`. `NoteFoldersSvc` owns the folder tree.
 
 A note is markdown plus provenance — `body` is canonical markdown, `body_raw` keeps the original artifact (imported HTML, a voice transcript). Notes come in two flavours, which is what `NoteLocator` encodes:
 
@@ -26,7 +26,8 @@ A note is markdown plus provenance — `body` is canonical markdown, `body_raw` 
 
 ### Organisation
 
-- **Pinned and archived are not edits.** Patches that touch only `is_pinned` or `is_archived` skip Mongo timestamps (`NotePatchKind.isOrganizationalOnly`). Otherwise the default newest-updated list would reshuffle on every pin.
+- **Folders** live in `note_folders`, nested up to 8 levels. Each folder stores `ancestor_ids` (root first), so a subtree is one indexed match and a move rewrites descendants with a single pipeline update. Sibling names are unique ignoring case. A note points at one folder via `folder_id`; absent means unfiled. **Deleting a folder cascades** to every subfolder and every note beneath it, through the same trash-snapshotting delete as a single note.
+- **Pinned, archived and filed are not edits.** Patches that touch only `is_pinned`, `is_archived` or `folder_id` skip Mongo timestamps (`NotePatchKind.isOrganizationalOnly`). Otherwise the default newest-updated list would reshuffle on every pin.
 - **Lists hide archived notes by default** (`archived: exclude | only | include`), lead with pinned notes in every explicit sort (`updated_at`, `created_at`, `title` — title uses the case-insensitive collation), and keep relevance-first ordering for a text query with no explicit sort.
 
 **Every method is user-scoped at the repository level**, not by an application-layer check — these operations are exposed to an LLM over MCP, where `user_id` comes from a request header. Never add a repository method that omits it.
@@ -65,7 +66,8 @@ The module's central idea is **two chunk shapes**: `RawRetrievedChunk` is what r
 - **Chunk ids are stable across re-indexing, and must stay that way.** `vectorizeNote` reuses the id at each chunk index rather than minting a new one, because stored citations reference chunk ids ([citation_svc.md](citation_svc.md)). `revectorizeNote` forces a full re-embed via `force_embed` instead of deleting the chunks first — deleting would regenerate every id and orphan the citations pointing at them.
 - **Vectorization is inline with the write**, so note writes wait on OpenAI.
 - **Deletes snapshot to trash first** — the note is copied to a TTL'd trash collection (30 days) before removal, but there is no restore path in the service, and chunks and vectors are dropped immediately.
-- **Run `npm run notes:backfill-organization` once per environment after deploying pins.** Notes written before `is_pinned` existed have no field, and Mongo sorts missing below `false`, so the pinned-first sort would split old and new notes. It also syncs `is_archived` onto vectors of notes archived before the flag reached Qdrant.
+- **Run `npm run notes:backfill-organization` once per environment after deploying folders/pins.** Notes written before `is_pinned` existed have no field, and Mongo sorts missing below `false`, so the pinned-first sort would split old and new notes. It also syncs `is_archived` onto vectors of notes archived before the flag reached Qdrant.
+- **Folder moves are two writes, not a transaction** — the folder, then its descendants' `ancestor_ids`. A crash between them leaves descendants with a stale chain (wrong subtree listings and depth checks) that nothing repairs automatically.
 - **`retrieveAcross` merges by score alone**, which assumes every corpus shares an embedding model and distance metric.
 - **`NotesSvc.create()` is per request**, unlike the singletons around it.
 
