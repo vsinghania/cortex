@@ -30,16 +30,24 @@ export class NoteFilingSuggester {
 
   private static readonly MAX_OUTPUT_TOKENS = 200;
 
+  static readonly FOLDER_MATCH_SCHEMA = z.enum(['clear', 'loose', 'none']);
+
+  // The model names its best candidate and then grades it; only a clear grade reaches the user.
   static readonly OUTPUT_SCHEMA = z.object({
     title: z.string().nullable(),
     folder_id: z.string().nullable(),
+    folder_match: NoteFilingSuggester.FOLDER_MATCH_SCHEMA,
     tags: z.array(z.string())
   });
 
   private static readonly SYSTEM_PROMPT =
     'You help file a personal note. Reply with JSON only.\n' +
-    '- folder_id: the id of the single best existing folder from the list, or null when none clearly fits. ' +
+    '- folder_id: the id of the single best candidate among the existing folders, or null when nothing relates. ' +
     'Never invent an id.\n' +
+    '- folder_match: how well that candidate fits, reading its full path. "clear" when the note plainly belongs ' +
+    'there, the kind of note that folder holds (a workout log in Health / Fitness). "loose" when the note only ' +
+    'shares a broad area but is about something else (a company holiday party against Work / Projects). "none" ' +
+    'when folder_id is null. A loose candidate is not filed, so never stretch to make a folder fit.\n' +
     `- tags: up to ${NoteFilingSuggester.MAX_SUGGESTED_TAGS} short topical tags. Strongly prefer tags from the ` +
     'existing list; add a new tag only when no existing tag covers an important topic. Return [] if unsure.\n' +
     '- title: when the note has no title, a concise 3 to 8 word title in the note\'s language; otherwise null.';
@@ -68,17 +76,22 @@ export class NoteFilingSuggester {
   }
 
   /**
-   * The model's output is untrusted: unknown folder ids are dropped, tags are deduped
+   * The model's output is untrusted: a folder is kept only for a clear match with a known id, tags are deduped
    * (folding case) and snapped to an existing tag's spelling, and a title is only kept
    * when the note did not already have one.
    */
   static sanitize(raw: NoteFilingRawSuggestion, input: Pick<NoteFilingInput, 'title' | 'folders' | 'tags'>): NoteFilingSuggestion {
-    const folder = raw.folder_id ? input.folders.find((f) => f.id === raw.folder_id) : undefined;
+    const folder = NoteFilingSuggester.matchedFolder(raw, input.folders);
     return {
       title: NoteFilingSuggester.hasTitle(input.title) ? null : NoteFilingSuggester.sanitizeTitle(raw.title),
       folder: folder ? { id: folder.id, path: folder.path } : null,
       tags: NoteFilingSuggester.sanitizeTags(raw.tags, input.tags)
     };
+  }
+
+  private static matchedFolder(raw: NoteFilingRawSuggestion, folders: NoteFolderNode[]): NoteFolderNode | undefined {
+    if (raw.folder_match !== 'clear' || !raw.folder_id) return undefined;
+    return folders.find((f) => f.id === raw.folder_id);
   }
 
   private static sanitizeTitle(title: string | null): string | null {
