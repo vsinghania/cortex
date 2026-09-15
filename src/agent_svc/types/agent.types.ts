@@ -79,7 +79,11 @@ export type AgentRunRequest = {
   conversation_id?: string;
   user_id?: string;
   previous_response_id?: string;
-  context?: Record<string, unknown>;
+  /**
+   * Run-only system messages placed just before the latest input (e.g. an attached document).
+   * Sent to the model but never part of message_history, so they are not persisted.
+   */
+  context_messages?: Message[];
   options?: AgentRunOptions;
 };
 

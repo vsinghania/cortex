@@ -1,4 +1,4 @@
-import type { Conversation, ConversationMessage } from '../types/conversation.types.js';
+import type { ContextRef, Conversation, ConversationMessage } from '../types/conversation.types.js';
 
 export type ListConversationsForUserParams = {
   user_id: string;
@@ -6,6 +6,8 @@ export type ListConversationsForUserParams = {
   before_updated_at?: Date;
   /** Omit for every conversation; `false` also matches conversations from before pinning existed. */
   pinned?: boolean;
+  /** Only conversations anchored to this document. */
+  context_ref?: ContextRef;
 };
 
 export interface ConversationRepositoryInterface {
@@ -13,6 +15,7 @@ export interface ConversationRepositoryInterface {
     conversation_id: string;
     user_id?: string;
     agent_id: string;
+    context_ref?: ContextRef;
     title?: string;
   }): Promise<Conversation>;
 

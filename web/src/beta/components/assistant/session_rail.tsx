@@ -1,16 +1,19 @@
 import { useMemo } from 'react';
-import type { Citation } from '../../../lib/agent.types';
+import { Link } from 'react-router-dom';
+import type { Citation, Conversation } from '../../../lib/agent.types';
 import { Icon } from '../../../components/icon';
 import type { ChatTurn } from '../../lib/assistant.types';
+import { BetaRoutes } from '../../lib/beta_routes';
 import type { AssistantMode } from '../../lib/beta_routes';
 import { CitationLink, CitationLinks } from './beta_chat_message';
 
 type Props = {
   turns: ChatTurn[];
   mode: AssistantMode;
+  conversation: Conversation | null;
 };
 
-export function SessionRail({ turns, mode }: Props) {
+export function SessionRail({ turns, mode, conversation }: Props) {
   // One entry per note, keeping the first passage cited from it as the jump target.
   const sources = useMemo(() => {
     const by_document = new Map<string, Citation>();
@@ -24,8 +27,22 @@ export function SessionRail({ turns, mode }: Props) {
 
   const user_turns = turns.filter((t) => t.role === 'user').length;
 
+  const attached_note_id = conversation?.context_ref?.corpus === 'notes' ? conversation.context_ref.document_id : null;
+
   return (
     <aside className="side-rail" aria-label="Session details">
+      {attached_note_id && (
+        <>
+          <div className="side-heading">Attached note</div>
+          <div className="related">
+            <Link to={BetaRoutes.note(attached_note_id)} className="related-card related-card-row">
+              <Icon name="notes" size={13} />
+              <span className="related-title">Open the note this chat is about</span>
+            </Link>
+          </div>
+        </>
+      )}
+
       <div className="side-heading">Referenced notes</div>
       <div className="related">
         {sources.length === 0 ? (

@@ -1,9 +1,17 @@
 export const NOTES_RECALL_AGENT_ID = 'notes-recall';
 
+/** The document a conversation is anchored to; mirrors ContextRef in src/agent_svc/types/conversation.types.ts. */
+export type ContextRef = {
+  corpus: 'notes';
+  document_id: string;
+};
+
 export type AgentRunRequest = {
   agent_id: string;
   input: string;
   conversation_id?: string;
+  /** Only honoured when starting a conversation; an existing one keeps the document it was started on. */
+  context_ref?: ContextRef;
 };
 
 export type AgentStopReason = 'final' | 'max_turns' | 'error';
@@ -33,6 +41,7 @@ export type AgentRunResponse = {
 export type Conversation = {
   conversation_id: string;
   agent_id: string;
+  context_ref?: ContextRef;
   title?: string;
   is_pinned?: boolean;
   created_at: string;

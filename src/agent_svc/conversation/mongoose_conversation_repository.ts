@@ -1,5 +1,5 @@
 import type { Connection, Model } from 'mongoose';
-import type { Conversation, ConversationMessage } from '../types/conversation.types.js';
+import type { ContextRef, Conversation, ConversationMessage } from '../types/conversation.types.js';
 import type {
   ConversationRepositoryInterface,
   ListConversationsForUserParams,
@@ -55,6 +55,7 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     conversation_id: string;
     user_id?: string;
     agent_id: string;
+    context_ref?: ContextRef;
     title?: string;
   }): Promise<Conversation> {
     const created = await this.conv_model.create(params);
@@ -73,6 +74,10 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     }
     if (params.pinned !== undefined) {
       filter.is_pinned = params.pinned ? true : { $ne: true };
+    }
+    if (params.context_ref) {
+      filter['context_ref.corpus'] = params.context_ref.corpus;
+      filter['context_ref.document_id'] = params.context_ref.document_id;
     }
     const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
     const docs = await this.conv_model

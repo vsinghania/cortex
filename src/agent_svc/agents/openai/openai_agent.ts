@@ -208,11 +208,14 @@ export class OpenAiAgent extends BaseAgent {
   }
 
   private buildSdkInput(req: AgentRunRequest) {
-    if (typeof req.input === 'string' && (!req.message_history || req.message_history.length === 0)) {
+    const has_history = !!req.message_history?.length;
+    const has_context = !!req.context_messages?.length;
+    if (typeof req.input === 'string' && !has_history && !has_context) {
       return req.input;
     }
     const all_messages: Message[] = [
       ...(req.message_history ?? []),
+      ...(req.context_messages ?? []),
       ...this.userMessageFromInput(req),
     ];
     return OpenAiSdkUtils.toSdkInput(all_messages);

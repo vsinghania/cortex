@@ -113,6 +113,8 @@ SPA ─POST /api/v1/agent/run─► AgentSvc ─► OpenAiAgent ─MCP, x-user-i
 
 The `notes-recall` agent (a manifest row in Mongo, not code) is instructed to make exactly one `notes_search_semantic` call before answering and to cite every load-bearing claim as `[c:<chunk_id>]`. Grounding is enforced by prompt, but the cited ids are *verified*: [citation_svc](citation_svc.md) intersects the markers with the chunks that turn actually retrieved, so a fabricated id never becomes a citation. Only `{index, chunk_id, document_id, corpus}` is persisted — titles are resolved from live documents on every read.
 
+Chatting from a note (beta note page) is the same flow with `context_ref: { corpus: 'notes', document_id }` on the first turn. The conversation stores it, and every run re-reads the note and hands it to the model as a run-only system message ahead of the question, so the agent answers from the open note and searches only for what lies beyond it.
+
 ### Capture by voice
 
 ```

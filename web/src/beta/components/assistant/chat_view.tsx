@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { Note } from '../../../lib/note.types';
 import { useAutosize } from '../../../lib/use_autosize';
 import { Icon } from '../../../components/icon';
@@ -7,12 +8,19 @@ import { BetaChatMessage } from './beta_chat_message';
 
 const COMPOSER_MAX_HEIGHT_PX = 160;
 
-const SUGGESTIONS = [
+const DEFAULT_SUGGESTIONS = [
   'Summarise what I wrote this week',
   'What are my open tasks?',
   'What have I noted about my current projects?',
   "Which ideas haven't I followed up on?",
 ];
+
+const DEFAULT_WELCOME = (
+  <>
+    <h1>What are we thinking about?</h1>
+    <p>I can read across every note in your workspace - summarise, connect, pressure-test, or just talk it through.</p>
+  </>
+);
 
 type Props = {
   turns: ChatTurn[];
@@ -21,9 +29,25 @@ type Props = {
   error: string | null;
   onSend: (text: string) => void;
   onSaveAsNote: (turn: ChatTurn) => Promise<Note>;
+  /** `panel` fits the chat into a side rail: tighter spacing, no centred column. */
+  variant?: 'page' | 'panel';
+  welcome?: ReactNode;
+  suggestions?: string[];
+  placeholder?: string;
 };
 
-export function ChatView({ turns, pending, thread_loading, error, onSend, onSaveAsNote }: Props) {
+export function ChatView({
+  turns,
+  pending,
+  thread_loading,
+  error,
+  onSend,
+  onSaveAsNote,
+  variant = 'page',
+  welcome = DEFAULT_WELCOME,
+  suggestions = DEFAULT_SUGGESTIONS,
+  placeholder = 'Ask about your notes, or start a thought…',
+}: Props) {
   const [draft, set_draft] = useState('');
   const scroll_ref = useRef<HTMLDivElement>(null);
   const input_ref = useRef<HTMLTextAreaElement>(null);
@@ -43,7 +67,7 @@ export function ChatView({ turns, pending, thread_loading, error, onSend, onSave
   const can_send = !!draft.trim() && !pending;
 
   return (
-    <div className="chat">
+    <div className={`chat${variant === 'panel' ? ' chat-panel' : ''}`}>
       <div className="chat-scroll" ref={scroll_ref}>
         <div className="chat-column">
           {thread_loading ? (
@@ -51,10 +75,9 @@ export function ChatView({ turns, pending, thread_loading, error, onSend, onSave
           ) : turns.length === 0 && !pending ? (
             <div className="welcome">
               <Icon name="hexagon" size={30} className="welcome-mark" />
-              <h1>What are we thinking about?</h1>
-              <p>I can read across every note in your workspace - summarise, connect, pressure-test, or just talk it through.</p>
+              {welcome}
               <div className="suggestions">
-                {SUGGESTIONS.map((s) => (
+                {suggestions.map((s) => (
                   <button key={s} type="button" className="suggestion" onClick={() => onSend(s)}>{s}</button>
                 ))}
               </div>
@@ -92,7 +115,7 @@ export function ChatView({ turns, pending, thread_loading, error, onSend, onSave
                   submit();
                 }
               }}
-              placeholder="Ask about your notes, or start a thought…"
+              placeholder={placeholder}
               aria-label="Message"
             />
             <div className="composer-footer">

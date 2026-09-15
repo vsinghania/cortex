@@ -34,6 +34,12 @@ export function ThreadList({ conversations, loading, selected_id, busy_id, onSel
         <button type="button" className="thread-select" aria-current={active ? 'true' : undefined} onClick={() => onSelect(c.conversation_id)}>
           <span className="list-row-top">
             {c.is_pinned && <Icon name="pin" size={11} className="list-row-pin" />}
+            {c.context_ref && (
+              <span className="thread-note-mark" title="About a note">
+                <Icon name="notes" size={11} />
+                <span className="sr-only">About a note:</span>
+              </span>
+            )}
             <span className="list-row-title">{title}</span>
             <time className="list-row-time" dateTime={c.updated_at} title={DateFormat.full(c.updated_at)}>
               {DateFormat.relative(c.updated_at)}

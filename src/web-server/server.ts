@@ -9,6 +9,7 @@ import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
 import { JobWorker } from '../jobs_svc/worker/job_worker.js';
 import { JobWorkerConfigLoader } from '../jobs_svc/worker/job_worker_config.js';
 import { JobHandlerBootstrap } from './bootstrap/job_handler_bootstrap.js';
+import { ContextDocumentResolverBootstrap } from './bootstrap/context_document_resolver_bootstrap.js';
 import { JobScheduler } from '../jobs_svc/job_scheduler.js';
 import { logger } from '../common/logger.js';
 import { Time } from '../lib/time.js';
@@ -74,6 +75,7 @@ class Server {
     await Server.connectMongo();
     await Server.bootstrapQdrant();
     await Server.bootstrapRetrievalSvc();
+    ContextDocumentResolverBootstrap.registerAll();
     await Server.loadAgentSvc();
     await Server.loadAiSvc();
     await JobHandlerBootstrap.registerAll();

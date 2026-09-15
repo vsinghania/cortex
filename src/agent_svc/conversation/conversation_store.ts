@@ -5,6 +5,7 @@ import { logger } from '../../common/logger.js';
 import { Id } from '../../lib/id.js';
 import type {
   AppendTurnInput,
+  ContextRef,
   Conversation,
   ConversationMessage,
 } from '../types/conversation.types.js';
@@ -39,6 +40,7 @@ export class ConversationStore {
     conversation_id?: string;
     user_id?: string;
     agent_id: string;
+    context_ref?: ContextRef;
   }): Promise<{ conversation: Conversation; created: boolean }> {
     if (params.conversation_id) {
       const existing = await this.repo.getConversation(params.conversation_id);
@@ -52,12 +54,14 @@ export class ConversationStore {
       conversation_id,
       user_id: params.user_id,
       agent_id: params.agent_id,
+      context_ref: params.context_ref,
     });
     logger.info(
       {
         conversation_id: conversation.conversation_id,
         user_id: params.user_id,
         agent_id: params.agent_id,
+        context_corpus: params.context_ref?.corpus,
       },
       'Conversation created'
     );
@@ -80,6 +84,7 @@ export class ConversationStore {
     limit?: number;
     before_updated_at?: Date;
     pinned?: boolean;
+    context_ref?: ContextRef;
   }): Promise<Conversation[]> {
     return this.repo.listConversationsForUser(params);
   }
