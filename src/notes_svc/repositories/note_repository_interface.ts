@@ -1,21 +1,38 @@
 import type { Note, NoteSource } from '../types/note.types.js';
+import type { NoteListSortOption } from '../note_list_sort.js';
 
 /**
  * Structured, additive note filters. Add named fields here as new filters are needed;
  * keep it a plain typed struct rather than a generic {field, operator, value} DSL.
  */
+export type NoteArchivedFilter = 'exclude' | 'only' | 'include';
+
 export type NoteListFilter = {
   /** Matches notes carrying ALL of these tags, ignoring case. */
   tags?: string[];
+  /** Defaults to 'exclude': archived notes stay out of lists unless asked for. */
+  archived?: NoteArchivedFilter;
+  pinned?: boolean;
 };
 
 export type NoteListParams = {
   user_id: string;
   query?: string;
   filter?: NoteListFilter;
+  sort?: NoteListSortOption;
   limit?: number;
   offset?: number;
 };
+
+export type NoteSearchParams = {
+  user_id: string;
+  query: string;
+  archived?: NoteArchivedFilter;
+  limit?: number;
+  offset?: number;
+};
+
+export type NotePatchFields = Partial<Note>;
 
 export type NoteListResult = {
   items: Note[];
@@ -65,18 +82,13 @@ export interface NoteRepository {
   /** Distinct tags for one user with note counts, case-folded, most-used first. */
   listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]>;
 
-  updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null>;
-  updateNoteByKey(params: NoteBySourceKey & { patch: Partial<Note> }): Promise<Note | null>;
+  updateNoteById(params: NoteByIdKey & { patch: NotePatchFields }): Promise<Note | null>;
+  updateNoteByKey(params: NoteBySourceKey & { patch: NotePatchFields }): Promise<Note | null>;
 
   deleteNoteById(params: NoteByIdKey): Promise<boolean>;
   deleteNoteByKey(params: NoteBySourceKey): Promise<boolean>;
 
-  searchNotes(params: {
-    user_id: string;
-    query: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<NoteListResult>;
+  searchNotes(params: NoteSearchParams): Promise<NoteListResult>;
 
   /** Admin maintenance sweeps only - see NoteMaintenanceParams. */
   listNotesForMaintenance(params: NoteMaintenanceParams): Promise<Note[]>;

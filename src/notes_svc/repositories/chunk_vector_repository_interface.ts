@@ -6,6 +6,7 @@ export type ChunkVectorPoint = {
   user_id: string;
   note_id: string;
   source: NoteSource;
+  is_archived: boolean;
 };
 
 export type VectorSearchHit = {
@@ -20,6 +21,7 @@ export type VectorSearchParams = {
   query_vector: number[];
   k: number;
   source_filter?: NoteSource[];
+  include_archived?: boolean;
 };
 
 export interface ChunkVectorRepository {
@@ -30,4 +32,7 @@ export interface ChunkVectorRepository {
   deleteByIds(ids: string[]): Promise<void>;
 
   deleteByNoteId(params: { user_id: string; note_id: string }): Promise<void>;
+
+  /** Mirrors a note's archive flag onto its points so semantic search can exclude it. */
+  setArchived(params: { user_id: string; note_ids: string[]; is_archived: boolean }): Promise<void>;
 }

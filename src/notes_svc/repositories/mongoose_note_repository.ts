@@ -8,8 +8,13 @@ import type {
   NoteTagCount,
   NoteByIdKey,
   NoteBySourceKey,
-  NoteMaintenanceParams
+  NoteMaintenanceParams,
+  NoteSearchParams,
+  NoteArchivedFilter,
+  NotePatchFields
 } from './note_repository_interface.js';
+import { NoteListSort, type ResolvedNoteSort } from '../note_list_sort.js';
+import { NotePatchKind } from '../note_patch_kind.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
 import { NoteModelFactory, NoteTrashModelFactory } from '../models/index.js';
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
@@ -71,20 +76,21 @@ export class MongooseNoteRepository implements NoteRepository {
   async listNotes(params: NoteListParams): Promise<NoteListResult> {
     const { limit, offset } = MongooseNoteRepository.normalizePagination(params);
 
-    const useText = !!params.query && !!params.query.trim();
-    const filter = MongooseNoteRepository.buildListFilter({ ...params, use_text: useText });
+    const use_text = !!params.query && !!params.query.trim();
+    const filter = MongooseNoteRepository.buildListFilter({ ...params, use_text });
+    const resolved_sort = NoteListSort.resolve({ sort: params.sort, has_query: use_text });
 
     let cursor = this.model.find(filter);
-    if (useText) {
-      cursor = cursor.select({ score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, updated_at: -1 });
-    } else {
-      cursor = cursor.sort({ updated_at: -1 });
+    if (resolved_sort.by_relevance) {
+      cursor = cursor.select({ score: { $meta: 'textScore' } });
     }
+    cursor = cursor.sort(resolved_sort.sort);
 
-    // Only the non-text path can ask for the collated index: text indexes support simple
-    // binary comparison only, so $text with a non-simple collation cannot use one. The
-    // text path gets the same case-insensitivity from anchored regexes instead.
-    const collation = useText ? undefined : MongooseNoteRepository.tagCollationFor(params.filter);
+    // Only the non-text path can ask for a collation: text indexes support simple binary
+    // comparison only, so $text with a non-simple collation cannot use one. The text path
+    // gets tag case-insensitivity from anchored regexes instead, and a title sort there
+    // falls back to binary order.
+    const collation = use_text ? undefined : MongooseNoteRepository.collationFor(params.filter, resolved_sort);
     if (collation) cursor = cursor.collation(collation);
 
     const [items, total] = await Promise.all([
@@ -122,27 +128,27 @@ export class MongooseNoteRepository implements NoteRepository {
     return rows as NoteTagCount[];
   }
 
-  async updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null> {
-    const allowed = MongooseNoteRepository.buildAllowedPatch(params.patch);
-    const updated = await this.model.findOneAndUpdate(
-      { user_id: params.user_id, id: params.id },
-      { $set: allowed },
-      { new: true }
-    ).lean();
-    return updated ? (MongooseUtils.toDomain<Note>(updated) as Note) : null;
+  async updateNoteById(params: NoteByIdKey & { patch: NotePatchFields }): Promise<Note | null> {
+    return this.findOneAndPatch({ user_id: params.user_id, id: params.id }, params.patch);
   }
 
-  async updateNoteByKey(params: NoteBySourceKey & { patch: Partial<Note> }): Promise<Note | null> {
-    const allowed = MongooseNoteRepository.buildAllowedPatch(params.patch);
-    const updated = await this.model.findOneAndUpdate(
+  async updateNoteByKey(params: NoteBySourceKey & { patch: NotePatchFields }): Promise<Note | null> {
+    return this.findOneAndPatch(
       {
         user_id: params.user_id,
         source: params.source,
         external_id: params.external_id
       },
-      { $set: allowed },
-      { new: true }
-    ).lean();
+      params.patch
+    );
+  }
+
+  private async findOneAndPatch(filter: Record<string, unknown>, patch: NotePatchFields): Promise<Note | null> {
+    const update = MongooseNoteRepository.buildPatchUpdate(patch);
+    const updated = await this.model.findOneAndUpdate(filter, update, {
+      new: true,
+      timestamps: !NotePatchKind.isOrganizationalOnly(patch)
+    }).lean();
     return updated ? (MongooseUtils.toDomain<Note>(updated) as Note) : null;
   }
 
@@ -158,17 +164,13 @@ export class MongooseNoteRepository implements NoteRepository {
     });
   }
 
-  async searchNotes(params: {
-    user_id: string;
-    query: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<NoteListResult> {
+  async searchNotes(params: NoteSearchParams): Promise<NoteListResult> {
     const { limit, offset } = MongooseNoteRepository.normalizePagination(params);
 
-    const filter: any = {
+    const filter: Record<string, unknown> = {
       user_id: params.user_id,
-      $text: { $search: params.query.trim() }
+      $text: { $search: params.query.trim() },
+      ...MongooseNoteRepository.archivedClause(params.archived)
     };
 
     const [items, total] = await Promise.all([
@@ -249,7 +251,14 @@ export class MongooseNoteRepository implements NoteRepository {
   }
 
   private static buildListFilter(params: NoteListParams & { use_text: boolean }): Record<string, unknown> {
-    const filter: Record<string, unknown> = { user_id: params.user_id };
+    const filter: Record<string, unknown> = {
+      user_id: params.user_id,
+      ...MongooseNoteRepository.archivedClause(params.filter?.archived)
+    };
+
+    if (params.filter?.pinned !== undefined) {
+      filter.is_pinned = params.filter.pinned ? true : { $ne: true };
+    }
 
     if (params.use_text) {
       filter.$text = { $search: params.query!.trim() };
@@ -265,9 +274,25 @@ export class MongooseNoteRepository implements NoteRepository {
     return filter;
   }
 
-  /** The collated index only applies when tags are actually being filtered on. */
-  private static tagCollationFor(filter: NoteListFilter | undefined) {
-    return MongooseNoteRepository.normalizeTags(filter?.tags).length > 0
+  /** `$ne: true` rather than `false` so notes written before the flag existed still match. */
+  private static archivedClause(archived: NoteArchivedFilter | undefined): Record<string, unknown> {
+    switch (archived ?? 'exclude') {
+      case 'only':
+        return { is_archived: true };
+      case 'include':
+        return {};
+      default:
+        return { is_archived: { $ne: true } };
+    }
+  }
+
+  /**
+   * Tag filters and title sorts share one case-insensitive collation; it is only requested
+   * when one of them is in play, since a collated query can only use a collated index.
+   */
+  private static collationFor(filter: NoteListFilter | undefined, sort: ResolvedNoteSort) {
+    const filters_tags = MongooseNoteRepository.normalizeTags(filter?.tags).length > 0;
+    return filters_tags || sort.needs_case_insensitive_collation
       ? NoteModelFactory.CASE_INSENSITIVE_COLLATION
       : undefined;
   }
@@ -295,6 +320,10 @@ export class MongooseNoteRepository implements NoteRepository {
     return limit === 0;
   }
 
+  private static buildPatchUpdate(patch: NotePatchFields): Record<string, unknown> {
+    return { $set: MongooseNoteRepository.buildAllowedPatch(patch) };
+  }
+
   private static buildAllowedPatch(patch: Partial<Note> | undefined): Partial<Note> {
     const p = patch ?? {};
     const allowed: Partial<Note> = {};
@@ -311,6 +340,7 @@ export class MongooseNoteRepository implements NoteRepository {
 
     if (p.sync_status !== undefined) allowed.sync_status = p.sync_status;
     if (p.is_archived !== undefined) allowed.is_archived = p.is_archived;
+    if (p.is_pinned !== undefined) allowed.is_pinned = p.is_pinned;
     if (p.is_deleted !== undefined) allowed.is_deleted = p.is_deleted;
 
     if (p.metadata !== undefined) allowed.metadata = p.metadata;

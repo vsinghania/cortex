@@ -136,7 +136,8 @@ export class NotesVectorizationSvc {
             vector: vectors[idx],
             user_id: chunk.user_id,
             note_id: chunk.note_id,
-            source: note.source
+            source: note.source,
+            is_archived: note.is_archived
           }))
         );
       }
@@ -213,6 +214,10 @@ export class NotesVectorizationSvc {
       patch: { vectorization: { status: 'none', chunk_count: 0 } }
     });
     logger.info({ note_id: params.note_id, deleted_chunks: ids.length }, 'note vectors removed');
+  }
+
+  async setArchived(params: { user_id: string; note_ids: string[]; is_archived: boolean }): Promise<void> {
+    await this.vector_repo.setArchived(params);
   }
 
   private static readChunkOpts(): { target_tokens: number; overlap_tokens: number } {

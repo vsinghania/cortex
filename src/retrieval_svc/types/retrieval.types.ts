@@ -38,4 +38,6 @@ export type RetrieveParams = {
   top_k?: number;
   /** Corpus-specific filter values (e.g. allowed note sources). */
   source_filter?: string[];
+  /** Archived documents are left out of retrieval unless this is set. */
+  include_archived?: boolean;
 };

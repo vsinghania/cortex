@@ -1,0 +1,15 @@
+info:
+  name: list-archived-notes
+  type: http
+  seq: 11
+
+http:
+  method: GET
+  url: "{{base_url}}/notes?archived=only"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

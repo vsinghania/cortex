@@ -5,12 +5,15 @@ import type {
   NoteListParams as RepoListParams,
   NoteListResult as RepoListResult,
   NoteListFilter as RepoListFilter,
-  NoteTagCount as RepoTagCount
+  NoteTagCount as RepoTagCount,
+  NoteSearchParams,
+  NotePatchFields
 } from './repositories/note_repository_interface.js';
 import type { NoteChunkRepository } from './repositories/note_chunk_repository_interface.js';
 import type { NoteChunk } from './types/note_chunk.types.js';
 import { MongooseNoteRepository } from './repositories/mongoose_note_repository.js';
 import { MongooseNoteChunkRepository } from './repositories/mongoose_note_chunk_repository.js';
+import { NotePatchKind } from './note_patch_kind.js';
 import { NotesVectorizationSvc } from './notes_vectorization_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
 import type { RawRetrievedChunk, RetrievedChunk, RetrieveParams } from '../retrieval_svc/types/retrieval.types.js';
@@ -43,13 +46,14 @@ export type NoteCreateInput = {
   provider_updated_at?: Date;
 
   is_archived?: boolean;
+  is_pinned?: boolean;
   is_deleted?: boolean;
 
   metadata?: NoteMetadata;
   vectorization?: NoteVectorization;
 };
 
-export type NotePatch = Partial<Omit<Note, 'id' | 'user_id' | 'source' | 'external_id' | 'created_at' | 'updated_at'>>;
+export type NotePatch = Omit<NotePatchFields, 'id' | 'user_id' | 'source' | 'external_id' | 'created_at' | 'updated_at'>;
 
 /**
  * NotesSvc - domain service for CRUD/search on notes.
@@ -63,7 +67,7 @@ export class NotesSvc {
   private vectorization_svc?: NotesVectorizationSvc;
   private chunk_repo?: NoteChunkRepository;
 
-  constructor(private readonly notes_repo: NoteRepository) {}
+  private constructor(private readonly notes_repo: NoteRepository) {}
 
   static async create(params?: { db?: string; host?: string; port?: number }): Promise<NotesSvc> {
     const db = params?.db ?? DbNameResolver.resolve('notes');
@@ -115,15 +119,19 @@ export class NotesSvc {
           external_id: locator.external_id,
           patch
         });
-    const revectorized = !!updated && NotesSvc.patchTouchesBody(patch);
+    const revectorized = !!updated && NotePatchKind.touchesBody(patch);
     if (updated && revectorized) {
       await this.vectorizeSafely(updated);
+    }
+    if (updated && NotePatchKind.touchesArchive(patch)) {
+      await this.setArchivedSafely({ user_id, note_ids: [updated.id], is_archived: updated.is_archived });
     }
     if (updated) {
       logger.info(
         {
           note_id: updated.id,
           revectorized,
+          organizational: NotePatchKind.isOrganizationalOnly(patch),
           duration_ms: Time.elapsedMs(start_ms)
         },
         'note updated'
@@ -162,7 +170,7 @@ export class NotesSvc {
     return deleted;
   }
 
-  async searchNotes(params: { user_id: string; query: string; limit?: number; offset?: number }): Promise<NoteListResult> {
+  async searchNotes(params: NoteSearchParams): Promise<NoteListResult> {
     const start_ms = performance.now();
     const result = await this.notes_repo.searchNotes(params);
     logger.info(
@@ -221,6 +229,15 @@ export class NotesSvc {
     return svc.revectorizeNote(params);
   }
 
+  private async setArchivedSafely(params: { user_id: string; note_ids: string[]; is_archived: boolean }): Promise<void> {
+    try {
+      const svc = await this.vectorizationSvc();
+      await svc.setArchived(params);
+    } catch (err) {
+      logger.warn({ err, note_count: params.note_ids.length }, 'note archive vector sync failed');
+    }
+  }
+
   private async vectorizeSafely(note: Note): Promise<void> {
     try {
       const svc = await this.vectorizationSvc();
@@ -266,10 +283,6 @@ export class NotesSvc {
     }));
   }
 
-  private static patchTouchesBody(patch: NotePatch): boolean {
-    return patch.body !== undefined || patch.title !== undefined;
-  }
-
   private static isSourceKeyedInput(input: NoteCreateInput): input is NoteCreateInput & { source: NoteSource; external_id: string } {
     return !!input.source && input.source !== NoteSource.Native && !!input.external_id;
   }
@@ -296,6 +309,7 @@ export class NotesSvc {
         provider_updated_at: input.provider_updated_at ?? now,
 
         is_archived: input.is_archived ?? existing.is_archived,
+        is_pinned: input.is_pinned ?? existing.is_pinned,
         is_deleted: input.is_deleted ?? existing.is_deleted,
 
         metadata: input.metadata ?? existing.metadata,
@@ -330,6 +344,7 @@ export class NotesSvc {
       sync_status: SyncStatus.Idle,
 
       is_archived: input.is_archived ?? false,
+      is_pinned: input.is_pinned ?? false,
       is_deleted: input.is_deleted ?? false,
 
       metadata: input.metadata,
@@ -363,6 +378,7 @@ export class NotesSvc {
       sync_status: SyncStatus.Idle,
 
       is_archived: input.is_archived ?? false,
+      is_pinned: input.is_pinned ?? false,
       is_deleted: input.is_deleted ?? false,
 
       metadata: input.metadata,

@@ -53,6 +53,7 @@ export interface Note {
   sync_status: SyncStatus;
 
   is_archived: boolean;
+  is_pinned: boolean;
   is_deleted: boolean;
 
   metadata?: NoteMetadata;

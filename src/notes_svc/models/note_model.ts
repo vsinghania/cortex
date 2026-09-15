@@ -75,6 +75,7 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
         sync_status: { type: String, enum: Object.values(SyncStatus), default: SyncStatus.Idle },
 
         is_archived: { type: Boolean, default: false },
+        is_pinned: { type: Boolean, default: false },
         is_deleted: { type: Boolean, default: false },
 
         metadata: { type: MetadataSchema, default: undefined },
@@ -106,6 +107,19 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
     NoteSchemaMongoose.index(
       { user_id: 1, tags: 1, updated_at: -1 },
       { name: 'by_user_tags_updated', collation: NoteModelFactory.CASE_INSENSITIVE_COLLATION }
+    );
+    // List sorts: pinned notes lead every ordering, and archived notes are excluded by default.
+    NoteSchemaMongoose.index(
+      { user_id: 1, is_archived: 1, is_pinned: -1, updated_at: -1 },
+      { name: 'by_user_archived_pinned_updated' }
+    );
+    NoteSchemaMongoose.index(
+      { user_id: 1, is_archived: 1, is_pinned: -1, created_at: -1 },
+      { name: 'by_user_archived_pinned_created' }
+    );
+    NoteSchemaMongoose.index(
+      { user_id: 1, is_archived: 1, is_pinned: -1, title: 1 },
+      { name: 'by_user_archived_pinned_title', collation: NoteModelFactory.CASE_INSENSITIVE_COLLATION }
     );
     // Optional text index for basic search/fallbacks
     NoteSchemaMongoose.index({ title: 'text', body: 'text' }, { name: 'note_text_index' });

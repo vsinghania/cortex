@@ -2,7 +2,8 @@ import express from 'express';
 import { z } from 'zod';
 import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
-import { NotesSvc } from '../../notes_svc/notes_svc.js';
+import { NotesSvc, type NoteListFilter } from '../../notes_svc/notes_svc.js';
+import { NoteListSort } from '../../notes_svc/note_list_sort.js';
 import { NotFoundError } from '../../common/errors.js';
 import type { NoteContainer } from '../../notes_svc/types/note.types.js';
 import type { NoteChunk, NoteChunkRef } from '../../notes_svc/types/note_chunk.types.js';
@@ -27,7 +28,8 @@ const NotePatchBodySchema = z.object({
   body_raw: z.string().optional(),
   tags: z.array(z.string()).optional(),
   container: NoteContainerSchema.optional(),
-  is_archived: z.boolean().optional()
+  is_archived: z.boolean().optional(),
+  is_pinned: z.boolean().optional()
 }).strict();
 
 const MAX_TAG_FILTER_COUNT = 10;
@@ -39,9 +41,15 @@ const NoteTagsQuerySchema = z
   .transform((v) => (Array.isArray(v) ? v : [v]))
   .pipe(z.array(z.string()).min(1).max(MAX_TAG_FILTER_COUNT));
 
+const BooleanQuerySchema = z.enum(['true', 'false']).transform((v) => v === 'true');
+
 const NoteListQuerySchema = z.object({
   q: z.string().optional(),
   tags: NoteTagsQuerySchema.optional(),
+  archived: z.enum(['exclude', 'only', 'include']).optional(),
+  pinned: BooleanQuerySchema.optional(),
+  sort: z.enum(NoteListSort.FIELDS).optional(),
+  order: z.enum(NoteListSort.ORDERS).optional(),
   limit: z
     .string()
     .regex(/^\d+$/)
@@ -76,6 +84,7 @@ const NoteChunkParamsSchema = z.object({
 
 type NoteCreateBody = z.infer<typeof NoteCreateBodySchema>;
 type NotePatchBody = z.infer<typeof NotePatchBodySchema>;
+type NoteListQuery = z.infer<typeof NoteListQuerySchema>;
 
 export class NotesController {
 
@@ -119,23 +128,28 @@ export class NotesController {
   private async listNotes(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const user_id = req.auth!.user_id;
-      const query_raw = req.query as Record<string, unknown>;
-      const q = typeof query_raw.q === 'string' ? query_raw.q : undefined;
-      const limit = typeof query_raw.limit === 'string' ? Number(query_raw.limit) : undefined;
-      const offset = typeof query_raw.offset === 'string' ? Number(query_raw.offset) : undefined;
-      const tags = query_raw.tags === undefined ? undefined : NoteTagsQuerySchema.parse(query_raw.tags);
+      const query = NoteListQuerySchema.parse(req.query);
       const notes_svc = await NotesSvc.create();
       const result = await notes_svc.listNotes({
         user_id,
-        query: q,
-        filter: tags ? { tags } : undefined,
-        limit,
-        offset
+        query: query.q,
+        filter: NotesController.toListFilter(query),
+        sort: NoteListSort.fromParts({ field: query.sort, order: query.order }),
+        limit: query.limit,
+        offset: query.offset
       });
       res.status(200).json({ response: result });
     } catch (e) {
       next(e);
     }
+  }
+
+  private static toListFilter(query: NoteListQuery): NoteListFilter {
+    return {
+      tags: query.tags,
+      archived: query.archived,
+      pinned: query.pinned
+    };
   }
 
   @validateRequest({ query: NoteTagsListQuerySchema })

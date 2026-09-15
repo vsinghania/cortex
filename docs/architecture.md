@@ -135,7 +135,7 @@ Audio never touches our servers. The browser gets a short-lived secret; the inst
 | `agent` | agent + MCP server manifests, conversations, messages, conversation trash |
 | `jobs` | background jobs (claim, lease, checkpoint, TTL'd history) |
 
-**Qdrant** holds `note_chunks_vec` — cosine, sized from the embedding model, payload-indexed on `user_id`. Point ids are chunk ids: Mongo owns chunk text, Qdrant owns vectors plus `{user_id, note_id, source}`.
+**Qdrant** holds `note_chunks_vec` — cosine, sized from the embedding model, payload-indexed on `user_id`. Point ids are chunk ids: Mongo owns chunk text, Qdrant owns vectors plus `{user_id, note_id, source, is_archived}`.
 
 ## 7. Startup and lifecycle
 
