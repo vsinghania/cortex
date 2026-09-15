@@ -6,12 +6,16 @@ import type { ReturnLinkState } from '../../../lib/navigation.types';
 import { DateFormat } from '../../../lib/date_format';
 import type { FolderTreeNode, NoteDraftFields, OutlineRequest } from '../../lib/note_workspace.types';
 import { useNoteAutosave } from '../../lib/use_note_autosave';
+import { useFilingSuggestion } from '../../lib/use_filing_suggestion';
+import { NoteFiling } from '../../lib/note_filing';
+import type { FilingChoice } from '../../lib/note_filing';
 import { useNowTick } from '../../lib/use_now_tick';
 import { NoteOutline } from '../../lib/note_outline';
 import { MarkdownPreview } from '../markdown_preview';
 import { NoteToolbar } from './note_toolbar';
 import { TagEditor } from './tag_editor';
 import { CitationSourceView } from './citation_source_view';
+import { FilingSuggestionCard } from './filing_suggestion_card';
 import type { EditorMode } from './note_mode_switch';
 
 const RELATIVE_TIME_TICK_MS = 30_000;
@@ -60,6 +64,10 @@ export function NoteEditor(props: Props) {
   const body_el_ref = useRef<HTMLTextAreaElement>(null);
   const scroll_ref = useRef<HTMLDivElement>(null);
   const autosave = useNoteAutosave({ note_id: note?.id ?? null, onSaved: props.onSaved });
+  const filing = useFilingSuggestion();
+  // Tag adds build on the last tags sent, so a second click doesn't overwrite a first still in flight.
+  const tags_basis_ref = useRef(note?.tags ?? []);
+  const [filing_applied, set_filing_applied] = useState(false);
   useNowTick(RELATIVE_TIME_TICK_MS);
 
   const { flush_ref } = props;
@@ -70,6 +78,12 @@ export function NoteEditor(props: Props) {
       if (flush_ref.current === flush) flush_ref.current = null;
     };
   }, [flush_ref, autosave.flush]);
+
+  // Every save returns a fresh tags array; only a real change should reset the basis.
+  const note_tags_key = JSON.stringify(note?.tags ?? []);
+  useEffect(() => {
+    tags_basis_ref.current = JSON.parse(note_tags_key) as string[];
+  }, [note_tags_key]);
 
   useLayoutEffect(() => {
     GrowingTextarea.fit(title_el_ref.current);
@@ -146,7 +160,34 @@ export function NoteEditor(props: Props) {
     }
   }
 
+  function requestFiling() {
+    set_filing_applied(false);
+    filing.request({ title: title_value_ref.current.trim() || undefined, body: body_value_ref.current });
+  }
+
+  function applyFiling(choice: FilingChoice) {
+    set_filing_applied(true);
+    if (choice.title) handleTitleChange(choice.title);
+    const patch: NotePatchBody = {};
+    if (choice.folder_id) patch.folder_id = choice.folder_id;
+    if (choice.tags) {
+      patch.tags = NoteFiling.withTags(tags_basis_ref.current, choice.tags);
+      tags_basis_ref.current = patch.tags;
+    }
+    if (Object.keys(patch).length > 0) props.onOrganize(patch);
+  }
+
   const word_count = NoteOutline.wordCount(body);
+  const pending_filing = note && filing.state.status === 'ready'
+    ? NoteFiling.pending(filing.state.suggestion, { title, folder_id: note.folder_id, tags: note.tags }, props.folders_by_id)
+    : null;
+  const filing_done = filing_applied && !!pending_filing && NoteFiling.isEmpty(pending_filing);
+
+  // Once the user has applied everything on offer the card has nothing left to say.
+  const { dismiss: dismissFiling } = filing;
+  useEffect(() => {
+    if (filing_done) dismissFiling();
+  }, [filing_done, dismissFiling]);
 
   return (
     <main className="editor" aria-label="Note editor">
@@ -162,6 +203,11 @@ export function NoteEditor(props: Props) {
         onToggleList={props.onToggleList}
         onToggleChat={props.onToggleChat}
         onModeChange={set_mode}
+        suggest={chunk_id ? null : {
+          disabled: !title.trim() && !body.trim(),
+          busy: filing.state.status === 'loading',
+          onRequest: requestFiling,
+        }}
         onOrganize={props.onOrganize}
         onDelete={props.onDelete}
       />
@@ -204,6 +250,16 @@ export function NoteEditor(props: Props) {
               </>
             )}
           </div>
+
+          {note && !chunk_id && filing.state.status !== 'idle' && (
+            <FilingSuggestionCard
+              state={filing.state}
+              pending={pending_filing}
+              onApply={applyFiling}
+              onRetry={requestFiling}
+              onDismiss={filing.dismiss}
+            />
+          )}
 
           {create_error && (
             <div className="form-error" role="alert">

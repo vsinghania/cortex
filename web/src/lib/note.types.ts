@@ -98,6 +98,20 @@ export type NoteTagCount = {
   count: number;
 };
 
+/** Mirrors NoteFilingSuggestionBodySchema in src/web-server/notes/notes.controller.ts; needs a non-blank title or body. */
+export type NoteFilingSuggestionBody = {
+  title?: string;
+  body: string;
+};
+
+/** Mirrors NoteFilingSuggestion in src/notes_svc/filing/note_filing_suggester.ts */
+export type NoteFilingSuggestion = {
+  /** Only suggested when the request had no title. */
+  title: string | null;
+  folder: { id: string; path: string[] } | null;
+  tags: string[];
+};
+
 /** Mirrors NoteChunkRef in src/notes_svc/types/note_chunk.types.ts */
 export type NoteChunkRef = {
   id: string;

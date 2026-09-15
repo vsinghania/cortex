@@ -6,6 +6,8 @@ import type {
   NoteBulkResult,
   NoteChunkRef,
   NoteCreateBody,
+  NoteFilingSuggestion,
+  NoteFilingSuggestionBody,
   NoteListQuery,
   NoteListResponse,
   NotePatchBody,
@@ -270,6 +272,14 @@ export class ApiClient {
     return ApiClient.request<NoteBulkResult>('/notes/bulk', {
       method: 'POST',
       body: JSON.stringify({ ids, ...action }),
+    });
+  }
+
+  /** Asks the model where content would be filed; nothing is saved. */
+  static async suggestNoteFiling(body: NoteFilingSuggestionBody): Promise<{ suggestion: NoteFilingSuggestion }> {
+    return ApiClient.request<{ suggestion: NoteFilingSuggestion }>('/notes/filing_suggestion', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   }
 

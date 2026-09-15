@@ -2097,6 +2097,118 @@ body {
   font-weight: 500;
 }
 
+.filing-card {
+  margin: -8px 0 24px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12.5px;
+  animation: cx-fade-in 0.2s ease;
+}
+
+.filing-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.filing-card-header > svg {
+  color: var(--accent);
+}
+
+.filing-card-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.filing-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.filing-card-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  color: var(--subtext);
+}
+
+.filing-card-rows {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 8px 14px;
+  align-items: center;
+  margin: 10px 0 0;
+}
+
+.filing-card-row {
+  display: contents;
+}
+
+.filing-card-row dt {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.filing-card-row dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.filing-card-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.filing-card-value svg {
+  flex-shrink: 0;
+  color: var(--dim);
+}
+
+.filing-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-suggested {
+  border-style: dashed;
+  border-color: color-mix(in oklch, var(--accent) 45%, transparent);
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip-suggested svg {
+  color: var(--accent);
+}
+
+.chip-suggested:hover:not(:disabled) {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.filing-card-row-action {
+  justify-self: end;
+  white-space: nowrap;
+}
+
 .source-body {
   font-family: var(--font-body);
   font-size: 15px;

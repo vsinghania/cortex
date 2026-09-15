@@ -7,6 +7,12 @@ import { NoteModeSwitch } from './note_mode_switch';
 import type { EditorMode } from './note_mode_switch';
 import { FolderPicker } from './folder_picker';
 
+export type SuggestControl = {
+  disabled: boolean;
+  busy: boolean;
+  onRequest: () => void;
+};
+
 type Props = {
   note: Note | null;
   title: string;
@@ -19,6 +25,8 @@ type Props = {
   onToggleList: () => void;
   onToggleChat: () => void;
   onModeChange: (mode: EditorMode) => void;
+  /** Null where filing suggestions don't apply, e.g. the read-only citation view. */
+  suggest: SuggestControl | null;
   onOrganize: (patch: NotePatchBody) => void;
   onDelete: () => void;
 };
@@ -60,6 +68,7 @@ export function NoteToolbar(props: Props) {
             >
               <Icon name="sparkle" size={15} />
             </button>
+            {props.suggest && <SuggestButton {...props.suggest} />}
             <button
               type="button"
               className={`icon-btn toolbar-btn${note.is_pinned ? ' icon-btn-accent' : ''}`}
@@ -87,5 +96,21 @@ export function NoteToolbar(props: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+function SuggestButton({ disabled, busy, onRequest }: SuggestControl) {
+  const label = disabled ? 'Write something to get suggestions' : 'Suggest title, folder and tags';
+  return (
+    <button
+      type="button"
+      className={`icon-btn toolbar-btn${busy ? ' icon-btn-accent' : ''}`}
+      onClick={onRequest}
+      disabled={disabled || busy}
+      aria-label={label}
+      title={label}
+    >
+      {busy ? <span className="spin-ring spin-ring-sm" aria-hidden="true" /> : <Icon name="wand" size={15} />}
+    </button>
   );
 }
