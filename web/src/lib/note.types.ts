@@ -13,6 +13,9 @@ export type NoteContainer = {
   container_name?: string;
 };
 
+/** Mirrors VectorizationStatus in src/notes_svc/types/note.types.ts; `pending` means a deferred embed is queued. */
+export type NoteVectorizationStatus = 'none' | 'pending' | 'embedded' | 'error';
+
 export type Note = {
   id: string;
   user_id: string;
@@ -22,8 +25,11 @@ export type Note = {
   body_raw?: string;
   tags: string[];
   container?: NoteContainer;
+  folder_id?: string;
   is_archived: boolean;
+  is_pinned?: boolean;
   is_deleted: boolean;
+  vectorization?: { status: NoteVectorizationStatus };
   created_at: string;
   updated_at: string;
 };
@@ -33,6 +39,7 @@ export type NoteCreateBody = {
   body?: string;
   tags?: string[];
   container?: NoteContainer;
+  folder_id?: string;
 };
 
 export type NotePatchBody = {
@@ -40,7 +47,26 @@ export type NotePatchBody = {
   body?: string;
   tags?: string[];
   container?: NoteContainer;
+  folder_id?: string | null;
   is_archived?: boolean;
+  is_pinned?: boolean;
+};
+
+export type NoteSortField = 'updated_at' | 'created_at' | 'title';
+export type NoteSortOrder = 'asc' | 'desc';
+
+/** Mirrors NoteListQuerySchema in src/web-server/notes/notes.controller.ts. `folder_id: 'none'` lists unfiled notes. */
+export type NoteListQuery = {
+  limit?: number;
+  offset?: number;
+  tags?: string[];
+  q?: string;
+  folder_id?: string;
+  include_subfolders?: boolean;
+  archived?: 'exclude' | 'only' | 'include';
+  pinned?: boolean;
+  sort?: NoteSortField;
+  order?: NoteSortOrder;
 };
 
 export type NoteListResponse = {
@@ -64,3 +90,6 @@ export type NoteChunkRef = {
   end_offset?: number;
   content: string;
 };
+
+/** A character range inside a note body, e.g. the span a citation points at. */
+export type HighlightRange = { start: number; end: number };

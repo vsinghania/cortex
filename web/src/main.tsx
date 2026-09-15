@@ -1,19 +1,29 @@
 import { StrictMode, useEffect, useState } from 'react';
+import type { ComponentType } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { App } from './app';
 import { ApiClient } from './lib/api_client';
-import { Spinner } from './components/spinner';
-import './styles.css';
+import { BetaRoutes } from './beta/lib/beta_routes';
 
 function Bootstrap() {
-  const [ready, set_ready] = useState(false);
+  const [app, set_app] = useState<{ Component: ComponentType } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
+    // Each UI imports its own stylesheet, so loading only the one this path needs keeps
+    // classic and beta styles from ever sharing a page. Crossing between them is a full
+    // page load for the same reason.
+    async function loadApp(): Promise<ComponentType> {
+      if (BetaRoutes.isBetaPath(window.location.pathname)) {
+        return (await import('./beta/beta_app')).BetaApp;
+      }
+      return (await import('./classic_app')).ClassicApp;
+    }
+
     async function init() {
-      await ApiClient.bootstrapSession();
-      if (!cancelled) set_ready(true);
+      const [Component] = await Promise.all([loadApp(), ApiClient.bootstrapSession()]);
+      if (!cancelled) set_app({ Component });
     }
     void init();
     return () => {
@@ -21,17 +31,13 @@ function Bootstrap() {
     };
   }, []);
 
-  if (!ready) {
-    return (
-      <div className="boot-shell">
-        <Spinner label="Loading…" />
-      </div>
-    );
-  }
+  // No spinner here: neither UI's stylesheet has loaded yet, and the wait is the
+  // session refresh plus one chunk.
+  if (!app) return null;
 
   return (
     <BrowserRouter>
-      <App />
+      <app.Component />
     </BrowserRouter>
   );
 }

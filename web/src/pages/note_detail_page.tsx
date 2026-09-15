@@ -2,40 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import type { Note, NoteChunkRef, NotePatchBody } from '../lib/note.types';
+import { NoteHighlight } from '../lib/note_highlight';
 import type { ReturnLinkState } from '../lib/navigation.types';
 import { DateFormat } from '../lib/date_format';
 import { NoteForm } from '../components/note_form';
 import { EmptyState } from '../components/empty_state';
 import { Icon } from '../components/icon';
 import { Spinner } from '../components/spinner';
-
-type HighlightRange = { start: number; end: number };
-
-/**
- * Chunk content is not a guaranteed substring of the body (headings are dropped, blank
- * lines collapse, oversized blocks round-trip through the tokenizer), so offsets are the
- * primary anchor and a literal search is the fallback for chunks written before offsets
- * existed.
- */
-function resolveHighlight(body: string, chunk: NoteChunkRef | null): HighlightRange | null {
-  if (!chunk) return null;
-
-  const { start_offset, end_offset } = chunk;
-  if (
-    start_offset != null &&
-    end_offset != null &&
-    start_offset >= 0 &&
-    end_offset > start_offset &&
-    end_offset <= body.length
-  ) {
-    return { start: start_offset, end: end_offset };
-  }
-
-  const found = body.indexOf(chunk.content);
-  if (found !== -1) return { start: found, end: found + chunk.content.length };
-
-  return null;
-}
 
 export function NoteDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -89,7 +62,7 @@ export function NoteDetailPage() {
     };
   }, [id, chunk_id]);
 
-  const highlight = note && !editing ? resolveHighlight(note.body, chunk) : null;
+  const highlight = note && !editing ? NoteHighlight.resolve(note.body, chunk) : null;
 
   useEffect(() => {
     if (!highlight) return;

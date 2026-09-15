@@ -4,10 +4,17 @@ import type {
   Note,
   NoteChunkRef,
   NoteCreateBody,
+  NoteListQuery,
   NoteListResponse,
   NotePatchBody,
   NoteTagCount,
 } from './note.types';
+import type {
+  NoteFolderCreateBody,
+  NoteFolderDeleteResult,
+  NoteFolderNode,
+  NoteFolderPatchBody,
+} from './note_folder.types';
 import type { AgentRunRequest, AgentRunResponse, Conversation, ConversationWithMessages } from './agent.types';
 import type { MintTokenResponse } from './voice.types';
 
@@ -134,7 +141,9 @@ export class ApiClient {
 
   static async bootstrapSession(): Promise<boolean> {
     try {
-      await ApiClient.doRefresh();
+      // Shared with any concurrent refresh: refresh tokens rotate, so a second call racing
+      // on the same cookie fails and would sign the user out (StrictMode runs boot twice).
+      await ApiClient.runSilentRefresh();
       await ApiClient.refreshUser();
       return true;
     } catch {
@@ -205,14 +214,19 @@ export class ApiClient {
     await ApiClient.request<{ accepted: true }>('/auth/email/verify/resend', { method: 'POST' });
   }
 
-  static async listNotes(
-    params: { limit?: number; offset?: number; tags?: string[] } = {},
-  ): Promise<NoteListResponse> {
+  static async listNotes(params: NoteListQuery = {}): Promise<NoteListResponse> {
     const query = new URLSearchParams();
     if (params.limit != null) query.set('limit', String(params.limit));
     if (params.offset != null) query.set('offset', String(params.offset));
     // append, not set - the server reads tags as a repeated query param.
     params.tags?.forEach((tag) => query.append('tags', tag));
+    if (params.q) query.set('q', params.q);
+    if (params.folder_id) query.set('folder_id', params.folder_id);
+    if (params.include_subfolders != null) query.set('include_subfolders', String(params.include_subfolders));
+    if (params.archived) query.set('archived', params.archived);
+    if (params.pinned != null) query.set('pinned', String(params.pinned));
+    if (params.sort) query.set('sort', params.sort);
+    if (params.order) query.set('order', params.order);
     const qs = query.toString();
     return ApiClient.request<NoteListResponse>(`/notes${qs ? `?${qs}` : ''}`);
   }
@@ -249,6 +263,30 @@ export class ApiClient {
     await ApiClient.request<void>(`/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
+  static async listFolders(): Promise<{ folders: NoteFolderNode[] }> {
+    return ApiClient.request<{ folders: NoteFolderNode[] }>('/notes/folders');
+  }
+
+  static async createFolder(body: NoteFolderCreateBody): Promise<{ folder: NoteFolderNode }> {
+    return ApiClient.request<{ folder: NoteFolderNode }>('/notes/folders', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  static async updateFolder(folder_id: string, body: NoteFolderPatchBody): Promise<{ folder: NoteFolderNode }> {
+    return ApiClient.request<{ folder: NoteFolderNode }>(`/notes/folders/${encodeURIComponent(folder_id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  static async deleteFolder(folder_id: string): Promise<NoteFolderDeleteResult> {
+    return ApiClient.request<NoteFolderDeleteResult>(`/notes/folders/${encodeURIComponent(folder_id)}`, {
+      method: 'DELETE',
+    });
+  }
+
   static async runAgent(req: AgentRunRequest): Promise<AgentRunResponse> {
     return ApiClient.request<AgentRunResponse>('/agent/run', {
       method: 'POST',
@@ -256,16 +294,26 @@ export class ApiClient {
     });
   }
 
-  static async listConversations(params: { limit?: number; before_updated_at?: string } = {}): Promise<Conversation[]> {
+  static async listConversations(
+    params: { limit?: number; before_updated_at?: string; pinned?: boolean } = {},
+  ): Promise<Conversation[]> {
     const query = new URLSearchParams();
     if (params.limit != null) query.set('limit', String(params.limit));
     if (params.before_updated_at) query.set('before_updated_at', params.before_updated_at);
+    if (params.pinned != null) query.set('pinned', String(params.pinned));
     const qs = query.toString();
     return ApiClient.request<Conversation[]>(`/agent/conversations${qs ? `?${qs}` : ''}`);
   }
 
   static async getConversation(conversation_id: string): Promise<ConversationWithMessages> {
     return ApiClient.request<ConversationWithMessages>(`/agent/conversations/${encodeURIComponent(conversation_id)}`);
+  }
+
+  static async setConversationPinned(conversation_id: string, is_pinned: boolean): Promise<{ conversation: Conversation }> {
+    return ApiClient.request<{ conversation: Conversation }>(
+      `/agent/conversations/${encodeURIComponent(conversation_id)}`,
+      { method: 'PATCH', body: JSON.stringify({ is_pinned }) },
+    );
   }
 
   static async deleteConversation(conversation_id: string): Promise<void> {

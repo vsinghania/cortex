@@ -11,8 +11,9 @@ import { NotesPage } from './pages/notes_page';
 import { NoteDetailPage } from './pages/note_detail_page';
 import { ChatPage } from './pages/chat_page';
 import { VoiceCapturePage } from './pages/voice_capture_page';
+import './styles.css';
 
-export function App() {
+export function ClassicApp() {
   // Chat owns the full viewport (sidebar + thread); every other page sits in the reading column.
   const is_full_bleed = useLocation().pathname.startsWith('/chat');
 
