@@ -12,6 +12,8 @@ import type {
   NoteSearchParams,
   NoteArchivedFilter,
   NotePatchFields,
+  NoteBulkUpdate,
+  NoteBulkUpdateResult,
   NoteFolderCount
 } from './note_repository_interface.js';
 import { NoteListSort, type ResolvedNoteSort } from '../note_list_sort.js';
@@ -129,6 +131,16 @@ export class MongooseNoteRepository implements NoteRepository {
     return rows as NoteTagCount[];
   }
 
+  async removeTagEverywhere(params: { user_id: string; tag: string }): Promise<number> {
+    const result = await this.model.updateMany(
+      { user_id: params.user_id, tags: params.tag },
+      // The filter finds notes through the collated index; the anchored regex makes $pull strip every casing.
+      { $pull: { tags: Regex.exactCaseInsensitive(params.tag) } },
+      { collation: NoteModelFactory.CASE_INSENSITIVE_COLLATION, timestamps: false }
+    );
+    return result.modifiedCount;
+  }
+
   async countNotesByFolder(params: { user_id: string }): Promise<NoteFolderCount[]> {
     const rows = await this.model.aggregate([
       {
@@ -166,6 +178,21 @@ export class MongooseNoteRepository implements NoteRepository {
       },
       params.patch
     );
+  }
+
+  async bulkUpdateNotes(params: {
+    user_id: string;
+    ids: string[];
+    update: NoteBulkUpdate;
+  }): Promise<NoteBulkUpdateResult> {
+    if (params.ids.length === 0) return { matched: 0, modified: 0 };
+    const { update, touch_timestamps } = MongooseNoteRepository.buildBulkUpdate(params.update);
+    const result = await this.model.updateMany(
+      { user_id: params.user_id, id: { $in: params.ids } },
+      update,
+      { timestamps: touch_timestamps }
+    );
+    return { matched: result.matchedCount, modified: result.modifiedCount };
   }
 
   private async findOneAndPatch(filter: Record<string, unknown>, patch: NotePatchFields): Promise<Note | null> {
@@ -388,6 +415,20 @@ export class MongooseNoteRepository implements NoteRepository {
       (update.$set as Record<string, unknown>).folder_id = folder_id;
     }
     return update;
+  }
+
+  private static buildBulkUpdate(bulk: NoteBulkUpdate): { update: Record<string, unknown>; touch_timestamps: boolean } {
+    switch (bulk.kind) {
+      case 'organize':
+        return { update: MongooseNoteRepository.buildPatchUpdate(bulk.fields), touch_timestamps: false };
+      case 'add_tags':
+        return { update: { $addToSet: { tags: { $each: bulk.tags } } }, touch_timestamps: true };
+      case 'remove_tags':
+        return {
+          update: { $pull: { tags: { $in: bulk.tags.map((t) => Regex.exactCaseInsensitive(t)) } } },
+          touch_timestamps: true
+        };
+    }
   }
 
   private static buildAllowedPatch(patch: Partial<Note> | undefined): Partial<Note> {

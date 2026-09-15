@@ -1,0 +1,26 @@
+info:
+  name: bulk-update-notes
+  type: http
+  seq: 16
+
+http:
+  method: POST
+  url: "{{base_url}}/notes/bulk"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "action": "add_tags",
+        "ids": ["{{note_id}}"],
+        "tags": ["bulk"]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

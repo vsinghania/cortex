@@ -4,6 +4,7 @@ import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
 import { NotesSvc, type NoteListFilter } from '../../notes_svc/notes_svc.js';
 import { NoteListSort } from '../../notes_svc/note_list_sort.js';
+import { NoteBulkActionMapper } from '../../notes_svc/note_bulk_action_mapper.js';
 import { NotFoundError } from '../../common/errors.js';
 import { NoteFoldersController } from './note_folders.controller.js';
 import type { NoteContainer } from '../../notes_svc/types/note.types.js';
@@ -85,6 +86,24 @@ const NoteParamsSchema = z.object({
   id: z.string().min(1)
 });
 
+const NoteTagParamsSchema = z.object({
+  tag: z.string().trim().min(1)
+});
+
+const NoteBulkIdsSchema = z.array(z.string().min(1)).min(1).max(NoteBulkActionMapper.MAX_IDS);
+const NoteBulkTagsSchema = z.array(z.string().trim().min(1)).min(1).max(MAX_TAG_FILTER_COUNT);
+
+const NoteBulkBodySchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('move'), ids: NoteBulkIdsSchema, folder_id: z.string().min(1).nullable() }).strict(),
+  z.object({ action: z.literal('archive'), ids: NoteBulkIdsSchema }).strict(),
+  z.object({ action: z.literal('unarchive'), ids: NoteBulkIdsSchema }).strict(),
+  z.object({ action: z.literal('pin'), ids: NoteBulkIdsSchema }).strict(),
+  z.object({ action: z.literal('unpin'), ids: NoteBulkIdsSchema }).strict(),
+  z.object({ action: z.literal('add_tags'), ids: NoteBulkIdsSchema, tags: NoteBulkTagsSchema }).strict(),
+  z.object({ action: z.literal('remove_tags'), ids: NoteBulkIdsSchema, tags: NoteBulkTagsSchema }).strict(),
+  z.object({ action: z.literal('delete'), ids: NoteBulkIdsSchema }).strict()
+]);
+
 const NoteChunkParamsSchema = z.object({
   id: z.string().min(1),
   chunk_id: z.string().min(1)
@@ -113,7 +132,9 @@ export class NotesController {
     this.router.get('/', this.listNotes.bind(this));
     // Must precede '/:id', or these resolve to getNote with id='tags' / id='folders'.
     this.router.get('/tags', this.listTags.bind(this));
+    this.router.delete('/tags/:tag', this.deleteTag.bind(this));
     this.router.use('/folders', new NoteFoldersController().getRouter());
+    this.router.post('/bulk', this.bulkUpdateNotes.bind(this));
     this.router.get('/:id/chunks/:chunk_id', this.getNoteChunk.bind(this));
     this.router.get('/:id', this.getNote.bind(this));
     this.router.patch('/:id', this.updateNote.bind(this));
@@ -176,6 +197,33 @@ export class NotesController {
       const notes_svc = await NotesSvc.create();
       const tags = await notes_svc.listTags({ user_id, limit });
       res.status(200).json({ response: { tags } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ params: NoteTagParamsSchema })
+  private async deleteTag(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { tag } = NoteTagParamsSchema.parse(req.params);
+      const user_id = req.auth!.user_id;
+      const notes_svc = await NotesSvc.create();
+      const notes_updated = await notes_svc.deleteTag({ user_id, tag });
+      if (notes_updated === 0) throw new NotFoundError('Tag not found');
+      res.status(200).json({ response: { tag, notes_updated } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ body: NoteBulkBodySchema })
+  private async bulkUpdateNotes(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { ids, ...action } = NoteBulkBodySchema.parse(req.body);
+      const user_id = req.auth!.user_id;
+      const notes_svc = await NotesSvc.create();
+      const result = await notes_svc.bulkUpdate({ user_id, ids, action });
+      res.status(200).json({ response: result });
     } catch (e) {
       next(e);
     }

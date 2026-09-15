@@ -12,12 +12,14 @@ import type {
 } from './repositories/note_repository_interface.js';
 import type { NoteFolderRepository } from './repositories/note_folder_repository_interface.js';
 import type { NoteFolder } from './types/note_folder.types.js';
+import type { NoteBulkAction, NoteBulkResult } from './types/note_bulk.types.js';
 import type { NoteChunkRepository } from './repositories/note_chunk_repository_interface.js';
 import type { NoteChunk } from './types/note_chunk.types.js';
 import { MongooseNoteRepository } from './repositories/mongoose_note_repository.js';
 import { MongooseNoteChunkRepository } from './repositories/mongoose_note_chunk_repository.js';
 import { MongooseNoteFolderRepository } from './repositories/mongoose_note_folder_repository.js';
 import { NotePatchKind } from './note_patch_kind.js';
+import { NoteBulkActionMapper } from './note_bulk_action_mapper.js';
 import { NotesVectorizationSvc } from './notes_vectorization_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
 import type { RawRetrievedChunk, RetrievedChunk, RetrieveParams } from '../retrieval_svc/types/retrieval.types.js';
@@ -221,6 +223,34 @@ export class NotesSvc {
     return deleted_count;
   }
 
+  async bulkUpdate(params: { user_id: string; ids: string[]; action: NoteBulkAction }): Promise<NoteBulkResult> {
+    const start_ms = performance.now();
+    const ids = Array.from(new Set(params.ids));
+    const result = await this.applyBulkAction({ ...params, ids });
+    logger.info(
+      {
+        action: result.action,
+        id_count: ids.length,
+        matched: result.matched,
+        modified: result.modified,
+        duration_ms: Time.elapsedMs(start_ms)
+      },
+      'notes bulk updated'
+    );
+    return result;
+  }
+
+  /** Removes one tag, ignoring case, from every note of the user. Returns notes changed. */
+  async deleteTag(params: { user_id: string; tag: string }): Promise<number> {
+    const start_ms = performance.now();
+    const notes_updated = await this.notes_repo.removeTagEverywhere({
+      user_id: params.user_id,
+      tag: params.tag.trim()
+    });
+    logger.info({ notes_updated, duration_ms: Time.elapsedMs(start_ms) }, 'tag deleted');
+    return notes_updated;
+  }
+
   async searchNotes(params: NoteSearchParams): Promise<NoteListResult> {
     const start_ms = performance.now();
     const result = await this.notes_repo.searchNotes(params);
@@ -278,6 +308,27 @@ export class NotesSvc {
   async revectorizeNote(params: { user_id: string; note_id: string }): Promise<NoteVectorization | null> {
     const svc = await this.vectorizationSvc();
     return svc.revectorizeNote(params);
+  }
+
+  private async applyBulkAction(params: { user_id: string; ids: string[]; action: NoteBulkAction }): Promise<NoteBulkResult> {
+    const { user_id, ids, action } = params;
+    if (action.action === 'delete') {
+      const deleted = await this.deleteNotes({ user_id, ids });
+      return { action: action.action, matched: deleted, modified: deleted };
+    }
+    if (action.action === 'move' && action.folder_id) {
+      await this.requireFolder(user_id, action.folder_id);
+    }
+    const { matched, modified } = await this.notes_repo.bulkUpdateNotes({
+      user_id,
+      ids,
+      update: NoteBulkActionMapper.toRepoUpdate(action)
+    });
+    const archived_state = NoteBulkActionMapper.archivedStateAfter(action);
+    if (archived_state !== undefined) {
+      await this.setArchivedSafely({ user_id, note_ids: ids, is_archived: archived_state });
+    }
+    return { action: action.action, matched, modified };
   }
 
   private async resolveListFilter(user_id: string, filter: NoteListFilter | undefined): Promise<RepoListFilter | undefined> {

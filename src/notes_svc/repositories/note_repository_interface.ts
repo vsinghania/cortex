@@ -39,6 +39,22 @@ export type NoteSearchParams = {
 /** `folder_id: null` files the note out of its folder. */
 export type NotePatchFields = Partial<Omit<Note, 'folder_id'>> & { folder_id?: string | null };
 
+export type NoteOrganizationFields = {
+  is_pinned?: boolean;
+  is_archived?: boolean;
+  folder_id?: string | null;
+};
+
+export type NoteBulkUpdate =
+  | { kind: 'organize'; fields: NoteOrganizationFields }
+  | { kind: 'add_tags'; tags: string[] }
+  | { kind: 'remove_tags'; tags: string[] };
+
+export type NoteBulkUpdateResult = {
+  matched: number;
+  modified: number;
+};
+
 export type NoteFolderCount = {
   folder_id: string;
   count: number;
@@ -92,6 +108,9 @@ export interface NoteRepository {
   /** Distinct tags for one user with note counts, case-folded, most-used first. */
   listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]>;
 
+  /** Case-insensitively strips one tag from every note of the user; returns notes changed. */
+  removeTagEverywhere(params: { user_id: string; tag: string }): Promise<number>;
+
   /** Non-archived note counts per folder, for folder tree badges. Unfiled notes are omitted. */
   countNotesByFolder(params: { user_id: string }): Promise<NoteFolderCount[]>;
 
@@ -99,6 +118,8 @@ export interface NoteRepository {
 
   updateNoteById(params: NoteByIdKey & { patch: NotePatchFields }): Promise<Note | null>;
   updateNoteByKey(params: NoteBySourceKey & { patch: NotePatchFields }): Promise<Note | null>;
+
+  bulkUpdateNotes(params: { user_id: string; ids: string[]; update: NoteBulkUpdate }): Promise<NoteBulkUpdateResult>;
 
   deleteNoteById(params: NoteByIdKey): Promise<boolean>;
   deleteNoteByKey(params: NoteBySourceKey): Promise<boolean>;
