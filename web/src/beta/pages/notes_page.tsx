@@ -154,18 +154,17 @@ export function NotesPage() {
     [],
   );
 
-  async function handleOrganize(patch: NotePatchBody) {
-    const note = current.note;
-    if (!note) return;
+  /** Organises any note, from the editor toolbar or a row in the list. */
+  async function organizeNote(note: Note, patch: NotePatchBody) {
     try {
       const res = await ApiClient.updateNote(note.id, patch);
-      current.set(res.note);
+      if (res.note.id === current.note?.id) current.set(res.note);
       list.updateLocal(res.note);
       if ('is_pinned' in patch || 'is_archived' in patch || 'folder_id' in patch) void list.refresh();
       if ('folder_id' in patch || 'is_archived' in patch) void loadFolders();
       if ('tags' in patch) void loadTags();
       if (patch.is_archived) {
-        toast.show({ message: 'Note archived.', action: { label: 'Undo', onClick: () => void handleOrganize({ is_archived: false }) } });
+        toast.show({ message: 'Note archived.', action: { label: 'Undo', onClick: () => void organizeNote(res.note, { is_archived: false }) } });
       }
     } catch (err) {
       toast.show({ message: err instanceof Error ? err.message : "Couldn't update the note.", tone: 'error' });
@@ -184,7 +183,10 @@ export function NotesPage() {
       list.removeLocal(note.id);
       set_note_to_delete(null);
       toast.show({ message: `Deleted “${note.title}”.` });
-      navigate(neighbour ? BetaRoutes.note(neighbour.id, filter_search) : BetaRoutes.notes(filter_search), { replace: true });
+      // Deleting from the list leaves whatever note is open alone.
+      if (note.id === selected_id) {
+        navigate(neighbour ? BetaRoutes.note(neighbour.id, filter_search) : BetaRoutes.notes(filter_search), { replace: true });
+      }
       void loadFolders();
       void loadTags();
     } catch (err) {
@@ -294,7 +296,7 @@ export function NotesPage() {
         onToggleChat={() => set_chat_open((open) => !open)}
         onCreate={handleCreate}
         onSaved={handleSaved}
-        onOrganize={(patch) => void handleOrganize(patch)}
+        onOrganize={(patch) => editor_note && void organizeNote(editor_note, patch)}
         onDelete={() => editor_note && set_note_to_delete(editor_note)}
         onDismissCitation={dismissCitation}
       />
@@ -325,7 +327,10 @@ export function NotesPage() {
           filters={filters}
           selected_id={selected_id}
           search_ref={search_ref}
+          folder_tree={folder_tree}
           onSelect={openNote}
+          onOrganizeNote={(note, patch) => void organizeNote(note, patch)}
+          onDeleteNote={set_note_to_delete}
           onQueryChange={(q) => replaceFilters({ ...filters, q })}
           onSortChange={(sort) => replaceFilters({ ...filters, sort })}
           onClearFilters={() => selectFilters({ folder: null, archived: false, tag: null, q: '' })}

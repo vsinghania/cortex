@@ -1762,6 +1762,55 @@ body {
   display: none;
 }
 
+/* Notes list rows carry a hover menu, so the row is a container around the select button. */
+.note-row {
+  position: relative;
+  padding: 0;
+}
+
+.note-row-select {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 14px 16px;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.note-row-actions {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.note-row:hover .note-row-actions,
+.note-row:focus-within .note-row-actions,
+.note-row-actions:has([aria-expanded="true"]) {
+  opacity: 1;
+}
+
+.note-row:hover .list-row-time,
+.note-row:focus-within .list-row-time,
+.note-row:has([aria-expanded="true"]) .list-row-time {
+  visibility: hidden;
+}
+
+@media (hover: none) {
+  .note-row-actions {
+    opacity: 1;
+  }
+
+  .note-row .list-row-time {
+    visibility: hidden;
+  }
+}
+
 /* ── Toolbars and the note editor ──────────────────────── */
 
 .toolbar {

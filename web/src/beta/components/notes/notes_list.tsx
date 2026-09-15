@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import type { Note } from '../../../lib/note.types';
+import type { Note, NotePatchBody } from '../../../lib/note.types';
 import { DateFormat } from '../../../lib/date_format';
 import { NotePreview } from '../../../lib/note_preview';
 import { Icon } from '../../../components/icon';
-import type { NoteFilters, NoteSortMode } from '../../lib/note_workspace.types';
+import type { FolderTreeNode, NoteFilters, NoteSortMode } from '../../lib/note_workspace.types';
 import type { NoteList } from '../../lib/use_note_list';
 import { Hotkey } from '../../lib/hotkey';
 import { NoteOutline } from '../../lib/note_outline';
+import { NoteRowMenu } from './note_row_menu';
 
 const SEARCH_DEBOUNCE_MS = 250;
 const MAX_ROW_TAGS = 3;
@@ -21,13 +22,17 @@ type Props = {
   filters: NoteFilters;
   selected_id: string | null;
   search_ref: RefObject<HTMLInputElement>;
+  folder_tree: FolderTreeNode[];
   onSelect: (note_id: string) => void;
+  onOrganizeNote: (note: Note, patch: NotePatchBody) => void;
+  onDeleteNote: (note: Note) => void;
   onQueryChange: (q: string) => void;
   onSortChange: (sort: NoteSortMode) => void;
   onClearFilters: () => void;
 };
 
-export function NotesList({ label, list, filters, selected_id, search_ref, onSelect, onQueryChange, onSortChange, onClearFilters }: Props) {
+export function NotesList(props: Props) {
+  const { label, list, filters, selected_id, search_ref, onQueryChange, onSortChange, onClearFilters } = props;
   const [query, set_query] = useState(filters.q);
   const scroll_ref = useRef<HTMLDivElement>(null);
   const sentinel_ref = useRef<HTMLDivElement>(null);
@@ -64,7 +69,17 @@ export function NotesList({ label, list, filters, selected_id, search_ref, onSel
   const is_initial_load = list.loading && list.pinned.length === 0 && list.items.length === 0;
 
   function renderRows(notes: Note[]) {
-    return notes.map((note) => <NoteRow key={note.id} note={note} active={note.id === selected_id} onSelect={onSelect} />);
+    return notes.map((note) => (
+      <NoteRow
+        key={note.id}
+        note={note}
+        active={note.id === selected_id}
+        folder_tree={props.folder_tree}
+        onSelect={props.onSelect}
+        onOrganize={props.onOrganizeNote}
+        onDelete={props.onDeleteNote}
+      />
+    ));
   }
 
   function renderBody() {
@@ -148,25 +163,39 @@ export function NotesList({ label, list, filters, selected_id, search_ref, onSel
   );
 }
 
-function NoteRow({ note, active, onSelect }: { note: Note; active: boolean; onSelect: (id: string) => void }) {
+type NoteRowProps = {
+  note: Note;
+  active: boolean;
+  folder_tree: FolderTreeNode[];
+  onSelect: (id: string) => void;
+  onOrganize: (note: Note, patch: NotePatchBody) => void;
+  onDelete: (note: Note) => void;
+};
+
+function NoteRow({ note, active, folder_tree, onSelect, onOrganize, onDelete }: NoteRowProps) {
   const preview = NoteOutline.plainExcerpt(NotePreview.excerpt(note));
   return (
-    <button type="button" className={`list-row${active ? ' list-row-active' : ''}`} aria-current={active ? 'true' : undefined} onClick={() => onSelect(note.id)}>
-      <span className="list-row-top">
-        {note.is_pinned && <Icon name="pin" size={11} className="list-row-pin" />}
-        <span className="list-row-title">{note.title || 'Untitled'}</span>
-        <time className="list-row-time" dateTime={note.updated_at} title={DateFormat.full(note.updated_at)}>
-          {DateFormat.relative(note.updated_at)}
-        </time>
-      </span>
-      <span className="list-row-preview">{preview || <em>Empty note</em>}</span>
-      {note.tags.length > 0 && (
-        <span className="list-row-tags">
-          {note.tags.slice(0, MAX_ROW_TAGS).map((tag) => (
-            <span key={tag} className="chip">{tag}</span>
-          ))}
+    <div className={`list-row note-row${active ? ' list-row-active' : ''}`}>
+      <button type="button" className="note-row-select" aria-current={active ? 'true' : undefined} onClick={() => onSelect(note.id)}>
+        <span className="list-row-top">
+          {note.is_pinned && <Icon name="pin" size={11} className="list-row-pin" />}
+          <span className="list-row-title">{note.title || 'Untitled'}</span>
+          <time className="list-row-time" dateTime={note.updated_at} title={DateFormat.full(note.updated_at)}>
+            {DateFormat.relative(note.updated_at)}
+          </time>
         </span>
-      )}
-    </button>
+        <span className="list-row-preview">{preview || <em>Empty note</em>}</span>
+        {note.tags.length > 0 && (
+          <span className="list-row-tags">
+            {note.tags.slice(0, MAX_ROW_TAGS).map((tag) => (
+              <span key={tag} className="chip">{tag}</span>
+            ))}
+          </span>
+        )}
+      </button>
+      <span className="note-row-actions">
+        <NoteRowMenu note={note} folder_tree={folder_tree} onOrganize={onOrganize} onDelete={onDelete} />
+      </span>
+    </div>
   );
 }
