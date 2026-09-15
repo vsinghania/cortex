@@ -32,7 +32,8 @@ export class QdrantChunkVectorRepository implements ChunkVectorRepository {
         payload: {
           user_id: p.user_id,
           note_id: p.note_id,
-          source: p.source
+          source: p.source,
+          is_archived: p.is_archived
         }
       }))
     });
@@ -46,10 +47,14 @@ export class QdrantChunkVectorRepository implements ChunkVectorRepository {
       must.push({ key: 'source', match: { any: params.source_filter } });
     }
 
+    // must_not rather than `is_archived = false`: points embedded before the flag existed
+    // carry no key and must still match.
+    const must_not = params.include_archived ? [] : [{ key: 'is_archived', match: { value: true } }];
+
     const result = await this.client.search(COLLECTION_NAME, {
       vector: params.query_vector,
       limit: params.k,
-      filter: { must },
+      filter: { must, must_not },
       with_payload: true
     });
 
@@ -69,6 +74,23 @@ export class QdrantChunkVectorRepository implements ChunkVectorRepository {
     });
   }
 
+  async deleteByNoteIds(params: { user_id: string; note_ids: string[] }): Promise<void> {
+    if (params.note_ids.length === 0) return;
+    await this.client.delete(COLLECTION_NAME, {
+      wait: true,
+      filter: QdrantChunkVectorRepository.notesFilter(params)
+    });
+  }
+
+  async setArchived(params: { user_id: string; note_ids: string[]; is_archived: boolean }): Promise<void> {
+    if (params.note_ids.length === 0) return;
+    await this.client.setPayload(COLLECTION_NAME, {
+      wait: true,
+      payload: { is_archived: params.is_archived },
+      filter: QdrantChunkVectorRepository.notesFilter(params)
+    });
+  }
+
   async deleteByNoteId(params: { user_id: string; note_id: string }): Promise<void> {
     await this.client.delete(COLLECTION_NAME, {
       wait: true,
@@ -79,5 +101,14 @@ export class QdrantChunkVectorRepository implements ChunkVectorRepository {
         ]
       }
     });
+  }
+
+  private static notesFilter(params: { user_id: string; note_ids: string[] }) {
+    return {
+      must: [
+        { key: 'user_id', match: { value: params.user_id } },
+        { key: 'note_id', match: { any: params.note_ids } }
+      ]
+    };
   }
 }

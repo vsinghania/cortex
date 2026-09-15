@@ -46,6 +46,7 @@ export interface Note {
 
   tags: string[];
   container?: NoteContainer;
+  folder_id?: string; // NoteFolder domain ID; absent = unfiled
 
   provider_created_at?: Date;
   provider_updated_at?: Date;
@@ -53,6 +54,7 @@ export interface Note {
   sync_status: SyncStatus;
 
   is_archived: boolean;
+  is_pinned: boolean;
   is_deleted: boolean;
 
   metadata?: NoteMetadata;

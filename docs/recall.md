@@ -14,7 +14,7 @@ NotesSvc ─┬─► NoteRepository ──────────────�
 
 ## 1. Notes
 
-`NotesSvc`: `listNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `searchNotes` (lexical), `retrieveChunks` (semantic), `revectorizeNote`.
+`NotesSvc`: `listNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `deleteNotes` (batched), `bulkUpdate`, `deleteTag`, `searchNotes` (lexical), `retrieveChunks` (semantic), `suggestFiling` (AI), `revectorizeNote`. `NoteFoldersSvc` owns the folder tree.
 
 A note is markdown plus provenance — `body` is canonical markdown, `body_raw` keeps the original artifact (imported HTML, a voice transcript). Notes come in two flavours, which is what `NoteLocator` encodes:
 
@@ -23,6 +23,13 @@ A note is markdown plus provenance — `body` is canonical markdown, `body_raw` 
 | Identity | `id` (UUIDv7) we generate | the `(source, external_id)` pair |
 | Create | always inserts | **upserts** — re-importing a provider note updates it |
 | Locator | `{ id }` | `{ id }` or `{ source, external_id }` |
+
+### Organisation
+
+- **Folders** live in `note_folders`, nested up to 8 levels. Each folder stores `ancestor_ids` (root first), so a subtree is one indexed match and a move rewrites descendants with a single pipeline update. Sibling names are unique ignoring case. A note points at one folder via `folder_id`; absent means unfiled. **Deleting a folder cascades** to every subfolder and every note beneath it, through the same trash-snapshotting delete as a single note.
+- **Pinned, archived and filed are not edits.** Patches that touch only `is_pinned`, `is_archived` or `folder_id` skip Mongo timestamps (`NotePatchKind.isOrganizationalOnly`), as do bulk organise actions and `deleteTag`. Otherwise the default newest-updated list would reshuffle on every pin.
+- **Lists hide archived notes by default** (`archived: exclude | only | include`), lead with pinned notes in every explicit sort (`updated_at`, `created_at`, `title` — title uses the case-insensitive collation), and keep relevance-first ordering for a text query with no explicit sort.
+- **Filing suggestions** (`NoteFilingSuggester`) ask the model for one existing folder id, up to 5 tags and — only when the note has none — a title. The output is sanitized: unknown folder ids are dropped and tags snap to existing spellings. Nothing is saved.
 
 **Every method is user-scoped at the repository level**, not by an application-layer check — these operations are exposed to an LLM over MCP, where `user_id` comes from a request header. Never add a repository method that omits it.
 
@@ -33,6 +40,7 @@ Writes persist first, then reconcile vectors best-effort: a dead provider or unr
 - **Chunking is heading-aware** — `MarkdownChunker` splits on markdown headings and packs blocks to `CHUNK_TARGET_TOKENS` with `CHUNK_OVERLAP_TOKENS` of carry-over, counting tokens with tiktoken so counts match what the model sees.
 - **Re-indexing is incremental by content hash.** A chunk whose sha256 is unchanged and already embedded is reused; only changed chunks are re-embedded and chunks past the new count are pruned from both stores. This is why editing one paragraph of a long note is cheap.
 - **An empty body is not an error** — it removes existing vectors and records `status: 'none'`.
+- **Archive state is mirrored onto vectors.** Points carry `is_archived`, written on embed and pushed with Qdrant `setPayload` whenever a note is archived or unarchived (reused chunks are never re-upserted, so the payload update is the only path).
 
 ## 3. Embeddings
 
@@ -48,7 +56,9 @@ The module's central idea is **two chunk shapes**: `RawRetrievedChunk` is what r
 
 [citation_svc](citation_svc.md) mirrors that seam for display: it keeps its own `Map<Corpus, DocumentResolver>` so a cited chunk can be turned back into a current title without retrieval knowing anything about documents. A new corpus needs a retriever here and a resolver there.
 
-**Qdrant ranks, Mongo supplies text.** The vector store holds only `{user_id, note_id, source}` payload, so a hit is joined back to its chunk row for content; a hit whose row is missing is skipped rather than returned empty. `top_k` is clamped to `[1, 20]`.
+**Archived notes are excluded** with a `must_not is_archived = true` filter unless `include_archived` is set; points written before the flag existed have no key and still match.
+
+**Qdrant ranks, Mongo supplies text.** The vector store holds only `{user_id, note_id, source, is_archived}` payload, so a hit is joined back to its chunk row for content; a hit whose row is missing is skipped rather than returned empty. `top_k` is clamped to `[1, 20]`.
 
 ## 5. Gotchas
 
@@ -57,6 +67,8 @@ The module's central idea is **two chunk shapes**: `RawRetrievedChunk` is what r
 - **Chunk ids are stable across re-indexing, and must stay that way.** `vectorizeNote` reuses the id at each chunk index rather than minting a new one, because stored citations reference chunk ids ([citation_svc.md](citation_svc.md)). `revectorizeNote` forces a full re-embed via `force_embed` instead of deleting the chunks first — deleting would regenerate every id and orphan the citations pointing at them.
 - **Vectorization is inline with the write**, so note writes wait on OpenAI.
 - **Deletes snapshot to trash first** — the note is copied to a TTL'd trash collection (30 days) before removal, but there is no restore path in the service, and chunks and vectors are dropped immediately.
+- **Run `npm run notes:backfill-organization` once per environment after deploying folders/pins.** Notes written before `is_pinned` existed have no field, and Mongo sorts missing below `false`, so the pinned-first sort would split old and new notes. It also syncs `is_archived` onto vectors of notes archived before the flag reached Qdrant.
+- **Folder moves are two writes, not a transaction** — the folder, then its descendants' `ancestor_ids`. A crash between them leaves descendants with a stale chain (wrong subtree listings and depth checks) that nothing repairs automatically.
 - **`retrieveAcross` merges by score alone**, which assumes every corpus shares an embedding model and distance metric.
 - **`NotesSvc.create()` is per request**, unlike the singletons around it.
 

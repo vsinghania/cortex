@@ -28,7 +28,9 @@ This is the part worth reading twice.
 
 [src/mcp/server/notes/](../src/mcp/server/notes/) — its own process (`npm run mcp:notes:dev`), with its own Mongo connection and Qdrant bootstrap. It shares databases with the web server, not memory.
 
-Tools, all backed by `NotesSvc` and all user-scoped: `notes_list`, `notes_get`, `notes_create`, `notes_update`, `notes_delete`, `notes_search` (lexical), `notes_search_semantic` (vector; returns ranked chunks whose `chunk_id` is what [citations](citation_svc.md) reference).
+Tools, all backed by `NotesSvc` / `NoteFoldersSvc` and all user-scoped: `notes_list`, `notes_tags`, `notes_get`, `notes_create`, `notes_update`, `notes_delete`, `notes_search` (lexical), `notes_search_semantic` (vector; returns ranked chunks whose `chunk_id` is what [citations](citation_svc.md) reference), `notes_folders` (flat `{id, path, note_count}` rows), `notes_folder_create` (idempotent, by slash path) and `notes_bulk_update` (move, archive, pin, tags on up to 100 notes).
+
+Archived notes are hidden from `notes_list`, `notes_search` and `notes_search_semantic` unless asked for. `notes_bulk_update` has **no delete action on purpose** — `notes_delete`, one note at a time, stays the only destructive tool — and folder rename/move/delete and tag deletion are REST-only. Because MCP input schemas are one object shape, `notes_bulk_update` takes a flat `{ids, action, folder_id?, tags?}` and re-checks per-action requirements in the handler.
 
 Note what the semantic tool's description deliberately does **not** say: it states that `chunk_id` is stable and safe to reference, but never prescribes the `[c:…]` marker format. That syntax belongs to citation_svc and is taught by the agent's prompt, so a second agent calling the same tool does not silently inherit a citation convention it never asked for. A tool describes its data; the agent decides what referencing means.
 

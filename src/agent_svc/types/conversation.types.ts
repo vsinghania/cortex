@@ -7,6 +7,7 @@ export type Conversation = {
   user_id?: string;
   agent_id: string;
   title?: string;
+  is_pinned: boolean;
   last_provider_response_id?: string;
   created_at: Date;
   updated_at: Date;

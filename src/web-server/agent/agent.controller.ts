@@ -40,7 +40,12 @@ const ListConversationsQuerySchema = z.object({
     .string()
     .datetime()
     .optional(),
+  pinned: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
+
+const ConversationPatchBodySchema = z.object({
+  is_pinned: z.boolean(),
+}).strict();
 
 const ConversationParamsSchema = z.object({
   conversation_id: z.string().min(1),
@@ -78,6 +83,7 @@ export class AgentController {
     this.router.post('/run', this.run.bind(this));
     this.router.get('/conversations', this.listConversations.bind(this));
     this.router.get('/conversations/:conversation_id', this.getConversation.bind(this));
+    this.router.patch('/conversations/:conversation_id', this.updateConversation.bind(this));
     this.router.delete('/conversations/:conversation_id', this.deleteConversation.bind(this));
     // Registered after /conversations so '/:agent_id' cannot shadow it.
     this.router.get(
@@ -182,15 +188,13 @@ export class AgentController {
   ) {
     try {
       const user_id = req.auth!.user_id;
-      const limit_raw = (req.query as Record<string, unknown>).limit;
-      const before_raw = (req.query as Record<string, unknown>).before_updated_at;
-      const limit = typeof limit_raw === 'string' ? Number(limit_raw) : undefined;
-      const before_updated_at = typeof before_raw === 'string' ? new Date(before_raw) : undefined;
+      const query = ListConversationsQuerySchema.parse(req.query);
       const agent_svc = await AgentSvc.create();
       const result = await agent_svc.listConversations({
         user_id,
-        limit,
-        before_updated_at,
+        limit: query.limit,
+        before_updated_at: query.before_updated_at ? new Date(query.before_updated_at) : undefined,
+        pinned: query.pinned,
       });
       res.status(200).json({ response: result });
     } catch (e) {
@@ -210,6 +214,24 @@ export class AgentController {
       const agent_svc = await AgentSvc.create();
       const result = await agent_svc.getConversation({ conversation_id, user_id });
       res.status(200).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ params: ConversationParamsSchema, body: ConversationPatchBodySchema })
+  private async updateConversation(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
+    try {
+      const { conversation_id } = req.params as { conversation_id: string };
+      const { is_pinned } = ConversationPatchBodySchema.parse(req.body);
+      const user_id = req.auth!.user_id;
+      const agent_svc = await AgentSvc.create();
+      const conversation = await agent_svc.setConversationPinned({ conversation_id, user_id, is_pinned });
+      res.status(200).json({ response: { conversation } });
     } catch (e) {
       next(e);
     }

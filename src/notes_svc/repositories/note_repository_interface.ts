@@ -1,20 +1,63 @@
 import type { Note, NoteSource } from '../types/note.types.js';
+import type { NoteListSortOption } from '../note_list_sort.js';
 
 /**
  * Structured, additive note filters. Add named fields here as new filters are needed;
  * keep it a plain typed struct rather than a generic {field, operator, value} DSL.
  */
+export type NoteArchivedFilter = 'exclude' | 'only' | 'include';
+
 export type NoteListFilter = {
   /** Matches notes carrying ALL of these tags, ignoring case. */
   tags?: string[];
+  /** Defaults to 'exclude': archived notes stay out of lists unless asked for. */
+  archived?: NoteArchivedFilter;
+  pinned?: boolean;
+  /** Notes filed directly in any of these folders. Resolved from a folder tree by the service. */
+  folder_ids?: string[];
+  /** Notes not filed in any folder. */
+  unfiled?: boolean;
 };
 
 export type NoteListParams = {
   user_id: string;
   query?: string;
   filter?: NoteListFilter;
+  sort?: NoteListSortOption;
   limit?: number;
   offset?: number;
+};
+
+export type NoteSearchParams = {
+  user_id: string;
+  query: string;
+  archived?: NoteArchivedFilter;
+  limit?: number;
+  offset?: number;
+};
+
+/** `folder_id: null` files the note out of its folder. */
+export type NotePatchFields = Partial<Omit<Note, 'folder_id'>> & { folder_id?: string | null };
+
+export type NoteOrganizationFields = {
+  is_pinned?: boolean;
+  is_archived?: boolean;
+  folder_id?: string | null;
+};
+
+export type NoteBulkUpdate =
+  | { kind: 'organize'; fields: NoteOrganizationFields }
+  | { kind: 'add_tags'; tags: string[] }
+  | { kind: 'remove_tags'; tags: string[] };
+
+export type NoteBulkUpdateResult = {
+  matched: number;
+  modified: number;
+};
+
+export type NoteFolderCount = {
+  folder_id: string;
+  count: number;
 };
 
 export type NoteListResult = {
@@ -65,18 +108,26 @@ export interface NoteRepository {
   /** Distinct tags for one user with note counts, case-folded, most-used first. */
   listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]>;
 
-  updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null>;
-  updateNoteByKey(params: NoteBySourceKey & { patch: Partial<Note> }): Promise<Note | null>;
+  /** Case-insensitively strips one tag from every note of the user; returns notes changed. */
+  removeTagEverywhere(params: { user_id: string; tag: string }): Promise<number>;
+
+  /** Non-archived note counts per folder, for folder tree badges. Unfiled notes are omitted. */
+  countNotesByFolder(params: { user_id: string }): Promise<NoteFolderCount[]>;
+
+  listNoteIdsInFolders(params: { user_id: string; folder_ids: string[] }): Promise<string[]>;
+
+  updateNoteById(params: NoteByIdKey & { patch: NotePatchFields }): Promise<Note | null>;
+  updateNoteByKey(params: NoteBySourceKey & { patch: NotePatchFields }): Promise<Note | null>;
+
+  bulkUpdateNotes(params: { user_id: string; ids: string[]; update: NoteBulkUpdate }): Promise<NoteBulkUpdateResult>;
 
   deleteNoteById(params: NoteByIdKey): Promise<boolean>;
   deleteNoteByKey(params: NoteBySourceKey): Promise<boolean>;
 
-  searchNotes(params: {
-    user_id: string;
-    query: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<NoteListResult>;
+  /** Snapshots every matching note to trash, then deletes them; returns the ids actually deleted. */
+  deleteNotesByIds(params: { user_id: string; ids: string[] }): Promise<string[]>;
+
+  searchNotes(params: NoteSearchParams): Promise<NoteListResult>;
 
   /** Admin maintenance sweeps only - see NoteMaintenanceParams. */
   listNotesForMaintenance(params: NoteMaintenanceParams): Promise<Note[]>;

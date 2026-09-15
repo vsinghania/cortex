@@ -8,8 +8,16 @@ import type {
   NoteTagCount,
   NoteByIdKey,
   NoteBySourceKey,
-  NoteMaintenanceParams
+  NoteMaintenanceParams,
+  NoteSearchParams,
+  NoteArchivedFilter,
+  NotePatchFields,
+  NoteBulkUpdate,
+  NoteBulkUpdateResult,
+  NoteFolderCount
 } from './note_repository_interface.js';
+import { NoteListSort, type ResolvedNoteSort } from '../note_list_sort.js';
+import { NotePatchKind } from '../note_patch_kind.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
 import { NoteModelFactory, NoteTrashModelFactory } from '../models/index.js';
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
@@ -71,20 +79,21 @@ export class MongooseNoteRepository implements NoteRepository {
   async listNotes(params: NoteListParams): Promise<NoteListResult> {
     const { limit, offset } = MongooseNoteRepository.normalizePagination(params);
 
-    const useText = !!params.query && !!params.query.trim();
-    const filter = MongooseNoteRepository.buildListFilter({ ...params, use_text: useText });
+    const use_text = !!params.query && !!params.query.trim();
+    const filter = MongooseNoteRepository.buildListFilter({ ...params, use_text });
+    const resolved_sort = NoteListSort.resolve({ sort: params.sort, has_query: use_text });
 
     let cursor = this.model.find(filter);
-    if (useText) {
-      cursor = cursor.select({ score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, updated_at: -1 });
-    } else {
-      cursor = cursor.sort({ updated_at: -1 });
+    if (resolved_sort.by_relevance) {
+      cursor = cursor.select({ score: { $meta: 'textScore' } });
     }
+    cursor = cursor.sort(resolved_sort.sort);
 
-    // Only the non-text path can ask for the collated index: text indexes support simple
-    // binary comparison only, so $text with a non-simple collation cannot use one. The
-    // text path gets the same case-insensitivity from anchored regexes instead.
-    const collation = useText ? undefined : MongooseNoteRepository.tagCollationFor(params.filter);
+    // Only the non-text path can ask for a collation: text indexes support simple binary
+    // comparison only, so $text with a non-simple collation cannot use one. The text path
+    // gets tag case-insensitivity from anchored regexes instead, and a title sort there
+    // falls back to binary order.
+    const collation = use_text ? undefined : MongooseNoteRepository.collationFor(params.filter, resolved_sort);
     if (collation) cursor = cursor.collation(collation);
 
     const [items, total] = await Promise.all([
@@ -122,27 +131,76 @@ export class MongooseNoteRepository implements NoteRepository {
     return rows as NoteTagCount[];
   }
 
-  async updateNoteById(params: NoteByIdKey & { patch: Partial<Note> }): Promise<Note | null> {
-    const allowed = MongooseNoteRepository.buildAllowedPatch(params.patch);
-    const updated = await this.model.findOneAndUpdate(
-      { user_id: params.user_id, id: params.id },
-      { $set: allowed },
-      { new: true }
-    ).lean();
-    return updated ? (MongooseUtils.toDomain<Note>(updated) as Note) : null;
+  async removeTagEverywhere(params: { user_id: string; tag: string }): Promise<number> {
+    const result = await this.model.updateMany(
+      { user_id: params.user_id, tags: params.tag },
+      // The filter finds notes through the collated index; the anchored regex makes $pull strip every casing.
+      { $pull: { tags: Regex.exactCaseInsensitive(params.tag) } },
+      { collation: NoteModelFactory.CASE_INSENSITIVE_COLLATION, timestamps: false }
+    );
+    return result.modifiedCount;
   }
 
-  async updateNoteByKey(params: NoteBySourceKey & { patch: Partial<Note> }): Promise<Note | null> {
-    const allowed = MongooseNoteRepository.buildAllowedPatch(params.patch);
-    const updated = await this.model.findOneAndUpdate(
+  async countNotesByFolder(params: { user_id: string }): Promise<NoteFolderCount[]> {
+    const rows = await this.model.aggregate([
+      {
+        $match: {
+          user_id: params.user_id,
+          folder_id: { $exists: true, $type: 'string' },
+          ...MongooseNoteRepository.archivedClause('exclude')
+        }
+      },
+      { $group: { _id: '$folder_id', count: { $sum: 1 } } },
+      { $project: { _id: 0, folder_id: '$_id', count: 1 } }
+    ]);
+    return rows as NoteFolderCount[];
+  }
+
+  async listNoteIdsInFolders(params: { user_id: string; folder_ids: string[] }): Promise<string[]> {
+    if (params.folder_ids.length === 0) return [];
+    const docs = await this.model
+      .find({ user_id: params.user_id, folder_id: { $in: params.folder_ids } })
+      .select({ _id: 0, id: 1 })
+      .lean();
+    return docs.map((d: { id: string }) => d.id);
+  }
+
+  async updateNoteById(params: NoteByIdKey & { patch: NotePatchFields }): Promise<Note | null> {
+    return this.findOneAndPatch({ user_id: params.user_id, id: params.id }, params.patch);
+  }
+
+  async updateNoteByKey(params: NoteBySourceKey & { patch: NotePatchFields }): Promise<Note | null> {
+    return this.findOneAndPatch(
       {
         user_id: params.user_id,
         source: params.source,
         external_id: params.external_id
       },
-      { $set: allowed },
-      { new: true }
-    ).lean();
+      params.patch
+    );
+  }
+
+  async bulkUpdateNotes(params: {
+    user_id: string;
+    ids: string[];
+    update: NoteBulkUpdate;
+  }): Promise<NoteBulkUpdateResult> {
+    if (params.ids.length === 0) return { matched: 0, modified: 0 };
+    const { update, touch_timestamps } = MongooseNoteRepository.buildBulkUpdate(params.update);
+    const result = await this.model.updateMany(
+      { user_id: params.user_id, id: { $in: params.ids } },
+      update,
+      { timestamps: touch_timestamps }
+    );
+    return { matched: result.matchedCount, modified: result.modifiedCount };
+  }
+
+  private async findOneAndPatch(filter: Record<string, unknown>, patch: NotePatchFields): Promise<Note | null> {
+    const update = MongooseNoteRepository.buildPatchUpdate(patch);
+    const updated = await this.model.findOneAndUpdate(filter, update, {
+      new: true,
+      timestamps: !NotePatchKind.isOrganizationalOnly(patch)
+    }).lean();
     return updated ? (MongooseUtils.toDomain<Note>(updated) as Note) : null;
   }
 
@@ -158,17 +216,37 @@ export class MongooseNoteRepository implements NoteRepository {
     });
   }
 
-  async searchNotes(params: {
-    user_id: string;
-    query: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<NoteListResult> {
+  async deleteNotesByIds(params: { user_id: string; ids: string[] }): Promise<string[]> {
+    if (params.ids.length === 0) return [];
+    const filter = { user_id: params.user_id, id: { $in: params.ids } };
+    const snapshots = await this.model.find(filter).lean();
+    if (snapshots.length === 0) return [];
+
+    const deleted_at = new Date();
+    await this.trash_model.insertMany(
+      snapshots.map((snapshot: Record<string, unknown>) => MongooseNoteRepository.toTrashDoc(snapshot, deleted_at))
+    );
+
+    const snapshot_ids = snapshots.map((snapshot: { id: string }) => snapshot.id);
+    try {
+      await this.model.deleteMany({ user_id: params.user_id, id: { $in: snapshot_ids } });
+    } catch (err) {
+      logger.warn(
+        { err, note_count: snapshot_ids.length },
+        'bulk note delete failed after trash snapshots were written; trash entries will TTL out'
+      );
+      throw err;
+    }
+    return snapshot_ids;
+  }
+
+  async searchNotes(params: NoteSearchParams): Promise<NoteListResult> {
     const { limit, offset } = MongooseNoteRepository.normalizePagination(params);
 
-    const filter: any = {
+    const filter: Record<string, unknown> = {
       user_id: params.user_id,
-      $text: { $search: params.query.trim() }
+      $text: { $search: params.query.trim() },
+      ...MongooseNoteRepository.archivedClause(params.archived)
     };
 
     const [items, total] = await Promise.all([
@@ -230,10 +308,7 @@ export class MongooseNoteRepository implements NoteRepository {
     const snapshot = await this.model.findOne(filter).lean();
     if (!snapshot) return false;
 
-    const trash_doc = { ...snapshot, deleted_at: new Date() };
-    Reflect.deleteProperty(trash_doc as any, '_id');
-    Reflect.deleteProperty(trash_doc as any, '__v');
-    await this.trash_model.create(trash_doc);
+    await this.trash_model.create(MongooseNoteRepository.toTrashDoc(snapshot, new Date()));
 
     try {
       await this.model.deleteOne(filter);
@@ -248,8 +323,28 @@ export class MongooseNoteRepository implements NoteRepository {
     return true;
   }
 
+  private static toTrashDoc(snapshot: Record<string, unknown>, deleted_at: Date): Record<string, unknown> {
+    const trash_doc = { ...snapshot, deleted_at };
+    Reflect.deleteProperty(trash_doc, '_id');
+    Reflect.deleteProperty(trash_doc, '__v');
+    return trash_doc;
+  }
+
   private static buildListFilter(params: NoteListParams & { use_text: boolean }): Record<string, unknown> {
-    const filter: Record<string, unknown> = { user_id: params.user_id };
+    const filter: Record<string, unknown> = {
+      user_id: params.user_id,
+      ...MongooseNoteRepository.archivedClause(params.filter?.archived)
+    };
+
+    if (params.filter?.pinned !== undefined) {
+      filter.is_pinned = params.filter.pinned ? true : { $ne: true };
+    }
+
+    if (params.filter?.unfiled) {
+      filter.folder_id = { $exists: false };
+    } else if (params.filter?.folder_ids) {
+      filter.folder_id = { $in: params.filter.folder_ids };
+    }
 
     if (params.use_text) {
       filter.$text = { $search: params.query!.trim() };
@@ -265,9 +360,25 @@ export class MongooseNoteRepository implements NoteRepository {
     return filter;
   }
 
-  /** The collated index only applies when tags are actually being filtered on. */
-  private static tagCollationFor(filter: NoteListFilter | undefined) {
-    return MongooseNoteRepository.normalizeTags(filter?.tags).length > 0
+  /** `$ne: true` rather than `false` so notes written before the flag existed still match. */
+  private static archivedClause(archived: NoteArchivedFilter | undefined): Record<string, unknown> {
+    switch (archived ?? 'exclude') {
+      case 'only':
+        return { is_archived: true };
+      case 'include':
+        return {};
+      default:
+        return { is_archived: { $ne: true } };
+    }
+  }
+
+  /**
+   * Tag filters and title sorts share one case-insensitive collation; it is only requested
+   * when one of them is in play, since a collated query can only use a collated index.
+   */
+  private static collationFor(filter: NoteListFilter | undefined, sort: ResolvedNoteSort) {
+    const filters_tags = MongooseNoteRepository.normalizeTags(filter?.tags).length > 0;
+    return filters_tags || sort.needs_case_insensitive_collation
       ? NoteModelFactory.CASE_INSENSITIVE_COLLATION
       : undefined;
   }
@@ -295,6 +406,31 @@ export class MongooseNoteRepository implements NoteRepository {
     return limit === 0;
   }
 
+  private static buildPatchUpdate(patch: NotePatchFields): Record<string, unknown> {
+    const { folder_id, ...rest } = patch;
+    const update: Record<string, unknown> = { $set: MongooseNoteRepository.buildAllowedPatch(rest) };
+    if (folder_id === null) {
+      update.$unset = { folder_id: '' };
+    } else if (folder_id !== undefined) {
+      (update.$set as Record<string, unknown>).folder_id = folder_id;
+    }
+    return update;
+  }
+
+  private static buildBulkUpdate(bulk: NoteBulkUpdate): { update: Record<string, unknown>; touch_timestamps: boolean } {
+    switch (bulk.kind) {
+      case 'organize':
+        return { update: MongooseNoteRepository.buildPatchUpdate(bulk.fields), touch_timestamps: false };
+      case 'add_tags':
+        return { update: { $addToSet: { tags: { $each: bulk.tags } } }, touch_timestamps: true };
+      case 'remove_tags':
+        return {
+          update: { $pull: { tags: { $in: bulk.tags.map((t) => Regex.exactCaseInsensitive(t)) } } },
+          touch_timestamps: true
+        };
+    }
+  }
+
   private static buildAllowedPatch(patch: Partial<Note> | undefined): Partial<Note> {
     const p = patch ?? {};
     const allowed: Partial<Note> = {};
@@ -311,6 +447,7 @@ export class MongooseNoteRepository implements NoteRepository {
 
     if (p.sync_status !== undefined) allowed.sync_status = p.sync_status;
     if (p.is_archived !== undefined) allowed.is_archived = p.is_archived;
+    if (p.is_pinned !== undefined) allowed.is_pinned = p.is_pinned;
     if (p.is_deleted !== undefined) allowed.is_deleted = p.is_deleted;
 
     if (p.metadata !== undefined) allowed.metadata = p.metadata;

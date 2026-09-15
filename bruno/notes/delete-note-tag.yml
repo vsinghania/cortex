@@ -1,0 +1,15 @@
+info:
+  name: delete-note-tag
+  type: http
+  seq: 17
+
+http:
+  method: DELETE
+  url: "{{base_url}}/notes/tags/bulk"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

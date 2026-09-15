@@ -9,5 +9,7 @@ export interface NoteChunkRepository {
 
   deleteByNoteId(params: { user_id: string; note_id: string }): Promise<string[]>;
 
+  deleteByNoteIds(params: { user_id: string; note_ids: string[] }): Promise<number>;
+
   deleteByIds(params: { user_id: string; ids: string[] }): Promise<number>;
 }

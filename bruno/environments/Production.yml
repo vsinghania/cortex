@@ -10,5 +10,7 @@ variables:
     value: smoke-notes-agent
   - name: note_id
     value: ""
+  - name: folder_id
+    value: ""
   - name: job_id
     value: ""

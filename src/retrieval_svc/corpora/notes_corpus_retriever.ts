@@ -53,7 +53,8 @@ export class NotesCorpusRetriever implements CorpusRetriever {
       user_id: params.user_id,
       query_vector: query_result.vector,
       k: top_k,
-      source_filter
+      source_filter,
+      include_archived: params.include_archived
     });
 
     if (hits.length === 0) {

@@ -60,6 +60,7 @@ export class NoteTrashModelFactory extends BaseModelFactory<TrashedNote> {
         tags: { type: [String], default: [] },
 
         container: { type: ContainerSchema, default: undefined },
+        folder_id: { type: String, default: undefined },
 
         provider_created_at: { type: Date, default: undefined },
         provider_updated_at: { type: Date, default: undefined },
@@ -68,6 +69,7 @@ export class NoteTrashModelFactory extends BaseModelFactory<TrashedNote> {
         sync_status: { type: String, enum: Object.values(SyncStatus), default: SyncStatus.Idle },
 
         is_archived: { type: Boolean, default: false },
+        is_pinned: { type: Boolean, default: false },
         is_deleted: { type: Boolean, default: false },
 
         metadata: { type: MetadataSchema, default: undefined },
