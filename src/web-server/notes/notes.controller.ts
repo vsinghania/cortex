@@ -90,6 +90,13 @@ const NoteTagParamsSchema = z.object({
   tag: z.string().trim().min(1)
 });
 
+const NoteFilingSuggestionBodySchema = z.object({
+  title: z.string().optional(),
+  body: z.string().default('')
+}).strict().refine((b) => (b.title ?? '').trim().length > 0 || b.body.trim().length > 0, {
+  message: 'Provide a non-blank title or body'
+});
+
 const NoteBulkIdsSchema = z.array(z.string().min(1)).min(1).max(NoteBulkActionMapper.MAX_IDS);
 const NoteBulkTagsSchema = z.array(z.string().trim().min(1)).min(1).max(MAX_TAG_FILTER_COUNT);
 
@@ -135,6 +142,7 @@ export class NotesController {
     this.router.delete('/tags/:tag', this.deleteTag.bind(this));
     this.router.use('/folders', new NoteFoldersController().getRouter());
     this.router.post('/bulk', this.bulkUpdateNotes.bind(this));
+    this.router.post('/filing_suggestion', this.suggestFiling.bind(this));
     this.router.get('/:id/chunks/:chunk_id', this.getNoteChunk.bind(this));
     this.router.get('/:id', this.getNote.bind(this));
     this.router.patch('/:id', this.updateNote.bind(this));
@@ -224,6 +232,19 @@ export class NotesController {
       const notes_svc = await NotesSvc.create();
       const result = await notes_svc.bulkUpdate({ user_id, ids, action });
       res.status(200).json({ response: result });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ body: NoteFilingSuggestionBodySchema })
+  private async suggestFiling(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const body = NoteFilingSuggestionBodySchema.parse(req.body);
+      const user_id = req.auth!.user_id;
+      const notes_svc = await NotesSvc.create();
+      const suggestion = await notes_svc.suggestFiling({ user_id, ...body });
+      res.status(200).json({ response: { suggestion } });
     } catch (e) {
       next(e);
     }

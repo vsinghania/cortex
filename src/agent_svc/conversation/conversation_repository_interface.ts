@@ -4,6 +4,8 @@ export type ListConversationsForUserParams = {
   user_id: string;
   limit?: number;
   before_updated_at?: Date;
+  /** Omit for every conversation; `false` also matches conversations from before pinning existed. */
+  pinned?: boolean;
 };
 
 export interface ConversationRepositoryInterface {
@@ -21,6 +23,9 @@ export interface ConversationRepositoryInterface {
   setLastProviderResponseId(conversation_id: string, last_provider_response_id: string): Promise<void>;
 
   setTitle(conversation_id: string, title: string): Promise<void>;
+
+  /** Leaves `updated_at` alone, since the conversation list is ordered by it. */
+  setPinned(params: { conversation_id: string; user_id: string; is_pinned: boolean }): Promise<Conversation | null>;
 
   appendMessages(messages: Omit<ConversationMessage, 'created_at'>[]): Promise<void>;
 

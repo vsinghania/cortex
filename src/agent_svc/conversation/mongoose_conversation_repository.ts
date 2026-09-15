@@ -71,6 +71,9 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     if (params.before_updated_at) {
       filter.updated_at = { $lt: params.before_updated_at };
     }
+    if (params.pinned !== undefined) {
+      filter.is_pinned = params.pinned ? true : { $ne: true };
+    }
     const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
     const docs = await this.conv_model
       .find(filter)
@@ -95,6 +98,21 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
       { conversation_id },
       { $set: { title } }
     );
+  }
+
+  async setPinned(params: {
+    conversation_id: string;
+    user_id: string;
+    is_pinned: boolean;
+  }): Promise<Conversation | null> {
+    const doc = await this.conv_model
+      .findOneAndUpdate(
+        { conversation_id: params.conversation_id, user_id: params.user_id },
+        { $set: { is_pinned: params.is_pinned } },
+        { new: true, timestamps: false }
+      )
+      .lean();
+    return doc ? MongooseUtils.toDomain<Conversation>(doc) : null;
   }
 
   async appendMessages(messages: Omit<ConversationMessage, 'created_at'>[]): Promise<void> {

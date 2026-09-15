@@ -20,6 +20,7 @@ export class ConversationTrashModelFactory extends BaseModelFactory<TrashedConve
         user_id: { type: String, default: undefined },
         agent_id: { type: String, required: true },
         title: { type: String, default: undefined },
+        is_pinned: { type: Boolean, default: false },
         last_provider_response_id: { type: String, default: undefined },
         created_at: { type: Date, required: true },
         updated_at: { type: Date, required: true },

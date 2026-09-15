@@ -20,6 +20,8 @@ import { MongooseNoteChunkRepository } from './repositories/mongoose_note_chunk_
 import { MongooseNoteFolderRepository } from './repositories/mongoose_note_folder_repository.js';
 import { NotePatchKind } from './note_patch_kind.js';
 import { NoteBulkActionMapper } from './note_bulk_action_mapper.js';
+import { NoteFolderTree } from './note_folder_tree.js';
+import { NoteFilingSuggester, type NoteFilingSuggestion } from './filing/note_filing_suggester.js';
 import { NotesVectorizationSvc } from './notes_vectorization_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
 import type { RawRetrievedChunk, RetrievedChunk, RetrieveParams } from '../retrieval_svc/types/retrieval.types.js';
@@ -249,6 +251,36 @@ export class NotesSvc {
     });
     logger.info({ notes_updated, duration_ms: Time.elapsedMs(start_ms) }, 'tag deleted');
     return notes_updated;
+  }
+
+  /** Suggests a folder and tags (and a title, when missing) for note content, without saving anything. */
+  async suggestFiling(params: { user_id: string; title?: string; body: string }): Promise<NoteFilingSuggestion> {
+    const start_ms = performance.now();
+    const [folders, counts, tags] = await Promise.all([
+      this.folder_repo.listFolders({ user_id: params.user_id }),
+      this.notes_repo.countNotesByFolder({ user_id: params.user_id }),
+      this.notes_repo.listTags({ user_id: params.user_id, limit: NoteFilingSuggester.MAX_EXISTING_TAGS })
+    ]);
+    const { suggestion, model } = await NoteFilingSuggester.suggest({
+      title: params.title,
+      body: params.body,
+      folders: NoteFolderTree.buildNodes(folders, counts),
+      tags
+    });
+    logger.info(
+      {
+        folder_count: folders.length,
+        tag_count: tags.length,
+        body_chars: params.body.length,
+        model,
+        title_suggested: suggestion.title !== null,
+        folder_suggested: suggestion.folder !== null,
+        suggested_tag_count: suggestion.tags.length,
+        duration_ms: Time.elapsedMs(start_ms)
+      },
+      'note filing suggested'
+    );
+    return suggestion;
   }
 
   async searchNotes(params: NoteSearchParams): Promise<NoteListResult> {

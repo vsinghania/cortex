@@ -79,8 +79,17 @@ export class ConversationStore {
     user_id: string;
     limit?: number;
     before_updated_at?: Date;
+    pinned?: boolean;
   }): Promise<Conversation[]> {
     return this.repo.listConversationsForUser(params);
+  }
+
+  async setPinnedForUser(params: {
+    conversation_id: string;
+    user_id: string;
+    is_pinned: boolean;
+  }): Promise<Conversation | null> {
+    return this.repo.setPinned(params);
   }
 
   async getForUser(params: {

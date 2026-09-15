@@ -15,6 +15,7 @@ import type {
   DeleteConversationInput,
   GetAgentInput,
   GetConversationInput,
+  SetConversationPinnedInput,
   ListConversationsInput,
   RunAdHocInput,
   RunByAgentIdInput,
@@ -230,9 +231,10 @@ export class AgentSvc implements AgentSvcInterface {
       user_id: input.user_id,
       limit: input.limit,
       before_updated_at: input.before_updated_at,
+      pinned: input.pinned,
     });
     logger.info(
-      { user_id: input.user_id, count: result.length, limit: input.limit },
+      { user_id: input.user_id, count: result.length, limit: input.limit, pinned: input.pinned },
       'listed conversations'
     );
     return result;
@@ -273,6 +275,19 @@ export class AgentSvc implements AgentSvcInterface {
       { conversation_id: input.conversation_id, message_count: result.message_count },
       'conversation deleted'
     );
+  }
+
+  async setConversationPinned(input: SetConversationPinnedInput): Promise<Conversation> {
+    const conversation_store = await ConversationStore.getInstance();
+    const conversation = await conversation_store.setPinnedForUser(input);
+    if (!conversation) {
+      throw new NotFoundError(`Conversation not found: ${input.conversation_id}`);
+    }
+    logger.info(
+      { conversation_id: input.conversation_id, is_pinned: input.is_pinned },
+      'conversation pin updated'
+    );
+    return conversation;
   }
 
   private async generateAndPersistTitle(

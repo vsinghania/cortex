@@ -12,6 +12,7 @@ export class ConversationModelFactory extends BaseModelFactory<Conversation> {
         user_id: { type: String, default: undefined, index: true },
         agent_id: { type: String, required: true, index: true },
         title: { type: String, default: undefined },
+        is_pinned: { type: Boolean, default: false },
         last_provider_response_id: { type: String, default: undefined },
       },
       {
@@ -20,6 +21,8 @@ export class ConversationModelFactory extends BaseModelFactory<Conversation> {
         timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
       }
     );
+
+    schema.index({ user_id: 1, is_pinned: 1, updated_at: -1 }, { name: 'by_user_pinned_updated' });
 
     schema.set('toJSON', {
       transform(_doc, ret) {

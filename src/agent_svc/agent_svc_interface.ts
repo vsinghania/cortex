@@ -56,6 +56,13 @@ export type ListConversationsInput = {
   user_id: string;
   limit?: number;
   before_updated_at?: Date;
+  pinned?: boolean;
+};
+
+export type SetConversationPinnedInput = {
+  conversation_id: string;
+  user_id: string;
+  is_pinned: boolean;
 };
 
 export type GetConversationInput = {
@@ -83,4 +90,5 @@ export interface AgentSvcInterface {
   listConversations(input: ListConversationsInput): Promise<Conversation[]>;
   getConversation(input: GetConversationInput): Promise<ConversationWithMessages>;
   deleteConversation(input: DeleteConversationInput): Promise<void>;
+  setConversationPinned(input: SetConversationPinnedInput): Promise<Conversation>;
 }

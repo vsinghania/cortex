@@ -59,6 +59,7 @@
     "agent:smoke:notes-mcp": "tsx scripts/notes_mcp_agent_smoke.ts",
     "notes:backfill-offsets": "tsx scripts/backfill_chunk_offsets.ts",
     "notes:backfill-organization": "tsx scripts/backfill_note_organization.ts",
+    "notes:smoke:organization": "tsx scripts/notes_organization_smoke.ts",
     "citations:audit": "tsx scripts/citation_audit.ts",
     "jobs:smoke": "tsx scripts/jobs_repo_smoke.ts",
     "jobs:smoke:worker": "tsx scripts/jobs_worker_smoke.ts",

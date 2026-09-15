@@ -1,6 +1,6 @@
 /* One-off backfill for the notes-organisation release. Run once per environment on deploy.
  *
- *   1) Sets `is_pinned: false` on notes written before pinning existed.
+ *   1) Sets `is_pinned: false` on notes and conversations written before pinning existed.
  *      Mongo sorts a missing field below `false`, so without this the pinned-first note sort
  *      splits old and new notes into separate blocks.
  *   2) Mirrors `is_archived: true` onto the Qdrant points of already-archived notes, so they
@@ -30,15 +30,17 @@ class BackfillNoteOrganization {
     const port = Number(process.env.MONGO_PORT ?? 27017);
     const mgr = await MongooseConnectionManager.getInstance({ host, port });
     const notes_conn = await mgr.getDbConnection({ db: DbNameResolver.resolve('notes'), host, port });
+    const agent_conn = await mgr.getDbConnection({ db: DbNameResolver.resolve('agent'), host, port });
 
     // Raw collection access on purpose: compiling models here would collide with the
     // repositories' shared model factories on the same connection.
     const notes_pinned = await BackfillNoteOrganization.backfillPinned(notes_conn, 'notes', dry_run);
+    const conversations_pinned = await BackfillNoteOrganization.backfillPinned(agent_conn, 'conversations', dry_run);
     const archived_notes = await BackfillNoteOrganization.syncArchivedVectors(notes_conn, dry_run);
 
     console.log(
       `\ndone${dry_run ? ' (dry run)' : ''}: notes_pinned_backfilled=${notes_pinned} ` +
-      `archived_notes_synced=${archived_notes} ` +
+      `conversations_pinned_backfilled=${conversations_pinned} archived_notes_synced=${archived_notes} ` +
       `duration_ms=${Time.elapsedMs(start_ms)}`
     );
     await MongooseConnectionManager.getExistingInstance()?.disconnectAll();

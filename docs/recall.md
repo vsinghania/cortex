@@ -14,7 +14,7 @@ NotesSvc ─┬─► NoteRepository ──────────────�
 
 ## 1. Notes
 
-`NotesSvc`: `listNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `deleteNotes` (batched), `bulkUpdate`, `deleteTag`, `searchNotes` (lexical), `retrieveChunks` (semantic), `revectorizeNote`. `NoteFoldersSvc` owns the folder tree.
+`NotesSvc`: `listNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `deleteNotes` (batched), `bulkUpdate`, `deleteTag`, `searchNotes` (lexical), `retrieveChunks` (semantic), `suggestFiling` (AI), `revectorizeNote`. `NoteFoldersSvc` owns the folder tree.
 
 A note is markdown plus provenance — `body` is canonical markdown, `body_raw` keeps the original artifact (imported HTML, a voice transcript). Notes come in two flavours, which is what `NoteLocator` encodes:
 
@@ -29,6 +29,7 @@ A note is markdown plus provenance — `body` is canonical markdown, `body_raw` 
 - **Folders** live in `note_folders`, nested up to 8 levels. Each folder stores `ancestor_ids` (root first), so a subtree is one indexed match and a move rewrites descendants with a single pipeline update. Sibling names are unique ignoring case. A note points at one folder via `folder_id`; absent means unfiled. **Deleting a folder cascades** to every subfolder and every note beneath it, through the same trash-snapshotting delete as a single note.
 - **Pinned, archived and filed are not edits.** Patches that touch only `is_pinned`, `is_archived` or `folder_id` skip Mongo timestamps (`NotePatchKind.isOrganizationalOnly`), as do bulk organise actions and `deleteTag`. Otherwise the default newest-updated list would reshuffle on every pin.
 - **Lists hide archived notes by default** (`archived: exclude | only | include`), lead with pinned notes in every explicit sort (`updated_at`, `created_at`, `title` — title uses the case-insensitive collation), and keep relevance-first ordering for a text query with no explicit sort.
+- **Filing suggestions** (`NoteFilingSuggester`) ask the model for one existing folder id, up to 5 tags and — only when the note has none — a title. The output is sanitized: unknown folder ids are dropped and tags snap to existing spellings. Nothing is saved.
 
 **Every method is user-scoped at the repository level**, not by an application-layer check — these operations are exposed to an LLM over MCP, where `user_id` comes from a request header. Never add a repository method that omits it.
 

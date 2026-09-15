@@ -1,0 +1,24 @@
+info:
+  name: filing-suggestion
+  type: http
+  seq: 18
+
+http:
+  method: POST
+  url: "{{base_url}}/notes/filing_suggestion"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "body": "Slow-cooked tomato sauce: simmer garlic, olive oil and crushed tomatoes for two hours."
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
