@@ -35,7 +35,9 @@ A note is markdown plus provenance — `body` is canonical markdown, `body_raw` 
 
 ## 2. Chunking and vectorization
 
-Writes persist first, then reconcile vectors best-effort: a dead provider or unreachable Qdrant leaves `vectorization.status = 'error'` and **never fails the note write**. Updates re-index only when `title` or `body` changed.
+Writes persist first, then reconcile vectors best-effort: a dead provider or unreachable Qdrant leaves `vectorization.status = 'error'` and **never fails the note write**. Updates re-index only when `body` changed — titles are joined live at retrieval, so a rename never re-embeds.
+
+- **Indexing is inline or deferred per write** (`NoteWriteOptions.indexing`). Inline embeds before the write returns (MCP tools, imports). Deferred — used by the REST controller, whose clients autosave — records `status: 'pending'` and enqueues `note_vectorize` with `dedup_key: note:<id>` and a 30s delay. The job reads the note when it runs, so a burst of saves costs one embed; a save that collides with the active job relies on the job re-reading and looping (up to 3 passes) when the body moved mid-embed. If the enqueue itself fails, the write falls back to inline.
 
 - **Chunking is heading-aware** — `MarkdownChunker` splits on markdown headings and packs blocks to `CHUNK_TARGET_TOKENS` with `CHUNK_OVERLAP_TOKENS` of carry-over, counting tokens with tiktoken so counts match what the model sees.
 - **Re-indexing is incremental by content hash.** A chunk whose sha256 is unchanged and already embedded is reused; only changed chunks are re-embedded and chunks past the new count are pruned from both stores. This is why editing one paragraph of a long note is cheap.

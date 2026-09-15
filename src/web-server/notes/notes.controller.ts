@@ -155,7 +155,8 @@ export class NotesController {
       const body = req.body as NoteCreateBody;
       const user_id = req.auth!.user_id;
       const notes_svc = await NotesSvc.create();
-      const note = await notes_svc.createNote({ user_id, ...body });
+      // Editor clients autosave; deferring the embed keeps each save fast and coalesces bursts.
+      const note = await notes_svc.createNote({ user_id, ...body }, { indexing: 'deferred' });
       res.status(201).json({ response: { note } });
     } catch (e) {
       next(e);
@@ -298,7 +299,7 @@ export class NotesController {
       const user_id = req.auth!.user_id;
       const patch = req.body as NotePatchBody;
       const notes_svc = await NotesSvc.create();
-      const note = await notes_svc.updateNote(user_id, { id }, patch);
+      const note = await notes_svc.updateNote(user_id, { id }, patch, { indexing: 'deferred' });
       if (!note) throw new NotFoundError('Note not found');
       res.status(200).json({ response: { note } });
     } catch (e) {

@@ -5,7 +5,8 @@ import { z } from 'zod';
  * module never names a domain concept - see scripts/layering.test.ts.
  */
 export const NotesJobName = {
-  NotesReindex: 'notes_reindex'
+  NotesReindex: 'notes_reindex',
+  NoteVectorize: 'note_vectorize'
 } as const;
 
 export const MAX_REINDEX_USER_IDS = 500;
@@ -44,3 +45,12 @@ export type NotesReindexPayload = z.infer<typeof NotesReindexPayloadSchema>;
 export type NotesReindexCheckpoint = {
   after_id?: string;
 };
+
+export const NoteVectorizePayloadSchema = z
+  .object({
+    user_id: z.string().min(1),
+    note_id: z.string().min(1)
+  })
+  .strict();
+
+export type NoteVectorizePayload = z.infer<typeof NoteVectorizePayloadSchema>;

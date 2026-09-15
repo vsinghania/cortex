@@ -18,8 +18,8 @@ test('undefined keys are ignored, and an empty patch is not organizational', () 
   assert.equal(NotePatchKind.isOrganizationalOnly({}), false);
 });
 
-test('touchesBody covers title and body', () => {
-  assert.equal(NotePatchKind.touchesBody({ title: 't' }), true);
+test('touchesBody covers the body only', () => {
+  assert.equal(NotePatchKind.touchesBody({ title: 't' }), false);
   assert.equal(NotePatchKind.touchesBody({ body: '' }), true);
   assert.equal(NotePatchKind.touchesBody({ is_archived: true }), false);
 });

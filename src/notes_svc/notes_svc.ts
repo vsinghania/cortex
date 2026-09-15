@@ -29,7 +29,11 @@ import { Corpus } from '../retrieval_svc/types/retrieval.types.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 import { Id } from '../lib/id.js';
 import { Time } from '../lib/time.js';
-import { NotFoundError } from '../common/errors.js';
+import { NotesJobName } from './jobs/notes_job.types.js';
+import type { JobsSvcInterface } from '../jobs_svc/jobs_svc_interface.js';
+import { JobsSvc } from '../jobs_svc/jobs_svc.js';
+import { JobDedupKey } from '../jobs_svc/job_dedup_key.js';
+import { ConflictError, NotFoundError } from '../common/errors.js';
 import { logger } from '../common/logger.js';
 
 export type NoteListResult = RepoListResult;
@@ -77,7 +81,21 @@ export type NoteCreateInput = {
 
 export type NotePatch = Omit<NotePatchFields, 'id' | 'user_id' | 'source' | 'external_id' | 'created_at' | 'updated_at'>;
 
+/**
+ * `inline` embeds before the write returns, so the note is searchable immediately
+ * (agent tools, imports). `deferred` hands off to a delayed note_vectorize job so
+ * rapid autosaves from an editor coalesce into one embed.
+ */
+export type NoteIndexing = 'inline' | 'deferred';
+
+export type NoteWriteOptions = {
+  indexing?: NoteIndexing;
+};
+
 const DELETE_BATCH_SIZE = 500;
+
+/** Long enough to span a typing burst, short enough that search catches up soon after. */
+const NOTE_VECTORIZE_DELAY_SEC = 30;
 
 /**
  * NotesSvc - domain service for CRUD/search on notes.
@@ -90,6 +108,7 @@ export class NotesSvc {
 
   private vectorization_svc?: NotesVectorizationSvc;
   private chunk_repo?: NoteChunkRepository;
+  private jobs_svc?: Pick<JobsSvcInterface, 'enqueue'>;
 
   private constructor(
     private readonly notes_repo: NoteRepository,
@@ -129,13 +148,14 @@ export class NotesSvc {
     return this.notes_repo.getNoteByKey({ user_id, source: locator.source, external_id: locator.external_id });
   }
 
-  async createNote(input: NoteCreateInput): Promise<Note> {
+  async createNote(input: NoteCreateInput, opts: NoteWriteOptions = {}): Promise<Note> {
     const start_ms = performance.now();
+    const indexing = opts.indexing ?? 'inline';
     if (input.folder_id) await this.requireFolder(input.user_id, input.folder_id);
     const note = NotesSvc.isSourceKeyedInput(input)
       ? await this.upsertSourceKeyed(input)
-      : await this.createNative(input);
-    await this.vectorizeSafely(note);
+      : await this.createNative(NotesSvc.withPendingVectorization(input, indexing));
+    await this.indexSafely(note, indexing);
     logger.info(
       {
         note_id: note.id,
@@ -149,20 +169,28 @@ export class NotesSvc {
     return note;
   }
 
-  async updateNote(user_id: string, locator: NoteLocator, patch: NotePatch): Promise<Note | null> {
+  async updateNote(
+    user_id: string,
+    locator: NoteLocator,
+    patch: NotePatch,
+    opts: NoteWriteOptions = {}
+  ): Promise<Note | null> {
     const start_ms = performance.now();
+    const indexing = opts.indexing ?? 'inline';
     if (patch.folder_id) await this.requireFolder(user_id, patch.folder_id);
+    const touches_body = NotePatchKind.touchesBody(patch);
+    const stored_patch = touches_body ? NotesSvc.withPendingVectorization(patch, indexing) : patch;
     const updated = 'id' in locator
-      ? await this.notes_repo.updateNoteById({ user_id, id: locator.id, patch })
+      ? await this.notes_repo.updateNoteById({ user_id, id: locator.id, patch: stored_patch })
       : await this.notes_repo.updateNoteByKey({
           user_id,
           source: locator.source,
           external_id: locator.external_id,
-          patch
+          patch: stored_patch
         });
-    const revectorized = !!updated && NotePatchKind.touchesBody(patch);
+    const revectorized = !!updated && touches_body;
     if (updated && revectorized) {
-      await this.vectorizeSafely(updated);
+      await this.indexSafely(updated, indexing);
     }
     if (updated && NotePatchKind.touchesArchive(patch)) {
       await this.setArchivedSafely({ user_id, note_ids: [updated.id], is_archived: updated.is_archived });
@@ -172,6 +200,7 @@ export class NotesSvc {
         {
           note_id: updated.id,
           revectorized,
+          indexing,
           organizational: NotePatchKind.isOrganizationalOnly(patch),
           duration_ms: Time.elapsedMs(start_ms)
         },
@@ -405,6 +434,48 @@ export class NotesSvc {
       batches.push(items.slice(i, i + size));
     }
     return batches;
+  }
+
+  /** Marks the write as awaiting its deferred embed, so clients can show it is still indexing. */
+  private static withPendingVectorization<T extends { vectorization?: NoteVectorization }>(
+    fields: T,
+    indexing: NoteIndexing
+  ): T {
+    return indexing === 'deferred' ? { ...fields, vectorization: { status: 'pending' } } : fields;
+  }
+
+  private async indexSafely(note: Note, indexing: NoteIndexing): Promise<void> {
+    if (indexing === 'deferred' && (await this.enqueueVectorize(note))) return;
+    await this.vectorizeSafely(note);
+  }
+
+  /** Returns false only when the job could not be queued, so the caller falls back to inline. */
+  private async enqueueVectorize(note: Note): Promise<boolean> {
+    try {
+      const jobs = await this.jobsSvc();
+      await jobs.enqueue({
+        name: NotesJobName.NoteVectorize,
+        payload: { user_id: note.user_id, note_id: note.id },
+        user_id: note.user_id,
+        dedup_key: JobDedupKey.build(['note', note.id]),
+        delay_ms: Time.secondsToMs(NOTE_VECTORIZE_DELAY_SEC),
+        requested_by: note.user_id
+      });
+      return true;
+    } catch (err) {
+      // An active job for this note re-reads the body when it runs, and loops if the
+      // body moved mid-embed, so this edit is already covered.
+      if (err instanceof ConflictError) return true;
+      logger.warn({ err, note_id: note.id }, 'note vectorize enqueue failed; indexing inline');
+      return false;
+    }
+  }
+
+  private async jobsSvc(): Promise<Pick<JobsSvcInterface, 'enqueue'>> {
+    if (!this.jobs_svc) {
+      this.jobs_svc = await JobsSvc.getInstance();
+    }
+    return this.jobs_svc;
   }
 
   private async vectorizeSafely(note: Note): Promise<void> {
