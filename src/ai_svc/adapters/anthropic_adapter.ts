@@ -1,10 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { transformJSONSchema } from '@anthropic-ai/sdk/lib/transform-json-schema';
 import { performance } from 'node:perf_hooks';
 import { logger } from '../../common/logger.js';
 import { logExecTime } from '../../lib/decorators/logging_decorators.js';
 import { Time } from '../../lib/time.js';
-import { ZodJsonSchema } from '../../lib/zod_json_schema.js';
 import {
   AdapterStructuredRequest,
   AdapterStructuredResponse,
@@ -28,6 +28,10 @@ type ResolvedOptions = {
   retries: number;
   temperature?: number;
   max_tokens: number;
+};
+
+type StructuredOutputFormat<T> = Anthropic.JSONOutputFormat & {
+  parse(content: string): T;
 };
 
 type AnthropicPrompt = {
@@ -82,23 +86,16 @@ export class AnthropicAdapter implements GenAiAdapter {
 
   @logExecTime({ threshold_in_ms: SLOW_CALL_THRESHOLD_MS })
   async generateStructured<T>(req: AdapterStructuredRequest<T>): Promise<AdapterStructuredResponse<T>> {
-    if (req.format.kind === 'zod') {
-      const zod_schema = req.format.schema;
-      return this.requestJson(req, ZodJsonSchema.toJsonSchema(zod_schema), (raw) => zod_schema.parse(raw));
-    }
-    return this.requestJson(req, req.format.schema, (raw) => raw as T);
+    const output_format = AnthropicAdapter.toOutputFormat(req.format);
+    return this.requestJson(req, output_format);
   }
 
   private async requestJson<T>(
     req: AdapterStructuredRequest<T>,
-    json_schema: Record<string, unknown>,
-    toData: (raw: unknown) => T
+    output_format: StructuredOutputFormat<T>
   ): Promise<AdapterStructuredResponse<T>> {
     const resolved = this.resolveOptions(req.options, DEFAULT_MAX_TOKENS_STRUCTURED);
-    const output_config: Anthropic.OutputConfig = {
-      format: { type: 'json_schema', schema: transformJSONSchema(json_schema) },
-    };
-    const resp = await this.createMessage(req.messages, resolved, output_config);
+    const resp = await this.createMessage(req.messages, resolved, { format: output_format });
     if (resp.stop_reason === 'max_tokens') {
       throw new Error('Anthropic structured output was truncated at max_tokens');
     }
@@ -107,7 +104,7 @@ export class AnthropicAdapter implements GenAiAdapter {
       throw new Error('Anthropic returned no text for structured output');
     }
     return {
-      data: toData(JSON.parse(text)),
+      data: output_format.parse(text),
       model: resp.model,
       usage: AnthropicAdapter.toUsage(resp.usage),
     };
@@ -176,6 +173,17 @@ export class AnthropicAdapter implements GenAiAdapter {
         clearTimeout(timer);
       }
     }
+  }
+
+  private static toOutputFormat<T>(format: AdapterStructuredRequest<T>['format']): StructuredOutputFormat<T> {
+    if (format.kind === 'zod') {
+      return zodOutputFormat(format.schema);
+    }
+    return {
+      type: 'json_schema',
+      schema: transformJSONSchema(format.schema),
+      parse: (content) => JSON.parse(content) as T,
+    };
   }
 
   private static isRetryable(err: unknown): boolean {
