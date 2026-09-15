@@ -61,7 +61,8 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
         external_id: { type: String, default: undefined, index: true },
 
         title: { type: String, required: true, default: '' },
-        body: { type: String, required: true, default: '' },
+        // Not `required`: Mongoose treats '' as missing, and a title-only note is valid.
+        body: { type: String, default: '' },
         body_raw: { type: String, default: undefined },
 
         tags: { type: [String], default: [] },
