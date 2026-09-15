@@ -18,10 +18,16 @@ const AgentRunOptionsSchema = z.object({
   retries: z.number().int().nonnegative().optional(),
 });
 
+const ContextRefSchema = z.object({
+  corpus: z.literal('notes'),
+  document_id: z.string().min(1),
+}).strict();
+
 const RunRequestSchema = z.object({
   agent_id: z.string().min(1),
   input: z.union([z.string().min(1), z.array(MessageSchema).min(1)]),
   conversation_id: z.string().min(1).optional(),
+  context_ref: ContextRefSchema.optional(),
   options: AgentRunOptionsSchema.optional(),
 });
 
@@ -41,7 +47,12 @@ const ListConversationsQuerySchema = z.object({
     .datetime()
     .optional(),
   pinned: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
-});
+  context_corpus: z.literal('notes').optional(),
+  context_document_id: z.string().min(1).optional(),
+}).refine(
+  (q) => (q.context_corpus === undefined) === (q.context_document_id === undefined),
+  { message: 'context_corpus and context_document_id must be given together' }
+);
 
 const ConversationPatchBodySchema = z.object({
   is_pinned: z.boolean(),
@@ -172,6 +183,7 @@ export class AgentController {
         input: body.input,
         conversation_id: body.conversation_id,
         user_id,
+        context_ref: body.context_ref,
         options: body.options,
       });
       res.status(200).json({ response: result });
@@ -195,6 +207,9 @@ export class AgentController {
         limit: query.limit,
         before_updated_at: query.before_updated_at ? new Date(query.before_updated_at) : undefined,
         pinned: query.pinned,
+        context_ref: query.context_corpus && query.context_document_id
+          ? { corpus: query.context_corpus, document_id: query.context_document_id }
+          : undefined,
       });
       res.status(200).json({ response: result });
     } catch (e) {

@@ -1,0 +1,26 @@
+info:
+  name: agent-run-with-note-context
+  type: http
+  seq: 12
+
+http:
+  method: POST
+  url: "{{base_url}}/agent/run"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "agent_id": "notes-recall",
+        "input": "Summarise this note",
+        "context_ref": { "corpus": "notes", "document_id": "{{note_id}}" }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

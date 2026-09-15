@@ -15,7 +15,7 @@ import type {
   NoteFolderNode,
   NoteFolderPatchBody,
 } from './note_folder.types';
-import type { AgentRunRequest, AgentRunResponse, Conversation, ConversationWithMessages } from './agent.types';
+import type { AgentRunRequest, AgentRunResponse, ContextRef, Conversation, ConversationWithMessages } from './agent.types';
 import type { MintTokenResponse } from './voice.types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
@@ -295,12 +295,16 @@ export class ApiClient {
   }
 
   static async listConversations(
-    params: { limit?: number; before_updated_at?: string; pinned?: boolean } = {},
+    params: { limit?: number; before_updated_at?: string; pinned?: boolean; context_ref?: ContextRef } = {},
   ): Promise<Conversation[]> {
     const query = new URLSearchParams();
     if (params.limit != null) query.set('limit', String(params.limit));
     if (params.before_updated_at) query.set('before_updated_at', params.before_updated_at);
     if (params.pinned != null) query.set('pinned', String(params.pinned));
+    if (params.context_ref) {
+      query.set('context_corpus', params.context_ref.corpus);
+      query.set('context_document_id', params.context_ref.document_id);
+    }
     const qs = query.toString();
     return ApiClient.request<Conversation[]>(`/agent/conversations${qs ? `?${qs}` : ''}`);
   }

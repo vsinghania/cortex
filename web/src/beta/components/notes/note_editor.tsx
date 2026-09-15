@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { MutableRefObject } from 'react';
 import type { Note, NotePatchBody } from '../../../lib/note.types';
 import type { NoteFolderNode } from '../../../lib/note_folder.types';
 import type { ReturnLinkState } from '../../../lib/navigation.types';
@@ -27,7 +28,11 @@ type Props = {
   return_link: ReturnLinkState | null;
   list_collapsed: boolean;
   outline_request: OutlineRequest | null;
+  chat_open: boolean;
+  /** Receives this editor's autosave flush, so the note chat can save pending edits before asking. */
+  flush_ref: MutableRefObject<(() => Promise<void>) | null>;
   onToggleList: () => void;
+  onToggleChat: () => void;
   onCreate: (fields: NoteDraftFields) => Promise<Note>;
   onSaved: (note: Note) => void;
   onOrganize: (patch: NotePatchBody) => void;
@@ -56,6 +61,15 @@ export function NoteEditor(props: Props) {
   const scroll_ref = useRef<HTMLDivElement>(null);
   const autosave = useNoteAutosave({ note_id: note?.id ?? null, onSaved: props.onSaved });
   useNowTick(RELATIVE_TIME_TICK_MS);
+
+  const { flush_ref } = props;
+  useEffect(() => {
+    const flush = autosave.flush;
+    flush_ref.current = flush;
+    return () => {
+      if (flush_ref.current === flush) flush_ref.current = null;
+    };
+  }, [flush_ref, autosave.flush]);
 
   useLayoutEffect(() => {
     GrowingTextarea.fit(title_el_ref.current);
@@ -144,7 +158,9 @@ export function NoteEditor(props: Props) {
         mode={mode}
         show_mode={!chunk_id}
         list_collapsed={props.list_collapsed}
+        chat_open={props.chat_open}
         onToggleList={props.onToggleList}
+        onToggleChat={props.onToggleChat}
         onModeChange={set_mode}
         onOrganize={props.onOrganize}
         onDelete={props.onDelete}

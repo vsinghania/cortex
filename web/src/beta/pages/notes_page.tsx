@@ -14,6 +14,7 @@ import { NotesRailSections } from '../components/notes/notes_rail_sections';
 import { NotesList } from '../components/notes/notes_list';
 import { NoteEditor } from '../components/notes/note_editor';
 import { NoteRightRail } from '../components/notes/note_right_rail';
+import type { NoteRailTab } from '../components/notes/note_right_rail';
 import { BetaRoutes } from '../lib/beta_routes';
 import { FolderTree } from '../lib/folder_tree';
 import { Hotkey } from '../lib/hotkey';
@@ -31,6 +32,7 @@ import { useRelatedNotes } from '../lib/use_related_notes';
 const NEW_NOTE_HOTKEY: HotkeySpec = { mod: true, alt: true, code: 'KeyN' };
 const SEARCH_HOTKEY: HotkeySpec = { mod: true, key: 'k' };
 const LIST_TOGGLE_HOTKEY: HotkeySpec = { mod: true, shift: true, code: 'Backslash' };
+const CHAT_TOGGLE_HOTKEY: HotkeySpec = { mod: true, shift: true, code: 'KeyL' };
 
 type FolderDeleteTarget = { folder: NoteFolderNode; subfolder_count: number; note_count: number };
 
@@ -51,6 +53,7 @@ export function NotesPage() {
   const [folders, set_folders] = useState<NoteFolderNode[]>([]);
   const [tags, set_tags] = useState<NoteTagCount[]>([]);
   const [list_collapsed, set_list_collapsed] = usePersistedFlag('cortex.listCollapsed', false);
+  const [chat_open, set_chat_open] = usePersistedFlag('cortex.noteChatOpen', false);
   const [draft_session, set_draft_session] = useState(0);
   const [draft_note_id, set_draft_note_id] = useState<string | null>(null);
   const [note_to_delete, set_note_to_delete] = useState<Note | null>(null);
@@ -58,6 +61,7 @@ export function NotesPage() {
   const [dialog_busy, set_dialog_busy] = useState(false);
   const [outline_request, set_outline_request] = useState<OutlineRequest | null>(null);
   const search_ref = useRef<HTMLInputElement>(null);
+  const flush_ref = useRef<(() => Promise<void>) | null>(null);
 
   const list = useNoteList(filters);
   const current = useCurrentNote(selected_id, list.find);
@@ -118,6 +122,11 @@ export function NotesPage() {
     window.requestAnimationFrame(() => search_ref.current?.focus());
   });
   useHotkey(LIST_TOGGLE_HOTKEY, () => set_list_collapsed((c) => !c));
+  useHotkey(CHAT_TOGGLE_HOTKEY, () => set_chat_open((open) => !open));
+
+  const flushEditor = useCallback(async () => {
+    await flush_ref.current?.();
+  }, []);
 
   async function handleCreate(fields: NoteDraftFields): Promise<Note> {
     const { note } = await ApiClient.createNote({
@@ -279,7 +288,10 @@ export function NotesPage() {
         return_link={return_link}
         list_collapsed={list_collapsed}
         outline_request={outline_request}
+        chat_open={chat_open}
+        flush_ref={flush_ref}
         onToggleList={() => set_list_collapsed((c) => !c)}
+        onToggleChat={() => set_chat_open((open) => !open)}
         onCreate={handleCreate}
         onSaved={handleSaved}
         onOrganize={(patch) => void handleOrganize(patch)}
@@ -330,6 +342,9 @@ export function NotesPage() {
           note={editor_note}
           folders_by_id={folders_by_id}
           related={related}
+          tab={chat_open ? 'chat' : 'details'}
+          onTabChange={(tab: NoteRailTab) => set_chat_open(tab === 'chat')}
+          flush={flushEditor}
           onOutline={(line) => set_outline_request((prev) => ({ line, nonce: (prev?.nonce ?? 0) + 1 }))}
           onOpenNote={openNote}
         />

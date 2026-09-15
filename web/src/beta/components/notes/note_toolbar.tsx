@@ -15,7 +15,9 @@ type Props = {
   mode: EditorMode;
   show_mode: boolean;
   list_collapsed: boolean;
+  chat_open: boolean;
   onToggleList: () => void;
+  onToggleChat: () => void;
   onModeChange: (mode: EditorMode) => void;
   onOrganize: (patch: NotePatchBody) => void;
   onDelete: () => void;
@@ -48,6 +50,16 @@ export function NoteToolbar(props: Props) {
         {note && (
           <>
             <span className="toolbar-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className={`icon-btn toolbar-btn${props.chat_open ? ' icon-btn-accent' : ''}`}
+              onClick={props.onToggleChat}
+              aria-label={props.chat_open ? 'Close chat' : 'Chat about this note'}
+              aria-pressed={props.chat_open}
+              title={props.chat_open ? 'Close chat' : 'Chat about this note'}
+            >
+              <Icon name="sparkle" size={15} />
+            </button>
             <button
               type="button"
               className={`icon-btn toolbar-btn${note.is_pinned ? ' icon-btn-accent' : ''}`}

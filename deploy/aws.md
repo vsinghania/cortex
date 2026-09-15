@@ -451,6 +451,7 @@ Things that bite when editing these rows by hand later:
   on every refresh regardless.
 - **Changes land within 10 minutes** (the registry refresh), or immediately on
   `docker compose restart web-server`.
+- **Keep the attached-document exception in the prompt.** The note page's chat attaches the open note to each run. If the prompt says to search before *every* answer, the model searches anyway and can favour those results over the note. Phrase the rule as: "If a document is attached to this conversation, answer from it first and search only when the question needs information beyond it. Otherwise, make exactly one `notes_search_semantic` call before answering."
 - **Keep `[c:<chunk_id>]` in the prompt.** It is the only place the citation
   format is taught, and `CitationExtractor` matches exactly that; any other
   format produces answers with no citations and no error.

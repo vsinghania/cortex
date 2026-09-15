@@ -28,6 +28,7 @@ import { AgentRegistry } from './registry/agent_registry.js';
 import { ToolRegistry } from './tools/tool_registry.js';
 import { ConversationStore } from './conversation/conversation_store.js';
 import { ConversationTitleGenerator } from './conversation/conversation_title_generator.js';
+import { ContextAttachment } from './context/context_attachment.js';
 import { AgentFactory } from './factory/agent_factory.js';
 import { MongooseAgentRepository } from './repositories/mongoose_agent_repository.js';
 import { AgentIdGenerator } from './agent_id_generator.js';
@@ -121,10 +122,22 @@ export class AgentSvc implements AgentSvcInterface {
       'agent run started'
     );
 
+    const requested_doc = await ContextAttachment.requireRequested({
+      user_id: input.user_id,
+      ref: input.context_ref,
+    });
+
     const { conversation, created } = await conversation_store.ensureConversation({
       conversation_id: input.conversation_id,
       user_id: input.user_id,
       agent_id: agent.manifest.agent_id,
+      context_ref: input.context_ref,
+    });
+
+    const attachment = await ContextAttachment.forConversation({
+      user_id: input.user_id,
+      conversation,
+      requested_doc,
     });
 
     const title_promise = created
@@ -149,6 +162,7 @@ export class AgentSvc implements AgentSvcInterface {
       conversation_id: conversation.conversation_id,
       user_id: input.user_id,
       previous_response_id: conversation.last_provider_response_id,
+      context_messages: attachment.context_messages,
       options: input.options,
     };
 
@@ -172,6 +186,8 @@ export class AgentSvc implements AgentSvcInterface {
         model: response.model,
         message_count: response.message_history.length,
         citation_count: citations.length,
+        context_document_attached: attachment.attached,
+        context_truncated: attachment.truncated,
         usage: response.usage,
         stop_reason: response.stop_reason,
         duration_ms,
@@ -232,9 +248,16 @@ export class AgentSvc implements AgentSvcInterface {
       limit: input.limit,
       before_updated_at: input.before_updated_at,
       pinned: input.pinned,
+      context_ref: input.context_ref,
     });
     logger.info(
-      { user_id: input.user_id, count: result.length, limit: input.limit, pinned: input.pinned },
+      {
+        user_id: input.user_id,
+        count: result.length,
+        limit: input.limit,
+        pinned: input.pinned,
+        context_corpus: input.context_ref?.corpus,
+      },
       'listed conversations'
     );
     return result;

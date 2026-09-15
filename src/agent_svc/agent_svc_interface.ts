@@ -10,6 +10,7 @@ import type {
 import type { Message } from './types/message.types.js';
 import type { AgentView } from './types/agent_view.types.js';
 import type {
+  ContextRef,
   Conversation,
   ConversationMessageView,
 } from './types/conversation.types.js';
@@ -19,6 +20,8 @@ export type RunByAgentIdInput = {
   input: string | Message[];
   conversation_id?: string;
   user_id?: string;
+  /** Anchors a new conversation to a document; ignored for an existing one, which keeps its own. */
+  context_ref?: ContextRef;
   options?: AgentRunOptions;
 };
 
@@ -57,6 +60,7 @@ export type ListConversationsInput = {
   limit?: number;
   before_updated_at?: Date;
   pinned?: boolean;
+  context_ref?: ContextRef;
 };
 
 export type SetConversationPinnedInput = {

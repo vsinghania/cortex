@@ -6,11 +6,20 @@ import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 
 export class ConversationModelFactory extends BaseModelFactory<Conversation> {
   protected buildSchema(): Schema<Conversation> {
+    const ContextRefSchema = new Schema(
+      {
+        corpus: { type: String, required: true },
+        document_id: { type: String, required: true },
+      },
+      { _id: false, id: false }
+    );
+
     const schema = new Schema<Conversation>(
       {
         conversation_id: { type: String, required: true, unique: true, index: true },
         user_id: { type: String, default: undefined, index: true },
         agent_id: { type: String, required: true, index: true },
+        context_ref: { type: ContextRefSchema, default: undefined },
         title: { type: String, default: undefined },
         is_pinned: { type: Boolean, default: false },
         last_provider_response_id: { type: String, default: undefined },
@@ -23,6 +32,10 @@ export class ConversationModelFactory extends BaseModelFactory<Conversation> {
     );
 
     schema.index({ user_id: 1, is_pinned: 1, updated_at: -1 }, { name: 'by_user_pinned_updated' });
+    schema.index(
+      { user_id: 1, 'context_ref.corpus': 1, 'context_ref.document_id': 1, updated_at: -1 },
+      { name: 'by_user_context_updated', partialFilterExpression: { context_ref: { $exists: true } } }
+    );
 
     schema.set('toJSON', {
       transform(_doc, ret) {

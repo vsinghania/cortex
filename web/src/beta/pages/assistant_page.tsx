@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiClient } from '../../lib/api_client';
-import { NOTES_RECALL_AGENT_ID } from '../../lib/agent.types';
 import type { Conversation } from '../../lib/agent.types';
-import type { Note } from '../../lib/note.types';
-import { CitationText } from '../../lib/citation_text';
 import { AppRail } from '../components/app_rail';
 import { VerifyBanner } from '../components/verify_banner';
 import { ConfirmDialog } from '../components/confirm_dialog';
@@ -14,12 +11,11 @@ import { AssistantHeader } from '../components/assistant/assistant_header';
 import { ChatView } from '../components/assistant/chat_view';
 import { VoiceView } from '../components/assistant/voice_view';
 import { SessionRail } from '../components/assistant/session_rail';
-import type { ChatTurn } from '../lib/assistant.types';
 import { BetaRoutes } from '../lib/beta_routes';
 import type { AssistantMode } from '../lib/beta_routes';
-import { ConversationTurns } from '../lib/conversation_turns';
 import { Hotkey } from '../lib/hotkey';
 import type { HotkeySpec } from '../lib/hotkey';
+import { useChatThread } from '../lib/use_chat_thread';
 import { useHotkey } from '../lib/use_hotkey';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
 
@@ -36,11 +32,8 @@ export function AssistantPage() {
 
   const [conversations, set_conversations] = useState<Conversation[]>([]);
   const [conv_loading, set_conv_loading] = useState(true);
-  const [turns, set_turns] = useState<ChatTurn[]>([]);
-  const [conversation_id, set_conversation_id] = useState<string | null>(null);
-  const [pending, set_pending] = useState(false);
-  const [thread_loading, set_thread_loading] = useState(false);
-  const [error, set_error] = useState<string | null>(null);
+  const thread = useChatThread();
+  const { conversation_id } = thread;
   const [busy_id, set_busy_id] = useState<string | null>(null);
   const [thread_to_delete, set_thread_to_delete] = useState<Conversation | null>(null);
   const [list_collapsed, set_list_collapsed] = usePersistedFlag('cortex.listCollapsed', false);
@@ -65,44 +58,16 @@ export function AssistantPage() {
     void loadConversations();
   }, [loadConversations]);
 
-  function resetThread() {
-    set_conversation_id(null);
-    set_turns([]);
-    set_error(null);
-    set_thread_loading(false);
-  }
-
   // The URL is the source of truth for the open thread, so leaving through a citation and
   // coming back restores it.
   useEffect(() => {
     if (!route_conversation_id) {
-      resetThread();
+      thread.reset();
       return;
     }
     // A just-created conversation is already on screen; its URL was only swapped in afterwards.
     if (route_conversation_id === conversation_id) return;
-
-    let cancelled = false;
-    async function loadThread(id: string) {
-      set_thread_loading(true);
-      set_error(null);
-      try {
-        const { messages } = await ApiClient.getConversation(id);
-        if (cancelled) return;
-        set_conversation_id(id);
-        set_turns(ConversationTurns.fromMessages(messages));
-      } catch (err) {
-        if (cancelled) return;
-        resetThread();
-        set_error(err instanceof Error ? err.message : 'Failed to load conversation.');
-      } finally {
-        if (!cancelled) set_thread_loading(false);
-      }
-    }
-    void loadThread(route_conversation_id);
-    return () => {
-      cancelled = true;
-    };
+    void thread.loadThread(route_conversation_id);
     // conversation_id is read only to skip the reload for a thread this page just created.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route_conversation_id]);
@@ -117,7 +82,7 @@ export function AssistantPage() {
   }
 
   function startNewThread() {
-    resetThread();
+    thread.reset();
     navigate(BetaRoutes.chat({ mode }));
   }
 
@@ -125,47 +90,13 @@ export function AssistantPage() {
   useHotkey(LIST_TOGGLE_HOTKEY, () => set_list_collapsed((c) => !c));
 
   async function send(text: string) {
-    if (pending) return;
-    const now = new Date().toISOString();
-    set_turns((current) => [...current, { id: `local-user-${now}`, role: 'user', text, created_at: now }]);
-    set_pending(true);
-    set_error(null);
-    try {
-      const res = await ApiClient.runAgent({
-        agent_id: NOTES_RECALL_AGENT_ID,
-        input: text,
-        conversation_id: conversation_id ?? undefined,
-      });
-      if (res.conversation_id && !conversation_id) {
-        set_conversation_id(res.conversation_id);
-        navigate(BetaRoutes.chat({ conversation_id: res.conversation_id, mode }), { replace: true });
-      }
-      const replied_at = new Date().toISOString();
-      set_turns((current) => [
-        ...current,
-        {
-          id: `local-assistant-${replied_at}`,
-          role: 'assistant',
-          text: res.final_output_text ?? '(no response)',
-          citations: res.citations,
-          created_at: replied_at,
-        },
-      ]);
-      // Titles are generated server-side after the first turn, and updated_at moves on every turn.
-      void loadConversations();
-    } catch (err) {
-      set_error(err instanceof Error ? err.message : 'Failed to reach the assistant.');
-    } finally {
-      set_pending(false);
+    const result = await thread.send(text);
+    if (!result) return;
+    if (result.applied && result.created && result.conversation_id) {
+      navigate(BetaRoutes.chat({ conversation_id: result.conversation_id, mode }), { replace: true });
     }
-  }
-
-  async function saveTurnAsNote(turn: ChatTurn): Promise<Note> {
-    const { note } = await ApiClient.createNote({
-      title: ConversationTurns.noteTitleFrom(turn.text),
-      body: CitationText.toPlainWithSources(turn.text, turn.citations),
-    });
-    return note;
+    // Titles are generated server-side after the first turn, and updated_at moves on every turn.
+    void loadConversations();
   }
 
   async function togglePin(target: Conversation) {
@@ -189,7 +120,7 @@ export function AssistantPage() {
       set_conversations((list) => list.filter((c) => c.conversation_id !== target.conversation_id));
       set_thread_to_delete(null);
       if (target.conversation_id === conversation_id) {
-        resetThread();
+        thread.reset();
         navigate(BetaRoutes.chat({ mode }), { replace: true });
       }
     } catch (err) {
@@ -199,7 +130,8 @@ export function AssistantPage() {
     }
   }
 
-  const current_title = conversations.find((c) => c.conversation_id === conversation_id)?.title ?? (conversation_id ? 'Untitled' : 'New thread');
+  const current_conversation = conversations.find((c) => c.conversation_id === conversation_id) ?? null;
+  const current_title = current_conversation?.title ?? (conversation_id ? 'Untitled' : 'New thread');
 
   return (
     <div className="workspace">
@@ -221,7 +153,7 @@ export function AssistantPage() {
         <VerifyBanner />
         <AssistantHeader
           title={current_title}
-          thinking={pending}
+          thinking={thread.pending}
           mode={mode}
           list_collapsed={list_collapsed}
           onToggleList={() => set_list_collapsed((c) => !c)}
@@ -229,19 +161,19 @@ export function AssistantPage() {
         />
         {mode === 'chat' ? (
           <ChatView
-            turns={turns}
-            pending={pending}
-            thread_loading={thread_loading}
-            error={error}
+            turns={thread.turns}
+            pending={thread.pending}
+            thread_loading={thread.thread_loading}
+            error={thread.error}
             onSend={(text) => void send(text)}
-            onSaveAsNote={saveTurnAsNote}
+            onSaveAsNote={thread.saveTurnAsNote}
           />
         ) : (
           <VoiceView />
         )}
       </div>
 
-      <SessionRail turns={turns} mode={mode} />
+      <SessionRail turns={thread.turns} mode={mode} conversation={current_conversation} />
 
       <ConfirmDialog
         open={!!thread_to_delete}
