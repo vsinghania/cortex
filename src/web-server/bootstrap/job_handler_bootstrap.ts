@@ -1,5 +1,6 @@
 import { JobHandlerRegistry } from '../../jobs_svc/handlers/job_handler_registry.js';
 import { NotesReindexJobHandler } from '../../notes_svc/jobs/notes_reindex_job_handler.js';
+import { NoteVectorizeJobHandler } from '../../notes_svc/jobs/note_vectorize_job_handler.js';
 import { RefreshTokenPruneJobHandler } from '../../auth_svc/jobs/refresh_token_prune_job_handler.js';
 import { PasswordResetEmailJobHandler } from '../../auth_svc/jobs/password_reset_email_job_handler.js';
 import { EmailVerificationEmailJobHandler } from '../../auth_svc/jobs/email_verification_email_job_handler.js';
@@ -21,6 +22,7 @@ export class JobHandlerBootstrap {
   static async registerAll(): Promise<void> {
     const registry = JobHandlerRegistry.getInstance();
     registry.register(await NotesReindexJobHandler.create());
+    registry.register(await NoteVectorizeJobHandler.create());
     registry.register(await RefreshTokenPruneJobHandler.create());
     registry.register(await PasswordResetEmailJobHandler.create());
     registry.register(await EmailVerificationEmailJobHandler.create());

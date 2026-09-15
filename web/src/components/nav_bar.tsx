@@ -1,9 +1,10 @@
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/use_auth';
 import { ApiClient } from '../lib/api_client';
 import { BrandMark } from './brand_mark';
 import { Icon } from './icon';
 import type { IconName } from './icon';
+import { BetaRoutes } from '../beta/lib/beta_routes';
 
 const NAV_ITEMS: { to: string; label: string; icon: IconName }[] = [
   { to: '/notes', label: 'Notes', icon: 'notes' },
@@ -14,6 +15,7 @@ const NAV_ITEMS: { to: string; label: string; icon: IconName }[] = [
 export function NavBar() {
   const { user, is_authenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Signed-out pages carry their own branding in AuthLayout.
   if (!is_authenticated) return null;
@@ -47,6 +49,11 @@ export function NavBar() {
         ))}
       </nav>
       <div className="nav-account">
+        {/* A plain anchor on purpose: the beta UI loads its own stylesheet on a fresh page load. */}
+        <a className="nav-link" href={`${BetaRoutes.fromClassicPath(location.pathname)}${location.search}`}>
+          <Icon name="sparkle" size={15} />
+          <span className="nav-link-label">Try the new UI</span>
+        </a>
         <span className="nav-avatar" title={user?.email} aria-hidden="true">{initial}</span>
         <span className="nav-user">{user?.email}</span>
         <button

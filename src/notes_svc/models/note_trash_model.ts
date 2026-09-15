@@ -54,7 +54,8 @@ export class NoteTrashModelFactory extends BaseModelFactory<TrashedNote> {
         external_id: { type: String, default: undefined },
 
         title: { type: String, required: true, default: '' },
-        body: { type: String, required: true, default: '' },
+        // Not `required`: Mongoose treats '' as missing, and a title-only note is valid.
+        body: { type: String, default: '' },
         body_raw: { type: String, default: undefined },
 
         tags: { type: [String], default: [] },

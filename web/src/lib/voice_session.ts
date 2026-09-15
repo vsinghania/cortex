@@ -27,6 +27,7 @@ export class VoiceSession {
   private data_channel: RTCDataChannel | null = null;
   private mic_stream: MediaStream | null = null;
   private audio_element: HTMLAudioElement | null = null;
+  private remote_stream: MediaStream | null = null;
   private status: VoiceSessionStatus = 'idle';
   private assistant_transcript_buffer = '';
 
@@ -40,6 +41,22 @@ export class VoiceSession {
     return session;
   }
 
+  /** Silences the outgoing mic track without tearing down the session. */
+  public setMuted(muted: boolean): void {
+    this.mic_stream?.getAudioTracks().forEach((track) => {
+      track.enabled = !muted;
+    });
+  }
+
+  public getMicStream(): MediaStream | null {
+    return this.mic_stream;
+  }
+
+  /** The assistant's audio; null until the peer connection delivers its track. */
+  public getRemoteStream(): MediaStream | null {
+    return this.remote_stream;
+  }
+
   public stop(): void {
     if (this.status === 'closed') return;
     this.setStatus('closed');
@@ -47,6 +64,7 @@ export class VoiceSession {
     this.data_channel = null;
     this.mic_stream?.getTracks().forEach((t) => t.stop());
     this.mic_stream = null;
+    this.remote_stream = null;
     this.peer_connection?.close();
     this.peer_connection = null;
     if (this.audio_element) {
@@ -67,6 +85,7 @@ export class VoiceSession {
 
       this.audio_element = VoiceSession.createAudioElement();
       pc.ontrack = (event) => {
+        if (event.streams[0]) this.remote_stream = event.streams[0];
         if (this.audio_element && event.streams[0]) {
           this.audio_element.srcObject = event.streams[0];
         }

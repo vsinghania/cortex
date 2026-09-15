@@ -1,51 +1,9 @@
-import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { ApiClient, ApiError } from '../lib/api_client';
-import { useAuth } from '../lib/use_auth';
+import { useVerifyEmailNudge } from '../lib/use_verify_email_nudge';
 import { Icon } from './icon';
 
-type SendState = 'idle' | 'sending' | 'sent' | 'error';
-type BannerLocationState = { verification_sent?: boolean } | null;
-
 export function VerifyEmailBanner() {
-  const { user } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [state, set_state] = useState<SendState>('idle');
-  const [error, set_error] = useState<string | null>(null);
-  // Deliberately not persisted: dismissing quiets the nudge for this visit, and a
-  // reload brings it back until the address is actually confirmed.
-  const [dismissed, set_dismissed] = useState(false);
-
-  // Registration hands this over on its way to /notes. It cannot be read in a
-  // useState initializer: the banner sits outside <Routes> and so was already
-  // mounted, back on /register, before the flag existed. Consumed once, so a
-  // reload does not replay "we just sent it" days later.
-  useEffect(() => {
-    if ((location.state as BannerLocationState)?.verification_sent) {
-      set_state('sent');
-      navigate(`${location.pathname}${location.search}${location.hash}`, { replace: true, state: null });
-    }
-  }, [location, navigate]);
-
-  // Logged out, already verified, or waved away for now: nothing to nudge about.
-  if (!user || user.email_verified_at || dismissed) return null;
-
-  async function handleResend() {
-    set_state('sending');
-    set_error(null);
-    try {
-      await ApiClient.resendVerification();
-      set_state('sent');
-    } catch (err) {
-      set_error(
-        err instanceof ApiError && err.status === 429
-          ? 'Too many requests. Try again in a few minutes.'
-          : "Couldn't send the email. Try again in a moment.",
-      );
-      set_state('error');
-    }
-  }
+  const { user, state, error, resend, dismiss } = useVerifyEmailNudge();
+  if (!user) return null;
 
   return (
     <div className="verify-banner" role="status">
@@ -57,14 +15,14 @@ export function VerifyEmailBanner() {
       </p>
       <div className="verify-banner-actions">
         {state !== 'sent' && (
-          <button type="button" className="ghost small" onClick={handleResend} disabled={state === 'sending'}>
+          <button type="button" className="ghost small" onClick={() => void resend()} disabled={state === 'sending'}>
             {state === 'sending' ? 'Sending…' : 'Send me a link'}
           </button>
         )}
         <button
           type="button"
           className="ghost icon-button"
-          onClick={() => set_dismissed(true)}
+          onClick={dismiss}
           aria-label="Dismiss until the next page load"
           title="Dismiss"
         >

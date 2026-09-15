@@ -35,6 +35,39 @@ export class CitationText {
     return href.startsWith(CitationText.HREF_SCHEME);
   }
 
+  /**
+   * Turns an answer into a self-contained note body: markers become "[n]" and the cited
+   * sources are appended with links to their notes. Raw chunk ids would otherwise be
+   * saved, and embedded, as noise.
+   */
+  static toPlainWithSources(text: string, citations: Citation[] = []): string {
+    const by_chunk_id = new Map(citations.map((c) => [c.chunk_id, c]));
+    const cited = new Map<number, Citation>();
+
+    const body = text
+      .replace(CitationText.MARKER_PATTERN, (_marker, chunk_id: string) => {
+        const citation = by_chunk_id.get(chunk_id);
+        if (!citation) return '';
+        cited.set(citation.index, citation);
+        return `[${citation.index}]`;
+      })
+      .trim();
+
+    if (cited.size === 0) return body;
+
+    const source_lines = [...cited.values()]
+      .sort((a, b) => a.index - b.index)
+      .map((citation) => `- [${citation.index}] ${CitationText.sourceLabel(citation)}`);
+    return `${body}\n\n**Sources**\n\n${source_lines.join('\n')}`;
+  }
+
+  private static sourceLabel(citation: Citation): string {
+    const heading = CitationText.headingLabel(citation);
+    const label = (heading ? `${citation.document_title} › ${heading}` : citation.document_title).replace(/[[\]]/g, '');
+    const linkable = citation.document_available && citation.corpus === 'notes';
+    return linkable ? `[${label}](/notes/${encodeURIComponent(citation.document_id)})` : label;
+  }
+
   static headingLabel(citation: Citation): string {
     return citation.heading_path?.length ? citation.heading_path.join(' › ') : '';
   }

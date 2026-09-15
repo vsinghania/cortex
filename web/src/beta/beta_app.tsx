@@ -1,0 +1,44 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import '@fontsource/space-grotesk/400.css';
+import '@fontsource/space-grotesk/500.css';
+import '@fontsource/space-grotesk/600.css';
+import '@fontsource/space-grotesk/700.css';
+import '@fontsource/dm-sans/300.css';
+import '@fontsource/dm-sans/400.css';
+import '@fontsource/dm-sans/500.css';
+import '@fontsource/dm-sans/300-italic.css';
+import '@fontsource/jetbrains-mono/400.css';
+import '@fontsource/jetbrains-mono/500.css';
+import './beta.css';
+import { BetaRoutes } from './lib/beta_routes';
+import { useTheme } from './lib/use_theme';
+import { ToastProvider } from './components/toast';
+import { BetaRequireAuth } from './components/beta_require_auth';
+import { BetaLoginPage } from './pages/login_page';
+import { BetaRegisterPage } from './pages/register_page';
+import { BetaForgotPasswordPage } from './pages/forgot_password_page';
+import { NotesPage } from './pages/notes_page';
+import { AssistantPage } from './pages/assistant_page';
+
+export function BetaApp() {
+  const theme = useTheme();
+
+  return (
+    <div className="cx-beta" data-theme={theme}>
+      <ToastProvider>
+        <Routes>
+          <Route path={BetaRoutes.login()} element={<BetaLoginPage />} />
+          <Route path={BetaRoutes.register()} element={<BetaRegisterPage />} />
+          <Route path={BetaRoutes.forgotPassword()} element={<BetaForgotPasswordPage />} />
+          <Route element={<BetaRequireAuth />}>
+            {/* Optional segments keep one mounted page while the selection changes. */}
+            <Route path={`${BetaRoutes.PREFIX}/notes/:note_id?`} element={<NotesPage />} />
+            <Route path={`${BetaRoutes.PREFIX}/chat/:conversation_id?`} element={<AssistantPage />} />
+            <Route path={`${BetaRoutes.PREFIX}/voice`} element={<Navigate to={BetaRoutes.chat({ mode: 'voice' })} replace />} />
+          </Route>
+          <Route path="*" element={<Navigate to={BetaRoutes.notes()} replace />} />
+        </Routes>
+      </ToastProvider>
+    </div>
+  );
+}

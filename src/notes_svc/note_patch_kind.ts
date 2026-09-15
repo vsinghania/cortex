@@ -5,8 +5,12 @@ const ORGANIZATIONAL_KEYS: ReadonlySet<string> = new Set(['is_pinned', 'is_archi
 export class NotePatchKind {
   private constructor() {}
 
+  /**
+   * Chunks and vectors are derived from the body alone; titles are joined live at
+   * retrieval, so a rename never needs re-embedding.
+   */
   static touchesBody(patch: NotePatchFields): boolean {
-    return patch.body !== undefined || patch.title !== undefined;
+    return patch.body !== undefined;
   }
 
   static touchesArchive(patch: NotePatchFields): boolean {
