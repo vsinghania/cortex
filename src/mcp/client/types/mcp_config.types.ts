@@ -13,14 +13,14 @@ export const client_info_schema = z.object({
 export const stdio_config_schema = z.object({
   command: z.string(),
   args: z.array(z.string()).optional().default([]),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   cwd: z.string().optional(),
   startup_timeout_ms: z.number().int().positive().optional(),
 });
 
 export const http_config_schema = z.object({
   base_url: z.string().url(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   auth_token: z.string().optional(),
   startup_timeout_ms: z.number().int().positive().optional(),
 });

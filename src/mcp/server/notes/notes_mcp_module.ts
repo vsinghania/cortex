@@ -17,6 +17,13 @@ import { TraceContext } from '../../../common/trace_context.js';
 
 const zNoteSource = z.nativeEnum(NoteSource);
 
+// Tool arguments arrive as JSON, so dates are strings; z.coerce.date() can't be expressed in the advertised JSON Schema.
+const zOptionalDateInput = z.string()
+  .refine((v) => !Number.isNaN(Date.parse(v)), { error: 'Invalid date' })
+  .optional()
+  .transform((v) => (v ? new Date(v) : undefined))
+  .describe('ISO 8601 date-time');
+
 const zContainerType = z.enum(['notebook', 'database', 'folder', 'page', 'section', 'collection', 'other']);
 const zNoteContainer: z.ZodType<NoteContainer> = z.object({
   container_type: zContainerType,
@@ -27,13 +34,13 @@ const zNoteContainer: z.ZodType<NoteContainer> = z.object({
 const zNoteMetadata = z.object({
   provider_url: z.string().url().optional(),
   provider_etag: z.string().optional(),
-  extra: z.record(z.unknown()).optional()
+  extra: z.record(z.string(), z.unknown()).optional()
 });
 
 const zVectorizationStatus = z.enum(['none', 'pending', 'embedded', 'error']);
 const zNoteVectorization = z.object({
   status: zVectorizationStatus,
-  last_embedded_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
+  last_embedded_at: zOptionalDateInput,
   embedding_model: z.string().optional(),
   chunk_count: z.number().int().positive().optional()
 });
@@ -93,8 +100,8 @@ const zCreateInputBase = z.object({
   container: zNoteContainer.optional(),
   folder_id: z.string().min(1).optional(),
 
-  provider_created_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
-  provider_updated_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
+  provider_created_at: zOptionalDateInput,
+  provider_updated_at: zOptionalDateInput,
 
   is_archived: z.boolean().optional(),
   is_pinned: z.boolean().optional(),
@@ -123,9 +130,9 @@ const zPatch = z.object({
   container: zNoteContainer.optional(),
   folder_id: z.string().min(1).nullable().optional().describe('Folder id from notes_folders; null removes the note from its folder.'),
 
-  provider_created_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
-  provider_updated_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
-  last_synced_at: z.union([z.coerce.date(), z.string().datetime()]).optional().transform((v) => (v ? new Date(v as any) : undefined)),
+  provider_created_at: zOptionalDateInput,
+  provider_updated_at: zOptionalDateInput,
+  last_synced_at: zOptionalDateInput,
 
   is_archived: z.boolean().optional(),
   is_pinned: z.boolean().optional(),

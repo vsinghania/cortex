@@ -3,7 +3,7 @@ import { McpServerMode, McpTransport } from './mcp_server.types.js';
 
 export const mcp_http_config_schema = z.object({
   base_url: z.string().url(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   auth_token_env: z.string().min(1).optional(),
 });
 
