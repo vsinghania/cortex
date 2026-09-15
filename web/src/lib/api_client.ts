@@ -2,6 +2,8 @@ import { AuthStore } from './auth_store';
 import type { AuthResponse, RefreshResponse, User } from './auth.types';
 import type {
   Note,
+  NoteBulkAction,
+  NoteBulkResult,
   NoteChunkRef,
   NoteCreateBody,
   NoteListQuery,
@@ -261,6 +263,14 @@ export class ApiClient {
 
   static async deleteNote(id: string): Promise<void> {
     await ApiClient.request<void>(`/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  /** One request per call; the server caps `ids` at 100, so callers batch larger selections. */
+  static async bulkUpdateNotes(ids: string[], action: NoteBulkAction): Promise<NoteBulkResult> {
+    return ApiClient.request<NoteBulkResult>('/notes/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ ids, ...action }),
+    });
   }
 
   static async listFolders(): Promise<{ folders: NoteFolderNode[] }> {

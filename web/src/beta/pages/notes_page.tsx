@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiClient } from '../../lib/api_client';
-import type { Note, NotePatchBody, NoteTagCount } from '../../lib/note.types';
+import type { Note, NoteBulkAction, NotePatchBody, NoteTagCount } from '../../lib/note.types';
 import type { NoteFolderNode } from '../../lib/note_folder.types';
 import type { ReturnLinkState } from '../../lib/navigation.types';
 import { Icon } from '../../components/icon';
@@ -20,11 +20,13 @@ import { FolderTree } from '../lib/folder_tree';
 import { Hotkey } from '../lib/hotkey';
 import type { HotkeySpec } from '../lib/hotkey';
 import { NoteFilterParams } from '../lib/note_filter_params';
+import { NoteBulk } from '../lib/note_bulk';
 import { Plural } from '../lib/plural';
 import type { NoteDraftFields, NoteFilters, OutlineRequest } from '../lib/note_workspace.types';
 import { useCurrentNote } from '../lib/use_current_note';
 import { useHotkey } from '../lib/use_hotkey';
 import { useNoteList } from '../lib/use_note_list';
+import { useNoteSelection } from '../lib/use_note_selection';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
 import { useRelatedNotes } from '../lib/use_related_notes';
 
@@ -57,6 +59,8 @@ export function NotesPage() {
   const [draft_session, set_draft_session] = useState(0);
   const [draft_note_id, set_draft_note_id] = useState<string | null>(null);
   const [note_to_delete, set_note_to_delete] = useState<Note | null>(null);
+  const [notes_to_bulk_delete, set_notes_to_bulk_delete] = useState<Note[] | null>(null);
+  const [bulk_busy, set_bulk_busy] = useState(false);
   const [folder_to_delete, set_folder_to_delete] = useState<FolderDeleteTarget | null>(null);
   const [dialog_busy, set_dialog_busy] = useState(false);
   const [outline_request, set_outline_request] = useState<OutlineRequest | null>(null);
@@ -64,6 +68,7 @@ export function NotesPage() {
   const flush_ref = useRef<(() => Promise<void>) | null>(null);
 
   const list = useNoteList(filters);
+  const selection = useNoteSelection();
   const current = useCurrentNote(selected_id, list.find);
   const related = useRelatedNotes(current.note);
   const folders_by_id = useMemo(() => FolderTree.byId(folders), [folders]);
@@ -169,6 +174,57 @@ export function NotesPage() {
     } catch (err) {
       toast.show({ message: err instanceof Error ? err.message : "Couldn't update the note.", tone: 'error' });
     }
+  }
+
+  // A selection belongs to the set of notes it was made in; re-sorting keeps it, refiltering drops it.
+  const { exit: exitSelection } = selection;
+  useEffect(() => {
+    exitSelection();
+  }, [filters.folder, filters.archived, filters.tag, filters.q, exitSelection]);
+
+  async function runBulk(action: NoteBulkAction, notes: Note[]): Promise<void> {
+    const ids = notes.map((n) => n.id);
+    if (ids.length === 0) return;
+    set_bulk_busy(true);
+    try {
+      const result = await NoteBulk.apply(ids, action);
+      const undo = action.action === 'archive'
+        ? { label: 'Undo', onClick: () => void runBulk({ action: 'unarchive' }, notes) }
+        : undefined;
+      toast.show({ message: NoteBulk.summary(action, result.matched), action: undo });
+      // Tagging is often done in passes, so the selection stays; every other action ends it.
+      if (action.action !== 'add_tags' && action.action !== 'remove_tags') selection.exit();
+    } catch (err) {
+      toast.show({ message: err instanceof Error ? err.message : "Couldn't update the selected notes.", tone: 'error' });
+    } finally {
+      set_bulk_busy(false);
+      // Earlier batches may have applied even when a later one failed, so resync regardless.
+      void syncAfterBulk(action, ids);
+    }
+  }
+
+  async function syncAfterBulk(action: NoteBulkAction, ids: string[]) {
+    void list.refresh();
+    void loadFolders();
+    void loadTags();
+    if (!selected_id || !ids.includes(selected_id)) return;
+    if (action.action === 'delete') {
+      navigate(BetaRoutes.notes(filter_search), { replace: true });
+      return;
+    }
+    try {
+      const res = await ApiClient.getNote(selected_id);
+      current.set(res.note);
+    } catch {
+      // The toolbar just shows the old state until the note is next loaded.
+    }
+  }
+
+  async function confirmBulkDelete() {
+    const notes = notes_to_bulk_delete;
+    if (!notes) return;
+    await runBulk({ action: 'delete' }, notes);
+    set_notes_to_bulk_delete(null);
   }
 
   async function confirmDeleteNote() {
@@ -331,6 +387,10 @@ export function NotesPage() {
           onSelect={openNote}
           onOrganizeNote={(note, patch) => void organizeNote(note, patch)}
           onDeleteNote={set_note_to_delete}
+          selection={selection}
+          bulk_busy={bulk_busy}
+          onBulkAction={(action, notes) => void runBulk(action, notes)}
+          onBulkDelete={set_notes_to_bulk_delete}
           onQueryChange={(q) => replaceFilters({ ...filters, q })}
           onSortChange={(sort) => replaceFilters({ ...filters, sort })}
           onClearFilters={() => selectFilters({ folder: null, archived: false, tag: null, q: '' })}
@@ -354,6 +414,18 @@ export function NotesPage() {
           onOpenNote={openNote}
         />
       )}
+
+      <ConfirmDialog
+        open={!!notes_to_bulk_delete}
+        title={`Delete ${Plural.count(notes_to_bulk_delete?.length ?? 0, 'note')}?`}
+        confirm_label={`Delete ${Plural.count(notes_to_bulk_delete?.length ?? 0, 'note')}`}
+        danger
+        busy={bulk_busy}
+        onConfirm={() => void confirmBulkDelete()}
+        onCancel={() => set_notes_to_bulk_delete(null)}
+      >
+        <p>They're removed from your notes and from search, and can't be restored from Cortex.</p>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={!!note_to_delete}

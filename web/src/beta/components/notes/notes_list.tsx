@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import type { RefObject } from 'react';
-import type { Note, NotePatchBody } from '../../../lib/note.types';
+import type { MouseEvent, RefObject } from 'react';
+import type { Note, NoteBulkAction, NotePatchBody } from '../../../lib/note.types';
 import { DateFormat } from '../../../lib/date_format';
 import { NotePreview } from '../../../lib/note_preview';
 import { Icon } from '../../../components/icon';
 import type { FolderTreeNode, NoteFilters, NoteSortMode } from '../../lib/note_workspace.types';
 import type { NoteList } from '../../lib/use_note_list';
+import type { NoteSelection } from '../../lib/use_note_selection';
 import { Hotkey } from '../../lib/hotkey';
 import { NoteOutline } from '../../lib/note_outline';
 import { NoteRowMenu } from './note_row_menu';
+import { NotesBulkBar } from './notes_bulk_bar';
 
 const SEARCH_DEBOUNCE_MS = 250;
 const MAX_ROW_TAGS = 3;
@@ -26,6 +28,10 @@ type Props = {
   onSelect: (note_id: string) => void;
   onOrganizeNote: (note: Note, patch: NotePatchBody) => void;
   onDeleteNote: (note: Note) => void;
+  selection: NoteSelection;
+  bulk_busy: boolean;
+  onBulkAction: (action: NoteBulkAction, notes: Note[]) => void;
+  onBulkDelete: (notes: Note[]) => void;
   onQueryChange: (q: string) => void;
   onSortChange: (sort: NoteSortMode) => void;
   onClearFilters: () => void;
@@ -68,16 +74,32 @@ export function NotesList(props: Props) {
   const is_filtered = !!(filters.q || filters.tag || filters.folder || filters.archived);
   const is_initial_load = list.loading && list.pinned.length === 0 && list.items.length === 0;
 
+  const { selection } = props;
+  const ordered = [...list.pinned, ...list.items];
+  const ordered_ids = ordered.map((n) => n.id);
+  // Only loaded rows count, so a note that left the list after a refresh drops out of the selection.
+  const selected_notes = ordered.filter((n) => selection.has(n.id));
+  const all_selected = ordered.length > 0 && selected_notes.length === ordered.length;
+
+  function handleRowClick(note: Note, event: MouseEvent) {
+    if (event.shiftKey) return selection.extendTo(note.id, ordered_ids, selected_id);
+    if (selection.active || event.metaKey || event.ctrlKey) return selection.toggle(note.id);
+    props.onSelect(note.id);
+  }
+
   function renderRows(notes: Note[]) {
     return notes.map((note) => (
       <NoteRow
         key={note.id}
         note={note}
         active={note.id === selected_id}
+        selecting={selection.active}
+        checked={selection.has(note.id)}
         folder_tree={props.folder_tree}
-        onSelect={props.onSelect}
+        onClick={handleRowClick}
         onOrganize={props.onOrganizeNote}
         onDelete={props.onDeleteNote}
+        onStartSelection={(n) => selection.start(n.id)}
       />
     ));
   }
@@ -140,25 +162,67 @@ export function NotesList(props: Props) {
         <kbd className="kbd list-search-kbd">{Hotkey.label({ mod: true }, 'K')}</kbd>
       </div>
 
-      <div className="list-header">
-        <div className="list-header-title">
-          <span className="list-label">{label}</span>
-          {!is_initial_load && <span className="mono-count">{count}</span>}
+      {selection.active ? (
+        <div className="list-header list-header-selecting">
+          <label className="bulk-select-all" title={list.has_more ? 'Selects the notes loaded so far' : undefined}>
+            <input
+              type="checkbox"
+              className="bulk-check"
+              checked={all_selected}
+              ref={(el) => {
+                if (el) el.indeterminate = selected_notes.length > 0 && !all_selected;
+              }}
+              onChange={() => selection.setAll(all_selected ? [] : ordered_ids)}
+              aria-label={all_selected ? 'Clear selection' : 'Select all loaded notes'}
+              disabled={ordered.length === 0}
+            />
+            <span className="list-label" aria-live="polite">{selected_notes.length} selected</span>
+          </label>
+          <button type="button" className="sort-btn" onClick={selection.exit}>Done</button>
         </div>
-        <button
-          type="button"
-          className="sort-btn"
-          onClick={() => onSortChange(filters.sort === 'recent' ? 'az' : 'recent')}
-          aria-label={`Sorted by ${filters.sort === 'recent' ? 'most recent' : 'title'}. Change sort`}
-        >
-          {filters.sort === 'recent' ? 'Recent' : 'A–Z'}
-          <Icon name="chevron_down" size={11} />
-        </button>
-      </div>
+      ) : (
+        <div className="list-header">
+          <div className="list-header-title">
+            <span className="list-label">{label}</span>
+            {!is_initial_load && <span className="mono-count">{count}</span>}
+          </div>
+          <div className="list-header-actions">
+            <button
+              type="button"
+              className="icon-btn icon-btn-sm"
+              onClick={() => selection.start()}
+              disabled={ordered.length === 0}
+              aria-label="Select notes"
+              title="Select notes (⇧-click for a range)"
+            >
+              <Icon name="check" size={13} />
+            </button>
+            <button
+              type="button"
+              className="sort-btn"
+              onClick={() => onSortChange(filters.sort === 'recent' ? 'az' : 'recent')}
+              aria-label={`Sorted by ${filters.sort === 'recent' ? 'most recent' : 'title'}. Change sort`}
+            >
+              {filters.sort === 'recent' ? 'Recent' : 'A–Z'}
+              <Icon name="chevron_down" size={11} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className={`list-scroll${list.loading && !is_initial_load ? ' list-scroll-refreshing' : ''}`} ref={scroll_ref} aria-busy={list.loading}>
         {renderBody()}
       </div>
+
+      {selection.active && (
+        <NotesBulkBar
+          notes={selected_notes}
+          folder_tree={props.folder_tree}
+          busy={props.bulk_busy}
+          onAction={(action) => props.onBulkAction(action, selected_notes)}
+          onDelete={() => props.onBulkDelete(selected_notes)}
+        />
+      )}
     </section>
   );
 }
@@ -166,17 +230,30 @@ export function NotesList(props: Props) {
 type NoteRowProps = {
   note: Note;
   active: boolean;
+  selecting: boolean;
+  checked: boolean;
   folder_tree: FolderTreeNode[];
-  onSelect: (id: string) => void;
+  onClick: (note: Note, event: MouseEvent) => void;
   onOrganize: (note: Note, patch: NotePatchBody) => void;
   onDelete: (note: Note) => void;
+  onStartSelection: (note: Note) => void;
 };
 
-function NoteRow({ note, active, folder_tree, onSelect, onOrganize, onDelete }: NoteRowProps) {
+function NoteRow({ note, active, selecting, checked, folder_tree, onClick, onOrganize, onDelete, onStartSelection }: NoteRowProps) {
   const preview = NoteOutline.plainExcerpt(NotePreview.excerpt(note));
+  const row_class = ['list-row', 'note-row', active && 'list-row-active', selecting && 'note-row-selecting', checked && 'note-row-checked']
+    .filter(Boolean)
+    .join(' ');
   return (
-    <div className={`list-row note-row${active ? ' list-row-active' : ''}`}>
-      <button type="button" className="note-row-select" aria-current={active ? 'true' : undefined} onClick={() => onSelect(note.id)}>
+    <div className={row_class}>
+      <button
+        type="button"
+        className="note-row-select"
+        aria-current={active && !selecting ? 'true' : undefined}
+        aria-pressed={selecting ? checked : undefined}
+        onClick={(e) => onClick(note, e)}
+      >
+        {selecting && <input type="checkbox" className="bulk-check note-row-check" checked={checked} readOnly tabIndex={-1} aria-hidden="true" />}
         <span className="list-row-top">
           {note.is_pinned && <Icon name="pin" size={11} className="list-row-pin" />}
           <span className="list-row-title">{note.title || 'Untitled'}</span>
@@ -193,9 +270,11 @@ function NoteRow({ note, active, folder_tree, onSelect, onOrganize, onDelete }: 
           </span>
         )}
       </button>
-      <span className="note-row-actions">
-        <NoteRowMenu note={note} folder_tree={folder_tree} onOrganize={onOrganize} onDelete={onDelete} />
-      </span>
+      {!selecting && (
+        <span className="note-row-actions">
+          <NoteRowMenu note={note} folder_tree={folder_tree} onOrganize={onOrganize} onDelete={onDelete} onStartSelection={onStartSelection} />
+        </span>
+      )}
     </div>
   );
 }

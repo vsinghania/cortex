@@ -1811,6 +1811,82 @@ body {
   }
 }
 
+/* Bulk selection in the notes list. */
+.list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.list-header-selecting {
+  background: var(--surface);
+}
+
+.bulk-select-all {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.cx-beta .bulk-check {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.note-row-selecting .note-row-select {
+  position: relative;
+  padding-left: 42px;
+}
+
+.note-row-check {
+  position: absolute;
+  top: 17px;
+  left: 16px;
+  pointer-events: none;
+}
+
+.cx-beta .note-row-checked,
+.cx-beta .note-row-checked:hover {
+  background: var(--accent-dim);
+}
+
+.bulk-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--surface);
+  animation: cx-fade-up 0.18s var(--ease) both;
+}
+
+.bulk-btn {
+  min-width: 32px;
+  height: 32px;
+}
+
+.bulk-bar-spacer {
+  flex: 1;
+}
+
+.bulk-tag-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 4px;
+}
+
+.bulk-tag-input {
+  padding: 6px 10px;
+}
+
 /* ── Toolbars and the note editor ──────────────────────── */
 
 .toolbar {
