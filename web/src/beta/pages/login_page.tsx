@@ -41,7 +41,7 @@ export function BetaLoginPage() {
     set_submitting(true);
     try {
       await ApiClient.login(email, password);
-      const redirect_to = state?.from && BetaRoutes.isBetaPath(state.from) && state.from !== BetaRoutes.login()
+      const redirect_to = state?.from && BetaRoutes.isInternalPath(state.from) && state.from !== BetaRoutes.login()
         ? state.from
         : BetaRoutes.notes();
       navigate(redirect_to, { replace: true });

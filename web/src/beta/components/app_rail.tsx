@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../../lib/api_client';
 import { useAuth } from '../../lib/use_auth';
 import { Icon } from '../../components/icon';
@@ -93,11 +93,10 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
 
 function SettingsMenu() {
   const theme = useTheme();
-  const location = useLocation();
 
   return (
     <PopoverMenu label="Settings" trigger={<Icon name="settings" size={15} />} align="start">
-      {(close) => (
+      {() => (
         <>
           <div className="menu-heading">Appearance</div>
           <div className="segmented segmented-full" role="radiogroup" aria-label="Theme">
@@ -115,17 +114,6 @@ function SettingsMenu() {
               </button>
             ))}
           </div>
-          <div className="menu-divider" />
-          {/* A plain anchor on purpose: the classic UI needs a fresh page load for its own stylesheet. */}
-          <a
-            className="menu-item"
-            role="menuitem"
-            href={`${BetaRoutes.toClassicPath(location.pathname)}${location.search}`}
-            onClick={close}
-          >
-            <Icon name="switch_ui" size={14} />
-            Switch to classic UI
-          </a>
         </>
       )}
     </PopoverMenu>

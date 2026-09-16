@@ -16,7 +16,7 @@ export type VerifyEmailNudge = {
   dismiss: () => void;
 };
 
-/** Shared by the classic and beta banners so both follow the same resend and dismiss rules. */
+/** Drives the verify-email banner's resend and dismiss rules. */
 export function useVerifyEmailNudge(): VerifyEmailNudge {
   const { user } = useAuth();
   const location = useLocation();
