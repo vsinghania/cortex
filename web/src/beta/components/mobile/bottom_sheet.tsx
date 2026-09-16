@@ -7,11 +7,14 @@ type Props = {
   open: boolean;
   title: string;
   onClose: () => void;
+  /** `tall` fills the sheet's full height instead of hugging its content — for scrollable
+   *  panels like the note chat, which otherwise open as a short strip at the bottom. */
+  size?: 'auto' | 'tall';
   children: ReactNode;
 };
 
 /** A bottom sheet on a native <dialog>, draggable down to dismiss by its header. */
-export function BottomSheet({ open, title, onClose, children }: Props) {
+export function BottomSheet({ open, title, onClose, size = 'auto', children }: Props) {
   const { ref, shown } = useSheetDialog(open);
   const [drag_offset, set_drag_offset] = useState(0);
   const drag_start = useRef<{ y: number; at: number } | null>(null);
@@ -40,7 +43,7 @@ export function BottomSheet({ open, title, onClose, children }: Props) {
   return (
     <dialog
       ref={ref}
-      className={`m-sheet${shown ? ' m-sheet-shown' : ''}`}
+      className={`m-sheet${shown ? ' m-sheet-shown' : ''}${size === 'tall' ? ' m-sheet-tall' : ''}`}
       aria-label={title}
       onCancel={(event) => {
         event.preventDefault();

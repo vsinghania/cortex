@@ -24,6 +24,7 @@ import type { HotkeySpec } from '../lib/hotkey';
 import { useChatThread } from '../lib/use_chat_thread';
 import { useHotkey } from '../lib/use_hotkey';
 import { useIsMobile } from '../lib/use_is_mobile';
+import { useChromeCollapse } from '../lib/use_chrome_collapse';
 import { Plural } from '../lib/plural';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
 
@@ -38,6 +39,7 @@ export function AssistantPage() {
   const toast = useToast();
   const mode: AssistantMode = search_params.get('mode') === 'voice' ? 'voice' : 'chat';
   const is_mobile = useIsMobile();
+  const chrome = useChromeCollapse<HTMLDivElement>();
   const is_new_thread = route_conversation_id === BetaRoutes.NEW_THREAD_SEGMENT;
   // A composed-but-unsent thread has a route but no id to load.
   const loaded_conversation_id = is_new_thread ? undefined : route_conversation_id;
@@ -216,7 +218,7 @@ export function AssistantPage() {
         }
       >
         {(openDrawer) => (
-          <div className="m-body">
+          <div className="m-body" ref={chrome.ref}>
             {show_detail ? (
               <>
                 <MobileThreadBar
@@ -234,12 +236,16 @@ export function AssistantPage() {
               </>
             ) : (
               <>
-                <MobileBar>
-                  <MobileBarButton label="Menu" icon="menu" onClick={openDrawer} />
-                  <MobileBarTitle title="Assistant" subtitle={Plural.count(conversations.length, 'thread')} />
-                  <ThemeToggleButton />
-                </MobileBar>
-                <VerifyBanner />
+                <div className="m-chrome" data-collapsed={chrome.collapsed}>
+                  <div className="m-chrome-inner">
+                    <MobileBar>
+                      <MobileBarButton label="Menu" icon="menu" onClick={openDrawer} />
+                      <MobileBarTitle title="Assistant" subtitle={Plural.count(conversations.length, 'thread')} />
+                      <ThemeToggleButton />
+                    </MobileBar>
+                    <VerifyBanner />
+                  </div>
+                </div>
                 {thread_list}
               </>
             )}

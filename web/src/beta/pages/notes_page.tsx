@@ -9,6 +9,7 @@ import { AppRail } from '../components/app_rail';
 import { MobileShell } from '../components/mobile/mobile_shell';
 import { MobileBar, MobileBarButton, MobileBarTitle } from '../components/mobile/mobile_bar';
 import { BottomSheet } from '../components/mobile/bottom_sheet';
+import { MobileFolderSheet } from '../components/notes/mobile_folder_sheet';
 import { RadialFab } from '../components/mobile/radial_fab';
 import { ThemeToggleButton } from '../components/theme_toggle_button';
 import { VerifyBanner } from '../components/verify_banner';
@@ -31,6 +32,7 @@ import type { NoteDraftFields, NoteFilters, OutlineRequest } from '../lib/note_w
 import { useCurrentNote } from '../lib/use_current_note';
 import { useHotkey } from '../lib/use_hotkey';
 import { useIsMobile } from '../lib/use_is_mobile';
+import { useChromeCollapse } from '../lib/use_chrome_collapse';
 import { useNoteList } from '../lib/use_note_list';
 import { useNoteSelection } from '../lib/use_note_selection';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
@@ -51,6 +53,7 @@ export function NotesPage() {
   const location = useLocation();
   const toast = useToast();
   const is_mobile = useIsMobile();
+  const chrome = useChromeCollapse<HTMLDivElement>();
 
   const filters = useMemo(() => NoteFilterParams.fromSearch(search_params), [search_params]);
   const filter_search = NoteFilterParams.toSearch(filters);
@@ -63,7 +66,8 @@ export function NotesPage() {
   const [tags, set_tags] = useState<NoteTagCount[]>([]);
   const [list_collapsed, set_list_collapsed] = usePersistedFlag('cortex.listCollapsed', false);
   const [chat_open, set_chat_open] = usePersistedFlag('cortex.noteChatOpen', false);
-  const [info_open, set_info_open] = useState(false);
+  const [sheet_tab, set_sheet_tab] = useState<NoteRailTab | null>(null);
+  const [folder_sheet_open, set_folder_sheet_open] = useState(false);
   const [draft_session, set_draft_session] = useState(0);
   const [draft_note_id, set_draft_note_id] = useState<string | null>(null);
   const [note_to_delete, set_note_to_delete] = useState<Note | null>(null);
@@ -364,7 +368,8 @@ export function NotesPage() {
         onDelete={() => editor_note && set_note_to_delete(editor_note)}
         onDismissCitation={dismissCitation}
         onBack={() => navigate(BetaRoutes.notes(filter_search))}
-        onOpenInfo={() => set_info_open(true)}
+        onOpenChat={() => set_sheet_tab('chat')}
+        onOpenDetails={() => set_sheet_tab('details')}
       />
     );
   }
@@ -485,26 +490,31 @@ export function NotesPage() {
         }
       >
         {(openDrawer) => (
-          <div className="m-body">
+          <div className="m-body" ref={chrome.ref}>
             {show_detail ? (
               <>
                 {renderMain()}
                 {editor_note && (
-                  <BottomSheet open={info_open} title="Note details" onClose={() => set_info_open(false)}>
+                  <BottomSheet
+                    open={!!sheet_tab}
+                    title={sheet_tab === 'chat' ? 'Chat about this note' : 'Note details'}
+                    size="tall"
+                    onClose={() => set_sheet_tab(null)}
+                  >
                     <NoteRightRail
                       note={editor_note}
                       folders_by_id={folders_by_id}
                       related={related}
-                      tab={chat_open ? 'chat' : 'details'}
-                      onTabChange={(tab: NoteRailTab) => set_chat_open(tab === 'chat')}
+                      tab={sheet_tab ?? 'details'}
+                      onTabChange={set_sheet_tab}
                       flush={flushEditor}
                       onOutline={(line) => {
                         // The sheet covers the editor, so it has to be out of the way first.
-                        set_info_open(false);
+                        set_sheet_tab(null);
                         set_outline_request((prev) => ({ line, nonce: (prev?.nonce ?? 0) + 1 }));
                       }}
                       onOpenNote={(id) => {
-                        set_info_open(false);
+                        set_sheet_tab(null);
                         openNote(id);
                       }}
                     />
@@ -513,13 +523,28 @@ export function NotesPage() {
               </>
             ) : (
               <>
-                <MobileBar>
-                  <MobileBarButton label="Menu" icon="menu" onClick={openDrawer} />
-                  <MobileBarTitle title={context_label} subtitle={Plural.count(list.count, 'note')} />
-                  <ThemeToggleButton />
-                </MobileBar>
-                <VerifyBanner />
+                <div className="m-chrome" data-collapsed={chrome.collapsed}>
+                  <div className="m-chrome-inner">
+                    <MobileBar>
+                      <MobileBarButton label="Menu" icon="menu" onClick={openDrawer} />
+                      <MobileBarTitle
+                        title={context_label}
+                        subtitle={Plural.count(list.count, 'note')}
+                        onPress={() => set_folder_sheet_open(true)}
+                      />
+                      <ThemeToggleButton />
+                    </MobileBar>
+                    <VerifyBanner />
+                  </div>
+                </div>
                 {list_pane}
+                <MobileFolderSheet
+                  open={folder_sheet_open}
+                  filters={filters}
+                  folder_tree={folder_tree}
+                  onSelect={selectFilters}
+                  onClose={() => set_folder_sheet_open(false)}
+                />
               </>
             )}
             {dialogs}
