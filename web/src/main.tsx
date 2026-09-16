@@ -11,8 +11,8 @@ function Bootstrap() {
     let cancelled = false;
 
     async function init() {
-      const [module] = await Promise.all([import('./beta/beta_app'), ApiClient.bootstrapSession()]);
-      const Component = module.BetaApp;
+      const [module] = await Promise.all([import('./app'), ApiClient.bootstrapSession()]);
+      const Component = module.App;
       if (!cancelled) set_app({ Component });
     }
     void init();
