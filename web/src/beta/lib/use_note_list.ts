@@ -13,6 +13,8 @@ export type NoteList = {
   pinned: Note[];
   items: Note[];
   total: number;
+  /** Everything matching the filters, pinned rows included. */
+  count: number;
   has_more: boolean;
   loading: boolean;
   loading_more: boolean;
@@ -129,6 +131,7 @@ export function useNoteList(filters: NoteFilters): NoteList {
     pinned,
     items,
     total,
+    count: pinned.length + total,
     has_more: items.length < total,
     loading,
     loading_more,

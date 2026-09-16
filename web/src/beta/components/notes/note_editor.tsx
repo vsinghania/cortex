@@ -10,9 +10,11 @@ import { useFilingSuggestion } from '../../lib/use_filing_suggestion';
 import { NoteFiling } from '../../lib/note_filing';
 import type { FilingChoice } from '../../lib/note_filing';
 import { useNowTick } from '../../lib/use_now_tick';
+import { useIsMobile } from '../../lib/use_is_mobile';
 import { NoteOutline } from '../../lib/note_outline';
 import { MarkdownPreview } from '../markdown_preview';
 import { NoteToolbar } from './note_toolbar';
+import { MobileNoteBar } from './mobile_note_bar';
 import { TagEditor } from './tag_editor';
 import { CitationSourceView } from './citation_source_view';
 import { FilingSuggestionCard } from './filing_suggestion_card';
@@ -37,6 +39,9 @@ type Props = {
   flush_ref: MutableRefObject<(() => Promise<void>) | null>;
   onToggleList: () => void;
   onToggleChat: () => void;
+  /** Mobile only: the detail screen replaces the toolbar with a back-and-details bar. */
+  onBack?: () => void;
+  onOpenInfo?: () => void;
   onCreate: (fields: NoteDraftFields) => Promise<Note>;
   onSaved: (note: Note) => void;
   onOrganize: (patch: NotePatchBody) => void;
@@ -51,6 +56,7 @@ type Props = {
  */
 export function NoteEditor(props: Props) {
   const { note, chunk_id } = props;
+  const is_mobile = useIsMobile();
   const [title, set_title] = useState(note?.title === UNTITLED_NOTE_TITLE ? '' : note?.title ?? '');
   const [body, set_body] = useState(note?.body ?? '');
   const [mode, set_mode] = useState<EditorMode>('edit');
@@ -182,6 +188,12 @@ export function NoteEditor(props: Props) {
     ? NoteFiling.pending(filing.state.suggestion, { title, folder_id: note.folder_id, tags: note.tags }, props.folders_by_id)
     : null;
   const filing_done = filing_applied && !!pending_filing && NoteFiling.isEmpty(pending_filing);
+  // The citation view is read-only, so there is nothing to suggest a filing for.
+  const suggest_control = chunk_id ? null : {
+    disabled: !title.trim() && !body.trim(),
+    busy: filing.state.status === 'loading',
+    onRequest: requestFiling,
+  };
 
   // Once the user has applied everything on offer the card has nothing left to say.
   const { dismiss: dismissFiling } = filing;
@@ -191,26 +203,39 @@ export function NoteEditor(props: Props) {
 
   return (
     <main className="editor" aria-label="Note editor">
-      <NoteToolbar
-        note={note}
-        title={title}
-        folders_by_id={props.folders_by_id}
-        folder_tree={props.folder_tree}
-        mode={mode}
-        show_mode={!chunk_id}
-        list_collapsed={props.list_collapsed}
-        chat_open={props.chat_open}
-        onToggleList={props.onToggleList}
-        onToggleChat={props.onToggleChat}
-        onModeChange={set_mode}
-        suggest={chunk_id ? null : {
-          disabled: !title.trim() && !body.trim(),
-          busy: filing.state.status === 'loading',
-          onRequest: requestFiling,
-        }}
-        onOrganize={props.onOrganize}
-        onDelete={props.onDelete}
-      />
+      {is_mobile ? (
+        <MobileNoteBar
+          note={note}
+          title={title}
+          folders_by_id={props.folders_by_id}
+          folder_tree={props.folder_tree}
+          mode={mode}
+          show_mode={!chunk_id}
+          suggest={suggest_control}
+          onBack={props.onBack ?? (() => void 0)}
+          onOpenInfo={props.onOpenInfo ?? (() => void 0)}
+          onModeChange={set_mode}
+          onOrganize={props.onOrganize}
+          onDelete={props.onDelete}
+        />
+      ) : (
+        <NoteToolbar
+          note={note}
+          title={title}
+          folders_by_id={props.folders_by_id}
+          folder_tree={props.folder_tree}
+          mode={mode}
+          show_mode={!chunk_id}
+          list_collapsed={props.list_collapsed}
+          chat_open={props.chat_open}
+          onToggleList={props.onToggleList}
+          onToggleChat={props.onToggleChat}
+          onModeChange={set_mode}
+          suggest={suggest_control}
+          onOrganize={props.onOrganize}
+          onDelete={props.onDelete}
+        />
+      )}
 
       <div className="editor-scroll" ref={scroll_ref}>
         <div className="editor-column">

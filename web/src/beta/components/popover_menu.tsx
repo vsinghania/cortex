@@ -18,16 +18,16 @@ export function PopoverMenu({ label, trigger, trigger_class = 'icon-btn', align 
 
   useEffect(() => {
     if (!open) return;
-    function onPointerDown(event: MouseEvent) {
+    function onPointerDown(event: PointerEvent) {
       if (!container_ref.current?.contains(event.target as Node)) set_open(false);
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') set_open(false);
     }
-    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
     return () => {
-      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);

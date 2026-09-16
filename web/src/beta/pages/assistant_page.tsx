@@ -3,6 +3,12 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiClient } from '../../lib/api_client';
 import type { Conversation } from '../../lib/agent.types';
 import { AppRail } from '../components/app_rail';
+import { MobileShell } from '../components/mobile/mobile_shell';
+import { MobileBar, MobileBarButton, MobileBarTitle } from '../components/mobile/mobile_bar';
+import { BottomSheet } from '../components/mobile/bottom_sheet';
+import { RadialFab } from '../components/mobile/radial_fab';
+import { MobileThreadBar } from '../components/assistant/mobile_thread_bar';
+import { ThemeToggleButton } from '../components/theme_toggle_button';
 import { VerifyBanner } from '../components/verify_banner';
 import { ConfirmDialog } from '../components/confirm_dialog';
 import { useToast } from '../components/toast';
@@ -17,6 +23,8 @@ import { Hotkey } from '../lib/hotkey';
 import type { HotkeySpec } from '../lib/hotkey';
 import { useChatThread } from '../lib/use_chat_thread';
 import { useHotkey } from '../lib/use_hotkey';
+import { useIsMobile } from '../lib/use_is_mobile';
+import { Plural } from '../lib/plural';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
 
 const NEW_THREAD_HOTKEY: HotkeySpec = { mod: true, key: 'j' };
@@ -29,6 +37,10 @@ export function AssistantPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const mode: AssistantMode = search_params.get('mode') === 'voice' ? 'voice' : 'chat';
+  const is_mobile = useIsMobile();
+  const is_new_thread = route_conversation_id === BetaRoutes.NEW_THREAD_SEGMENT;
+  // A composed-but-unsent thread has a route but no id to load.
+  const loaded_conversation_id = is_new_thread ? undefined : route_conversation_id;
 
   const [conversations, set_conversations] = useState<Conversation[]>([]);
   const [conv_loading, set_conv_loading] = useState(true);
@@ -36,6 +48,7 @@ export function AssistantPage() {
   const { conversation_id } = thread;
   const [busy_id, set_busy_id] = useState<string | null>(null);
   const [thread_to_delete, set_thread_to_delete] = useState<Conversation | null>(null);
+  const [info_open, set_info_open] = useState(false);
   const [list_collapsed, set_list_collapsed] = usePersistedFlag('cortex.listCollapsed', false);
 
   // Pinned threads can be older than the most recent page, so they are fetched on their own.
@@ -61,19 +74,21 @@ export function AssistantPage() {
   // The URL is the source of truth for the open thread, so leaving through a citation and
   // coming back restores it.
   useEffect(() => {
-    if (!route_conversation_id) {
+    if (!loaded_conversation_id) {
       thread.reset();
       return;
     }
     // A just-created conversation is already on screen; its URL was only swapped in afterwards.
-    if (route_conversation_id === conversation_id) return;
-    void thread.loadThread(route_conversation_id);
+    if (loaded_conversation_id === conversation_id) return;
+    void thread.loadThread(loaded_conversation_id);
     // conversation_id is read only to skip the reload for a thread this page just created.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route_conversation_id]);
+  }, [loaded_conversation_id]);
 
   function setMode(next: AssistantMode) {
-    navigate(BetaRoutes.chat({ conversation_id, mode: next }), { replace: true });
+    // An unsent thread has no id yet, so the mode switch has to carry the `new` segment or
+    // the route would fall back to the thread list.
+    navigate(BetaRoutes.chat({ conversation_id: detail_conversation_id, mode: next }), { replace: true });
   }
 
   function selectConversation(id: string) {
@@ -83,7 +98,7 @@ export function AssistantPage() {
 
   function startNewThread() {
     thread.reset();
-    navigate(BetaRoutes.chat({ mode }));
+    navigate(BetaRoutes.chat({ conversation_id: BetaRoutes.NEW_THREAD_SEGMENT, mode }));
   }
 
   useHotkey(NEW_THREAD_HOTKEY, startNewThread);
@@ -130,24 +145,116 @@ export function AssistantPage() {
     }
   }
 
+  /** What the detail screen's URL should carry: the real id, or the unsent-thread segment. */
+  const detail_conversation_id = conversation_id ?? (is_new_thread ? BetaRoutes.NEW_THREAD_SEGMENT : null);
   const current_conversation = conversations.find((c) => c.conversation_id === conversation_id) ?? null;
   const current_title = current_conversation?.title ?? (conversation_id ? 'Untitled' : 'New thread');
 
+  const rail = (variant: 'rail' | 'drawer', onClose?: () => void) => (
+    <AppRail
+      variant={variant}
+      onClose={onClose}
+      action={{ label: 'New thread', icon: 'plus', shortcut_label: Hotkey.label(NEW_THREAD_HOTKEY, 'J'), onClick: startNewThread }}
+    />
+  );
+
+  const thread_list = (
+    <ThreadList
+      conversations={conversations}
+      loading={conv_loading}
+      selected_id={conversation_id}
+      busy_id={busy_id}
+      onSelect={selectConversation}
+      onTogglePin={(c) => void togglePin(c)}
+      onDelete={set_thread_to_delete}
+    />
+  );
+
+  const conversation_view = mode === 'chat' ? (
+    <ChatView
+      turns={thread.turns}
+      pending={thread.pending}
+      thread_loading={thread.thread_loading}
+      error={thread.error}
+      onSend={(text) => void send(text)}
+      onSaveAsNote={thread.saveTurnAsNote}
+    />
+  ) : (
+    <VoiceView />
+  );
+
+  const delete_dialog = (
+    <ConfirmDialog
+      open={!!thread_to_delete}
+      title={`Delete “${thread_to_delete?.title ?? 'Untitled'}”?`}
+      confirm_label="Delete thread"
+      danger
+      busy={busy_id === thread_to_delete?.conversation_id}
+      onConfirm={() => void confirmDeleteThread()}
+      onCancel={() => set_thread_to_delete(null)}
+    >
+      <p>The conversation is removed from your threads.</p>
+    </ConfirmDialog>
+  );
+
+  if (is_mobile) {
+    const show_detail = !!route_conversation_id || mode === 'voice';
+    return (
+      <MobileShell
+        rail={(close) => rail('drawer', close)}
+        show_tabs={!show_detail}
+        fab={
+          <RadialFab
+            label="New thread"
+            default_key="chat"
+            actions={[
+              { key: 'chat', label: 'New chat', icon: 'sparkle', onSelect: startNewThread },
+              { key: 'voice', label: 'Voice chat', icon: 'mic', onSelect: () => navigate(BetaRoutes.chat({ conversation_id: BetaRoutes.NEW_THREAD_SEGMENT, mode: 'voice' })) },
+              { key: 'note', label: 'New note', icon: 'file_plus', onSelect: () => navigate(BetaRoutes.newNote()) },
+            ]}
+          />
+        }
+      >
+        {(openDrawer) => (
+          <div className="m-body">
+            {show_detail ? (
+              <>
+                <MobileThreadBar
+                  title={current_title}
+                  thinking={thread.pending}
+                  mode={mode}
+                  onBack={() => navigate(BetaRoutes.chat())}
+                  onOpenInfo={() => set_info_open(true)}
+                  onModeChange={setMode}
+                />
+                {conversation_view}
+                <BottomSheet open={info_open} title="Session" onClose={() => set_info_open(false)}>
+                  <SessionRail turns={thread.turns} mode={mode} conversation={current_conversation} />
+                </BottomSheet>
+              </>
+            ) : (
+              <>
+                <MobileBar>
+                  <MobileBarButton label="Menu" icon="menu" onClick={openDrawer} />
+                  <MobileBarTitle title="Assistant" subtitle={Plural.count(conversations.length, 'thread')} />
+                  <ThemeToggleButton />
+                </MobileBar>
+                <VerifyBanner />
+                {thread_list}
+              </>
+            )}
+            {delete_dialog}
+          </div>
+        )}
+      </MobileShell>
+    );
+  }
+
   return (
     <div className="workspace">
-      <AppRail action={{ label: 'New thread', icon: 'plus', shortcut_label: Hotkey.label(NEW_THREAD_HOTKEY, 'J'), onClick: startNewThread }} />
+      {rail('rail')}
 
-      {!list_collapsed && (
-        <ThreadList
-          conversations={conversations}
-          loading={conv_loading}
-          selected_id={conversation_id}
-          busy_id={busy_id}
-          onSelect={selectConversation}
-          onTogglePin={(c) => void togglePin(c)}
-          onDelete={set_thread_to_delete}
-        />
-      )}
+      {!list_collapsed && thread_list}
 
       <div className="workspace-main">
         <VerifyBanner />
@@ -159,33 +266,12 @@ export function AssistantPage() {
           onToggleList={() => set_list_collapsed((c) => !c)}
           onModeChange={setMode}
         />
-        {mode === 'chat' ? (
-          <ChatView
-            turns={thread.turns}
-            pending={thread.pending}
-            thread_loading={thread.thread_loading}
-            error={thread.error}
-            onSend={(text) => void send(text)}
-            onSaveAsNote={thread.saveTurnAsNote}
-          />
-        ) : (
-          <VoiceView />
-        )}
+        {conversation_view}
       </div>
 
       <SessionRail turns={thread.turns} mode={mode} conversation={current_conversation} />
 
-      <ConfirmDialog
-        open={!!thread_to_delete}
-        title={`Delete “${thread_to_delete?.title ?? 'Untitled'}”?`}
-        confirm_label="Delete thread"
-        danger
-        busy={busy_id === thread_to_delete?.conversation_id}
-        onConfirm={() => void confirmDeleteThread()}
-        onCancel={() => set_thread_to_delete(null)}
-      >
-        <p>The conversation is removed from your threads.</p>
-      </ConfirmDialog>
+      {delete_dialog}
     </div>
   );
 }

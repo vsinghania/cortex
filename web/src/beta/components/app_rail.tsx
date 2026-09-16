@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/use_auth';
 import { Icon } from '../../components/icon';
 import type { IconName } from '../../components/icon';
 import { BetaRoutes } from '../lib/beta_routes';
+import { BetaNav } from '../lib/beta_nav';
 import { ThemeStore } from '../lib/theme_store';
 import { useTheme } from '../lib/use_theme';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
@@ -22,21 +23,24 @@ export type RailAction = {
 
 type Props = {
   action: RailAction;
+  /** `drawer` is the mobile slide-over: always full width, closed rather than collapsed. */
+  variant?: 'rail' | 'drawer';
+  onClose?: () => void;
   /** Page-specific sections; receives whether the rail is collapsed to icons. */
   children?: (collapsed: boolean) => ReactNode;
 };
 
-const NAV_ITEMS: { to: string; label: string; icon: IconName }[] = [
-  { to: BetaRoutes.notes(), label: 'Notes', icon: 'notes' },
-  { to: BetaRoutes.chat(), label: 'Assistant', icon: 'sparkle' },
-];
-
-export function AppRail({ action, children }: Props) {
-  const [collapsed, set_collapsed] = usePersistedFlag('cortex.railCollapsed', false);
-  useHotkey({ code: 'Backslash', mod: true }, () => set_collapsed((c) => !c));
+export function AppRail({ action, variant = 'rail', onClose, children }: Props) {
+  const is_drawer = variant === 'drawer';
+  const [persisted_collapsed, set_collapsed] = usePersistedFlag('cortex.railCollapsed', false);
+  useHotkey({ code: 'Backslash', mod: true }, () => set_collapsed((c) => !c), !is_drawer);
+  // Collapsing is a desktop affordance; the drawer reads the flag but never applies it, so
+  // switching to a phone and back leaves the desktop preference intact.
+  const collapsed = !is_drawer && persisted_collapsed;
+  const toggle_label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
 
   return (
-    <aside className={`rail${collapsed ? ' rail-collapsed' : ''}`} aria-label="Workspace">
+    <aside className={`rail${collapsed ? ' rail-collapsed' : ''}${is_drawer ? ' rail-drawer' : ''}`} aria-label="Workspace">
       <div className="rail-header">
         <BrandWordmark mark_only={collapsed} />
         <div className="rail-header-actions">
@@ -44,11 +48,11 @@ export function AppRail({ action, children }: Props) {
           <button
             type="button"
             className="icon-btn"
-            onClick={() => set_collapsed((c) => !c)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={is_drawer ? onClose : () => set_collapsed((c) => !c)}
+            aria-label={is_drawer ? 'Close menu' : toggle_label}
+            title={is_drawer ? 'Close menu' : toggle_label}
           >
-            <Icon name={collapsed ? 'chevrons_right' : 'chevrons_left'} size={15} />
+            <Icon name={is_drawer ? 'close' : collapsed ? 'chevrons_right' : 'chevrons_left'} size={15} />
           </button>
         </div>
       </div>
@@ -67,7 +71,7 @@ export function AppRail({ action, children }: Props) {
       <div className="rail-scroll">
         <nav className="rail-section" aria-label="Primary">
           {!collapsed && <div className="rail-heading">Navigate</div>}
-          {NAV_ITEMS.map((item) => (
+          {BetaNav.ITEMS.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
