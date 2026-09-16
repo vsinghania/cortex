@@ -1,6 +1,6 @@
 /*
- * Cortex beta. Loaded only on /beta pages (see main.tsx), so element-level resets here
- * never reach the classic UI. Colours are the design's oklch tokens; text greys are
+ * Cortex UI styles. Element-level resets here are scoped to .cx-beta so they
+ * stay inside the app shell. Colours are the design's oklch tokens; text greys are
  * lifted slightly above the mockups so small text clears 4.5:1 contrast.
  */
 

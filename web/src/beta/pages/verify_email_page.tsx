@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ApiClient } from '../lib/api_client';
-import { AuthLayout } from '../components/auth_layout';
-import { useAuth } from '../lib/use_auth';
+import { ApiClient } from '../../lib/api_client';
+import { useAuth } from '../../lib/use_auth';
+import { Icon } from '../../components/icon';
+import { AuthLayout } from '../components/auth/auth_layout';
+import { BetaRoutes } from '../lib/beta_routes';
 
 type Status = 'verifying' | 'verified' | 'failed';
 
-export function VerifyEmailPage() {
+export function BetaVerifyEmailPage() {
   const { is_authenticated } = useAuth();
   // The token arrives in the fragment (#token=...), which never reaches a server.
   const [token] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('token'));
@@ -15,9 +17,7 @@ export function VerifyEmailPage() {
 
   // Once read, take the token out of the address bar and the history entry.
   useEffect(() => {
-    if (window.location.hash) {
-      window.history.replaceState(null, '', window.location.pathname);
-    }
+    if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
   }, []);
 
   useEffect(() => {
@@ -30,9 +30,7 @@ export function VerifyEmailPage() {
         if (!active) return;
         set_status('verified');
         // The banner reads email_verified_at off the stored user, so refresh it.
-        if (is_authenticated) {
-          await ApiClient.refreshUser();
-        }
+        if (is_authenticated) await ApiClient.refreshUser();
       } catch (err) {
         if (!active) return;
         set_error(err instanceof Error ? err.message : 'Could not verify this email address.');
@@ -48,20 +46,21 @@ export function VerifyEmailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  const home_link = is_authenticated ? (
+    <Link to={BetaRoutes.notes()} className="btn btn-outline btn-block btn-lg">Back to your notes</Link>
+  ) : (
+    <Link to={BetaRoutes.login()} className="btn btn-outline btn-block btn-lg">Sign in</Link>
+  );
+
   if (!token) {
     return (
       <AuthLayout>
         <div className="auth-form">
           <div className="auth-heading">
             <h1>Link incomplete</h1>
+            <p>This link is missing its token. Open the link from the email again, or sign in and send yourself a new one.</p>
           </div>
-          <p className="auth-note">
-            This link is missing its token. Open the link from the email again, or log in and send yourself a
-            new one.
-          </p>
-          <p className="auth-alt">
-            <Link to="/login">Go to login</Link>
-          </p>
+          {home_link}
         </div>
       </AuthLayout>
     );
@@ -70,39 +69,22 @@ export function VerifyEmailPage() {
   return (
     <AuthLayout>
       <div className="auth-form">
+        {status === 'verified' && (
+          <span className="status-circle" aria-hidden="true">
+            <Icon name="check" size={22} />
+          </span>
+        )}
         <div className="auth-heading">
           <h1>
             {status === 'verifying' && 'Confirming your address…'}
             {status === 'verified' && 'Email confirmed'}
             {status === 'failed' && "That link didn't work"}
           </h1>
+          {status === 'verifying' && <p>One moment while we check your link.</p>}
+          {status === 'verified' && <p>Your email address is confirmed.</p>}
         </div>
-
-        {status === 'verifying' && <p className="auth-note">One moment while we check your link.</p>}
-
-        {status === 'verified' && (
-          <>
-            <p className="auth-note">Your email address is confirmed.</p>
-            <p className="auth-alt">
-              {is_authenticated ? <Link to="/notes">Back to your notes</Link> : <Link to="/login">Log in</Link>}
-            </p>
-          </>
-        )}
-
-        {status === 'failed' && (
-          <>
-            <div className="form-error" role="alert">
-              {error}
-            </div>
-            <p className="auth-alt">
-              {is_authenticated ? (
-                <Link to="/notes">Back to your notes</Link>
-              ) : (
-                <Link to="/login">Log in to request a new link</Link>
-              )}
-            </p>
-          </>
-        )}
+        {status === 'failed' && <div className="form-error" role="alert">{error}</div>}
+        {status !== 'verifying' && home_link}
       </div>
     </AuthLayout>
   );
