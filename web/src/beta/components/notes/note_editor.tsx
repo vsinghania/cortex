@@ -39,9 +39,10 @@ type Props = {
   flush_ref: MutableRefObject<(() => Promise<void>) | null>;
   onToggleList: () => void;
   onToggleChat: () => void;
-  /** Mobile only: the detail screen replaces the toolbar with a back-and-details bar. */
+  /** Mobile only: the detail screen replaces the toolbar with a back-and-actions bar. */
   onBack?: () => void;
-  onOpenInfo?: () => void;
+  onOpenChat?: () => void;
+  onOpenDetails?: () => void;
   onCreate: (fields: NoteDraftFields) => Promise<Note>;
   onSaved: (note: Note) => void;
   onOrganize: (patch: NotePatchBody) => void;
@@ -213,7 +214,8 @@ export function NoteEditor(props: Props) {
           show_mode={!chunk_id}
           suggest={suggest_control}
           onBack={props.onBack ?? (() => void 0)}
-          onOpenInfo={props.onOpenInfo ?? (() => void 0)}
+          onOpenChat={props.onOpenChat ?? (() => void 0)}
+          onOpenDetails={props.onOpenDetails ?? (() => void 0)}
           onModeChange={set_mode}
           onOrganize={props.onOrganize}
           onDelete={props.onDelete}

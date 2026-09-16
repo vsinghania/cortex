@@ -9,6 +9,7 @@ import type { NoteList } from '../../lib/use_note_list';
 import type { NoteSelection } from '../../lib/use_note_selection';
 import { Hotkey } from '../../lib/hotkey';
 import { NoteOutline } from '../../lib/note_outline';
+import { useIsMobile } from '../../lib/use_is_mobile';
 import { useLongPress } from '../../lib/use_long_press';
 import { NoteRowMenu } from './note_row_menu';
 import { NotesBulkBar } from './notes_bulk_bar';
@@ -40,6 +41,7 @@ type Props = {
 
 export function NotesList(props: Props) {
   const { label, list, filters, selected_id, search_ref, onQueryChange, onSortChange, onClearFilters } = props;
+  const is_mobile = useIsMobile();
   const [query, set_query] = useState(filters.q);
   const scroll_ref = useRef<HTMLDivElement>(null);
   const sentinel_ref = useRef<HTMLDivElement>(null);
@@ -188,16 +190,19 @@ export function NotesList(props: Props) {
             {!is_initial_load && <span className="mono-count">{count}</span>}
           </div>
           <div className="list-header-actions">
-            <button
-              type="button"
-              className="icon-btn icon-btn-sm"
-              onClick={() => selection.start()}
-              disabled={ordered.length === 0}
-              aria-label="Select notes"
-              title="Select notes (⇧-click for a range)"
-            >
-              <Icon name="check" size={13} />
-            </button>
+            {/* Touch enters selection with a long press, so the button is desktop-only. */}
+            {!is_mobile && (
+              <button
+                type="button"
+                className="icon-btn icon-btn-sm"
+                onClick={() => selection.start()}
+                disabled={ordered.length === 0}
+                aria-label="Select notes"
+                title="Select notes (⇧-click for a range)"
+              >
+                <Icon name="check" size={13} />
+              </button>
+            )}
             <button
               type="button"
               className="sort-btn"
