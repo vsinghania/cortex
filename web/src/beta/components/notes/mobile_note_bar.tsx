@@ -20,7 +20,8 @@ type Props = {
   show_mode: boolean;
   suggest: SuggestControl | null;
   onBack: () => void;
-  onOpenInfo: () => void;
+  onOpenChat: () => void;
+  onOpenDetails: () => void;
   onModeChange: (mode: EditorMode) => void;
   onOrganize: (patch: NotePatchBody) => void;
   onDelete: () => void;
@@ -47,13 +48,24 @@ export function MobileNoteBar(props: Props) {
         <MobileBarButton label="Back to notes" icon="back" onClick={props.onBack} accent />
         <MobileBarTitle title={title.trim() || note?.title || 'Untitled note'} subtitle={folder_label} />
         {props.show_mode && <NoteModeSwitch mode={props.mode} onChange={props.onModeChange} />}
-        {note && <MobileBarButton label="Note details" icon="info" onClick={props.onOpenInfo} />}
+        {note && <MobileBarButton label="Chat about this note" icon="sparkle" onClick={props.onOpenChat} />}
         {note && <MobileBarButton label="More actions" icon="more" onClick={() => set_actions_open(true)} />}
       </MobileBar>
 
       {note && (
         <BottomSheet open={actions_open} title="Note actions" onClose={() => set_actions_open(false)}>
           <div className="m-actions">
+            <button
+              type="button"
+              className="m-action"
+              onClick={() => {
+                set_actions_open(false);
+                props.onOpenDetails();
+              }}
+            >
+              <Icon name="info" size={17} />
+              Note details
+            </button>
             <button type="button" className="m-action" onClick={() => organize({ is_pinned: !note.is_pinned })}>
               <Icon name="pin" size={17} />
               {note.is_pinned ? 'Unpin note' : 'Pin note'}

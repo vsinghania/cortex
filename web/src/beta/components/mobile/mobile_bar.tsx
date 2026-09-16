@@ -28,11 +28,28 @@ export function MobileBarButton({ label, icon, onClick, accent = false, active =
   );
 }
 
-export function MobileBarTitle({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <div className="m-title">
-      <span className="m-title-main">{title}</span>
+type TitleProps = {
+  title: string;
+  subtitle?: string;
+  /** Turns the title into a menu button, for pickers like the notes list's folder switch. */
+  onPress?: () => void;
+};
+
+export function MobileBarTitle({ title, subtitle, onPress }: TitleProps) {
+  const body = (
+    <>
+      <span className="m-title-main">
+        {title}
+        {onPress && <Icon name="chevron_down" size={15} className="m-title-caret" />}
+      </span>
       {subtitle && <span className="m-title-sub">{subtitle}</span>}
-    </div>
+    </>
+  );
+
+  if (!onPress) return <div className="m-title">{body}</div>;
+  return (
+    <button type="button" className="m-title m-title-button" onClick={onPress} aria-haspopup="menu">
+      {body}
+    </button>
   );
 }

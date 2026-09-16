@@ -3409,6 +3409,8 @@ body {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* On the shell, not the bar: the bar collapses on scroll and the notch inset must not. */
+  padding-top: var(--safe-top);
   background: var(--bg);
 }
 
@@ -3427,7 +3429,6 @@ body {
   gap: 6px;
   min-height: var(--m-bar-h);
   padding: 8px 10px;
-  padding-top: calc(8px + var(--safe-top));
   border-bottom: 1px solid var(--border-soft);
   background: var(--surface);
 }
@@ -3998,4 +3999,103 @@ body {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* ── Collapsing top chrome ── */
+/* grid-template-rows 1fr→0fr collapses without measuring the content, so the verify
+   banner appearing or going away needs no recalculation. */
+
+.m-chrome {
+  display: grid;
+  grid-template-rows: 1fr;
+  flex-shrink: 0;
+  transition: grid-template-rows 0.24s var(--ease-sheet);
+}
+
+.m-chrome[data-collapsed='true'] {
+  grid-template-rows: 0fr;
+}
+
+.m-chrome-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-chrome {
+    transition: none;
+  }
+}
+
+/* ── Folder switch in the list title ── */
+
+.m-title-button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.m-title-caret {
+  margin-left: 4px;
+  color: var(--dim);
+  vertical-align: -2px;
+}
+
+.m-action-active {
+  color: var(--accent);
+}
+
+.m-action-active svg {
+  color: var(--accent);
+}
+
+.m-action-check {
+  margin-left: auto;
+}
+
+/* ── Tall sheet (the note chat needs the height) ── */
+
+.m-sheet-tall .m-sheet-panel {
+  height: var(--sheet-max-h);
+}
+
+.m-sheet-tall .m-sheet-body {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
+.m-sheet-tall .side-rail {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.m-sheet-tall .note-rail-tabs {
+  flex-shrink: 0;
+}
+
+/* The details column scrolls on its own so the sheet body never grows past the panel. */
+.m-sheet-tall .note-rail-details {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The panel is written for a 380px rail with 18px side padding; in the sheet it just fills. */
+.m-sheet .note-chat {
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Shortcut badges are meaningless without a keyboard. */
+.cx-beta[data-layout='mobile'] .kbd {
+  display: none;
 }
