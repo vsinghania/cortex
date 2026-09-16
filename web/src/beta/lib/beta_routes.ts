@@ -8,6 +8,11 @@ export type AssistantMode = 'chat' | 'voice';
 export class BetaRoutes {
   static readonly PREFIX = '/beta';
   static readonly NEW_NOTE_SEGMENT = 'new';
+  /**
+   * A thread has no id until its first reply lands. On mobile a bare /chat means the thread
+   * list, so a new thread needs a path of its own or composing would bounce back to the list.
+   */
+  static readonly NEW_THREAD_SEGMENT = 'new';
 
   static isBetaPath(pathname: string): boolean {
     return pathname === BetaRoutes.PREFIX || pathname.startsWith(`${BetaRoutes.PREFIX}/`);
@@ -17,8 +22,10 @@ export class BetaRoutes {
   static toClassicPath(pathname: string): string {
     if (!BetaRoutes.isBetaPath(pathname)) return pathname;
     const classic = pathname.slice(BetaRoutes.PREFIX.length) || '/';
-    // Drafts are beta-only; classic has no page for an unsaved note.
-    return classic === `/notes/${BetaRoutes.NEW_NOTE_SEGMENT}` ? '/notes' : classic;
+    // Drafts are beta-only; classic has no page for an unsaved note or an unsent thread.
+    if (classic === `/notes/${BetaRoutes.NEW_NOTE_SEGMENT}`) return '/notes';
+    if (classic === `/chat/${BetaRoutes.NEW_THREAD_SEGMENT}`) return '/chat';
+    return classic;
   }
 
   /** The beta page for a classic path; classic and beta share the same paths below the prefix. */

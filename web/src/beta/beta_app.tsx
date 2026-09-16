@@ -12,6 +12,7 @@ import '@fontsource/jetbrains-mono/500.css';
 import './beta.css';
 import { BetaRoutes } from './lib/beta_routes';
 import { useTheme } from './lib/use_theme';
+import { useIsMobile } from './lib/use_is_mobile';
 import { ToastProvider } from './components/toast';
 import { BetaRequireAuth } from './components/beta_require_auth';
 import { BetaLoginPage } from './pages/login_page';
@@ -22,9 +23,10 @@ import { AssistantPage } from './pages/assistant_page';
 
 export function BetaApp() {
   const theme = useTheme();
+  const is_mobile = useIsMobile();
 
   return (
-    <div className="cx-beta" data-theme={theme}>
+    <div className="cx-beta" data-theme={theme} data-layout={is_mobile ? 'mobile' : 'desktop'}>
       <ToastProvider>
         <Routes>
           <Route path={BetaRoutes.login()} element={<BetaLoginPage />} />

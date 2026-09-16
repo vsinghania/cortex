@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { BrandWordmark } from '../brand_wordmark';
+import { ThemeToggleButton } from '../theme_toggle_button';
 
 const GRID_VERTICAL_LINES = 12;
 const GRID_HORIZONTAL_LINES = 18;
@@ -37,6 +38,8 @@ export function AuthLayout({ children }: { children: ReactNode }) {
       </section>
 
       <main className="auth-main">
+        {/* The rail's settings menu is the only other way to switch themes, and it isn't here. */}
+        <ThemeToggleButton className="auth-theme-toggle" />
         <div className="auth-column">
           <div className="auth-compact-brand">
             <BrandWordmark size="lg" />

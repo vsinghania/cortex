@@ -6,6 +6,11 @@ import type { NoteFolderNode } from '../../lib/note_folder.types';
 import type { ReturnLinkState } from '../../lib/navigation.types';
 import { Icon } from '../../components/icon';
 import { AppRail } from '../components/app_rail';
+import { MobileShell } from '../components/mobile/mobile_shell';
+import { MobileBar, MobileBarButton, MobileBarTitle } from '../components/mobile/mobile_bar';
+import { BottomSheet } from '../components/mobile/bottom_sheet';
+import { RadialFab } from '../components/mobile/radial_fab';
+import { ThemeToggleButton } from '../components/theme_toggle_button';
 import { VerifyBanner } from '../components/verify_banner';
 import { ConfirmDialog } from '../components/confirm_dialog';
 import { EmptyPanel } from '../components/empty_panel';
@@ -25,6 +30,7 @@ import { Plural } from '../lib/plural';
 import type { NoteDraftFields, NoteFilters, OutlineRequest } from '../lib/note_workspace.types';
 import { useCurrentNote } from '../lib/use_current_note';
 import { useHotkey } from '../lib/use_hotkey';
+import { useIsMobile } from '../lib/use_is_mobile';
 import { useNoteList } from '../lib/use_note_list';
 import { useNoteSelection } from '../lib/use_note_selection';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
@@ -44,6 +50,7 @@ export function NotesPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const is_mobile = useIsMobile();
 
   const filters = useMemo(() => NoteFilterParams.fromSearch(search_params), [search_params]);
   const filter_search = NoteFilterParams.toSearch(filters);
@@ -56,6 +63,7 @@ export function NotesPage() {
   const [tags, set_tags] = useState<NoteTagCount[]>([]);
   const [list_collapsed, set_list_collapsed] = usePersistedFlag('cortex.listCollapsed', false);
   const [chat_open, set_chat_open] = usePersistedFlag('cortex.noteChatOpen', false);
+  const [info_open, set_info_open] = useState(false);
   const [draft_session, set_draft_session] = useState(0);
   const [draft_note_id, set_draft_note_id] = useState<string | null>(null);
   const [note_to_delete, set_note_to_delete] = useState<Note | null>(null);
@@ -355,66 +363,59 @@ export function NotesPage() {
         onOrganize={(patch) => editor_note && void organizeNote(editor_note, patch)}
         onDelete={() => editor_note && set_note_to_delete(editor_note)}
         onDismissCitation={dismissCitation}
+        onBack={() => navigate(BetaRoutes.notes(filter_search))}
+        onOpenInfo={() => set_info_open(true)}
       />
     );
   }
 
-  return (
-    <div className="workspace">
-      <AppRail action={{ label: 'New note', icon: 'plus', shortcut_label: new_note_label, onClick: startDraft }}>
-        {(collapsed) => (
-          <NotesRailSections
-            collapsed={collapsed}
-            folders={folders}
-            tags={tags}
-            filters={filters}
-            onSelect={selectFilters}
-            onCreateFolder={createFolder}
-            onRenameFolder={renameFolder}
-            onDeleteFolder={requestFolderDelete}
-          />
-        )}
-      </AppRail>
+  const context_label = NoteFilterParams.contextLabel(filters, folders_by_id);
+  const show_detail = is_draft || !!selected_id;
 
-      {!list_collapsed && (
-        <NotesList
-          label={NoteFilterParams.contextLabel(filters, folders_by_id)}
-          list={list}
+  const rail = (variant: 'rail' | 'drawer', onClose?: () => void) => (
+    <AppRail
+      variant={variant}
+      onClose={onClose}
+      action={{ label: 'New note', icon: 'plus', shortcut_label: new_note_label, onClick: startDraft }}
+    >
+      {(collapsed) => (
+        <NotesRailSections
+          collapsed={collapsed}
+          folders={folders}
+          tags={tags}
           filters={filters}
-          selected_id={selected_id}
-          search_ref={search_ref}
-          folder_tree={folder_tree}
-          onSelect={openNote}
-          onOrganizeNote={(note, patch) => void organizeNote(note, patch)}
-          onDeleteNote={set_note_to_delete}
-          selection={selection}
-          bulk_busy={bulk_busy}
-          onBulkAction={(action, notes) => void runBulk(action, notes)}
-          onBulkDelete={set_notes_to_bulk_delete}
-          onQueryChange={(q) => replaceFilters({ ...filters, q })}
-          onSortChange={(sort) => replaceFilters({ ...filters, sort })}
-          onClearFilters={() => selectFilters({ folder: null, archived: false, tag: null, q: '' })}
+          onSelect={selectFilters}
+          onCreateFolder={createFolder}
+          onRenameFolder={renameFolder}
+          onDeleteFolder={requestFolderDelete}
         />
       )}
+    </AppRail>
+  );
 
-      <div className="workspace-main">
-        <VerifyBanner />
-        {renderMain()}
-      </div>
+  const list_pane = (
+    <NotesList
+      label={context_label}
+      list={list}
+      filters={filters}
+      selected_id={selected_id}
+      search_ref={search_ref}
+      folder_tree={folder_tree}
+      onSelect={openNote}
+      onOrganizeNote={(note, patch) => void organizeNote(note, patch)}
+      onDeleteNote={set_note_to_delete}
+      selection={selection}
+      bulk_busy={bulk_busy}
+      onBulkAction={(action, notes) => void runBulk(action, notes)}
+      onBulkDelete={set_notes_to_bulk_delete}
+      onQueryChange={(q) => replaceFilters({ ...filters, q })}
+      onSortChange={(sort) => replaceFilters({ ...filters, sort })}
+      onClearFilters={() => selectFilters({ folder: null, archived: false, tag: null, q: '' })}
+    />
+  );
 
-      {editor_note && (
-        <NoteRightRail
-          note={editor_note}
-          folders_by_id={folders_by_id}
-          related={related}
-          tab={chat_open ? 'chat' : 'details'}
-          onTabChange={(tab: NoteRailTab) => set_chat_open(tab === 'chat')}
-          flush={flushEditor}
-          onOutline={(line) => set_outline_request((prev) => ({ line, nonce: (prev?.nonce ?? 0) + 1 }))}
-          onOpenNote={openNote}
-        />
-      )}
-
+  const dialogs = (
+    <>
       <ConfirmDialog
         open={!!notes_to_bulk_delete}
         title={`Delete ${Plural.count(notes_to_bulk_delete?.length ?? 0, 'note')}?`}
@@ -463,6 +464,96 @@ export function NotesPage() {
           </>
         )}
       </ConfirmDialog>
+    </>
+  );
+
+  if (is_mobile) {
+    return (
+      <MobileShell
+        rail={(close) => rail('drawer', close)}
+        show_tabs={!show_detail}
+        fab={
+          <RadialFab
+            label="New note"
+            default_key="note"
+            actions={[
+              { key: 'note', label: 'New note', icon: 'file_plus', onSelect: startDraft },
+              { key: 'chat', label: 'New chat', icon: 'sparkle', onSelect: () => navigate(BetaRoutes.chat({ conversation_id: BetaRoutes.NEW_THREAD_SEGMENT })) },
+              { key: 'voice', label: 'Voice chat', icon: 'mic', onSelect: () => navigate(BetaRoutes.chat({ conversation_id: BetaRoutes.NEW_THREAD_SEGMENT, mode: 'voice' })) },
+            ]}
+          />
+        }
+      >
+        {(openDrawer) => (
+          <div className="m-body">
+            {show_detail ? (
+              <>
+                {renderMain()}
+                {editor_note && (
+                  <BottomSheet open={info_open} title="Note details" onClose={() => set_info_open(false)}>
+                    <NoteRightRail
+                      note={editor_note}
+                      folders_by_id={folders_by_id}
+                      related={related}
+                      tab={chat_open ? 'chat' : 'details'}
+                      onTabChange={(tab: NoteRailTab) => set_chat_open(tab === 'chat')}
+                      flush={flushEditor}
+                      onOutline={(line) => {
+                        // The sheet covers the editor, so it has to be out of the way first.
+                        set_info_open(false);
+                        set_outline_request((prev) => ({ line, nonce: (prev?.nonce ?? 0) + 1 }));
+                      }}
+                      onOpenNote={(id) => {
+                        set_info_open(false);
+                        openNote(id);
+                      }}
+                    />
+                  </BottomSheet>
+                )}
+              </>
+            ) : (
+              <>
+                <MobileBar>
+                  <MobileBarButton label="Menu" icon="menu" onClick={openDrawer} />
+                  <MobileBarTitle title={context_label} subtitle={Plural.count(list.count, 'note')} />
+                  <ThemeToggleButton />
+                </MobileBar>
+                <VerifyBanner />
+                {list_pane}
+              </>
+            )}
+            {dialogs}
+          </div>
+        )}
+      </MobileShell>
+    );
+  }
+
+  return (
+    <div className="workspace">
+      {rail('rail')}
+
+      {!list_collapsed && list_pane}
+
+      <div className="workspace-main">
+        <VerifyBanner />
+        {renderMain()}
+      </div>
+
+      {editor_note && (
+        <NoteRightRail
+          note={editor_note}
+          folders_by_id={folders_by_id}
+          related={related}
+          tab={chat_open ? 'chat' : 'details'}
+          onTabChange={(tab: NoteRailTab) => set_chat_open(tab === 'chat')}
+          flush={flushEditor}
+          onOutline={(line) => set_outline_request((prev) => ({ line, nonce: (prev?.nonce ?? 0) + 1 }))}
+          onOpenNote={openNote}
+        />
+      )}
+
+      {dialogs}
     </div>
   );
 }

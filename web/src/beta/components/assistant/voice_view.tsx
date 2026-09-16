@@ -5,8 +5,11 @@ import { Icon } from '../../../components/icon';
 import type { VoiceLine, VoicePhase } from '../../lib/assistant.types';
 import { AudioLevelMeter } from '../../lib/audio_level_meter';
 import { useHotkey } from '../../lib/use_hotkey';
+import { useIsMobile } from '../../lib/use_is_mobile';
 
 const BAR_COUNT = 44;
+/** Fewer bars on a phone: 44 of them read as noise at that width. */
+const MOBILE_BAR_COUNT = 32;
 const TIMER_TICK_MS = 1000;
 const SECONDS_PER_MINUTE = 60;
 
@@ -35,6 +38,7 @@ export function VoiceView() {
   const muted_ref = useRef(muted);
   muted_ref.current = muted;
   const bar_refs = useRef<(HTMLSpanElement | null)[]>([]);
+  const bar_count = useIsMobile() ? MOBILE_BAR_COUNT : BAR_COUNT;
   const orb_ref = useRef<HTMLButtonElement>(null);
   const captions_ref = useRef<HTMLDivElement>(null);
 
@@ -137,7 +141,7 @@ export function VoiceView() {
       if (!remote_meter && remote_stream) remote_meter = AudioLevelMeter.tryCreate(remote_stream);
 
       const meter = speaking_ref.current ? remote_meter : muted_ref.current ? null : mic_meter;
-      Waveform.paint(bar_refs.current, meter ? meter.bands(BAR_COUNT / 2) : null);
+      Waveform.paint(bar_refs.current, meter ? meter.bands(bar_count / 2) : null);
       orb_ref.current?.style.setProperty('--amp', meter ? meter.level().toFixed(3) : '0');
       frame = window.requestAnimationFrame(tick);
     };
@@ -148,7 +152,13 @@ export function VoiceView() {
       mic_meter?.close();
       remote_meter?.close();
     };
-  }, [is_active]);
+  }, [is_active, bar_count]);
+
+  // Waveform.paint reads the array's length to find its centre, so stale tail slots
+  // (nulled by React when the count shrinks) would push the mirror off-centre.
+  useEffect(() => {
+    bar_refs.current.length = bar_count;
+  }, [bar_count]);
 
   return (
     <div className="voice">
@@ -170,7 +180,7 @@ export function VoiceView() {
           </button>
 
           <div className={`waveform${is_active ? ' waveform-active' : ''}`} aria-hidden="true">
-            {Array.from({ length: BAR_COUNT }, (_, i) => (
+            {Array.from({ length: bar_count }, (_, i) => (
               <span
                 key={i}
                 ref={(el) => {

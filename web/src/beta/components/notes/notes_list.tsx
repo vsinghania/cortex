@@ -9,6 +9,7 @@ import type { NoteList } from '../../lib/use_note_list';
 import type { NoteSelection } from '../../lib/use_note_selection';
 import { Hotkey } from '../../lib/hotkey';
 import { NoteOutline } from '../../lib/note_outline';
+import { useLongPress } from '../../lib/use_long_press';
 import { NoteRowMenu } from './note_row_menu';
 import { NotesBulkBar } from './notes_bulk_bar';
 
@@ -70,7 +71,7 @@ export function NotesList(props: Props) {
     return () => observer.disconnect();
   }, [has_more, loadMore]);
 
-  const count = list.pinned.length + list.total;
+  const count = list.count;
   const is_filtered = !!(filters.q || filters.tag || filters.folder || filters.archived);
   const is_initial_load = list.loading && list.pinned.length === 0 && list.items.length === 0;
 
@@ -241,6 +242,12 @@ type NoteRowProps = {
 
 function NoteRow({ note, active, selecting, checked, folder_tree, onClick, onOrganize, onDelete, onStartSelection }: NoteRowProps) {
   const preview = NoteOutline.plainExcerpt(NotePreview.excerpt(note));
+  // A hold still produces a click; without this the row would immediately deselect itself.
+  const suppress_click = useRef(false);
+  const long_press = useLongPress(() => {
+    suppress_click.current = true;
+    onStartSelection(note);
+  }, !selecting);
   const row_class = ['list-row', 'note-row', active && 'list-row-active', selecting && 'note-row-selecting', checked && 'note-row-checked']
     .filter(Boolean)
     .join(' ');
@@ -251,7 +258,14 @@ function NoteRow({ note, active, selecting, checked, folder_tree, onClick, onOrg
         className="note-row-select"
         aria-current={active && !selecting ? 'true' : undefined}
         aria-pressed={selecting ? checked : undefined}
-        onClick={(e) => onClick(note, e)}
+        {...long_press}
+        onClick={(e) => {
+          if (suppress_click.current) {
+            suppress_click.current = false;
+            return;
+          }
+          onClick(note, e);
+        }}
       >
         {selecting && <input type="checkbox" className="bulk-check note-row-check" checked={checked} readOnly tabIndex={-1} aria-hidden="true" />}
         <span className="list-row-top">
