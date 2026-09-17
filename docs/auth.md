@@ -1,8 +1,8 @@
 # auth
 
-Registration, login, session refresh, logout, password reset. Issues the JWT every other route trusts, and owns the rotating refresh sessions behind it.
+Registration, login (password or Google), session refresh, logout, password reset. Issues the JWT every other route trusts, and owns the rotating refresh sessions behind it.
 
-Source: [src/auth_svc/](../src/auth_svc/) (flows + session store) and [src/user/](../src/user/) (the `User` entity). Contract: `AuthSvcInterface` — `register`, `login`, `refresh`, `logout`, `getMe`, each taking an optional `{ ip, user_agent }` recorded on the session. Password reset is `PasswordResetSvcInterface` — `requestReset`, `resetPassword`. Email verification is `EmailVerificationSvcInterface` — `requestVerification`, `verify`.
+Source: [src/auth_svc/](../src/auth_svc/) (flows + session store) and [src/user/](../src/user/) (the `User` entity). Contract: `AuthSvcInterface` — `register`, `login`, `refresh`, `logout`, `getMe`, each taking an optional `{ ip, user_agent }` recorded on the session. Password reset is `PasswordResetSvcInterface` — `requestReset`, `resetPassword`. Email verification is `EmailVerificationSvcInterface` — `requestVerification`, `verify`. Google sign-in is `GoogleAuthSvcInterface` — `startAuthorization`, `completeAuthorization`.
 
 ---
 
@@ -21,7 +21,7 @@ Two tokens with deliberately different properties:
 - **The refresh token never appears in a response body.** The controller sets the cookie and returns only the access token, so the plaintext exists solely in the cookie while the database holds a hash — a database leak yields no usable sessions.
 - **Every refresh rotates both tokens.** `rotateSession` swaps the stored hash atomically; a rotation that matches nothing throws `UnauthorizedError`, which is the reuse-detection seam.
 - **Login failures are indistinguishable.** Unknown email and bad password both return `Invalid credentials`.
-- **`redactUser` strips `password_hash`** on every path out of the service.
+- **`SessionIssuer.toPublicUser` strips `password_hash` and `google_sub`** on every path out of the service. `SessionIssuer.issue` is the one place a session is started, whether the user proved themselves with a password or with Google.
 
 ## 2. How the rest of the system consumes it
 
@@ -72,9 +72,34 @@ Reuses every piece of the reset machinery in §3 — the same `email_tokens` col
 - **Verification links last 24 hours**, against the reset link's 30 minutes: nothing about it is urgent, and the mail may sit unread. `deadline_at` on the job is a day for the same reason.
 - **Resend is a no-op when already verified**, and returns the same 202 either way so the response says nothing beyond "the request was taken". It sits behind the same `EMAIL_SEND_RATE_LIMIT_*` limiter as `forgot`.
 - **A password reset also verifies the address.** Reading a link sent to that inbox is exactly the proof verification asks for, so `resetPassword` sets `email_verified_at` when it is unset — an already-verified user keeps their original timestamp.
-- **`email_verified_at` is set only through `UserRepository.setEmailVerifiedAt`**, deliberately kept off `UpdateUserPatch` so proof of ownership cannot be written through a generic patch. It flows out to the SPA via `redactUser` with no serializer change.
+- **`email_verified_at` is set only through `UserRepository.setEmailVerifiedAt`**, deliberately kept off `UpdateUserPatch` so proof of ownership cannot be written through a generic patch. It flows out to the SPA via `SessionIssuer.toPublicUser` with no serializer change.
 
-## 5. Gotchas
+## 5. Google sign-in
+
+A server-side authorization-code flow with PKCE. The SPA never talks to Google and never sees a Google token; it ends up with the same `rt` cookie a password login sets.
+
+```
+GET /auth/google/start?return_to=/notes                                    → 302 Google
+  └► GoogleAuthSvc.startAuthorization ─► state + PKCE verifier into HttpOnly g_oauth cookie (10 min)
+
+GET /auth/google/callback?code&state                                       → 302 SPA
+  └► state == cookie? ─► exchange code (with verifier) ─► verify ID token
+     ─► resolve user ─► SessionIssuer.issue ─► set rt cookie ─► APP_PUBLIC_URL + return_to
+         │ on load, the SPA's bootstrapSession() turns the cookie into a session
+```
+
+Resolving the user, in order:
+1. A user whose `google_sub` matches → sign in.
+2. A user with the same email, **only if Google says `email_verified`** → link (`linkGoogleAccount`), set `email_verified_at` if unset, sign in. A user already linked to a *different* Google account is refused.
+3. Otherwise, if verified → create a user with no `password_hash`, `email_verified_at` set, and no verification email.
+
+- **Both routes are browser navigations, so they never return a problem document.** Every failure redirects to `/login#error=google_failed` (or `google_cancelled`, `google_unavailable`), and the login page shows a message.
+- **`return_to` is only ever a same-origin path** (`GoogleAuthSvc.sanitizeReturnTo`); anything else becomes `/notes`, so the callback cannot be used as an open redirect.
+- **Google-only users have no password.** Password login fails with the usual `Invalid credentials` (logged as `no_password_set`); forgot-password works and gives them one.
+- **Config:** `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` enable it (unset → disabled), and `GOOGLE_OAUTH_REDIRECT_URI` must match an authorized redirect URI on the Google "Web application" client. Local: `http://localhost:3000/api/v1/auth/google/callback`; prod: `https://api.cortexapp.me/api/v1/auth/google/callback`.
+- **The adapter** ([google_oauth_adapter.ts](../src/auth_svc/adapters/google_oauth_adapter.ts)) wraps `google-auth-library` and Zod-validates the ID token claims. Logs carry `user_id` and `outcome` (`existing` / `linked` / `created`), never the Google claims.
+
+## 6. Gotchas
 
 - **`JWT_ACCESS_SECRET` is required**; `TokenUtils` throws `missing_env:JWT_ACCESS_SECRET` on first use. Rotating it invalidates every access token in flight.
 - **Expired sessions are pruned nightly, but revoked ones still accumulate.** The collection has a plain index on `expires_at`, not a TTL index; a `refresh_token_prune` handler is registered with [jobs_svc](jobs_svc.md) and deletes anything past `expires_at`, but it only runs if a schedule exists for it - create one under `/api/v1/admin/jobs/schedules` (a nightly cron is the intended shape). Nothing is seeded automatically. A session revoked before its expiry — by logout, or all of a user's sessions on a password reset — sticks around until that expiry passes.

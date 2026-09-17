@@ -26,6 +26,15 @@ export class AppLinks {
     return this.build('/verify-email', { token });
   }
 
+  /** `path` must already be a sanitized same-origin path. */
+  appPath(path: string): string {
+    return new URL(path, this.base_url).toString();
+  }
+
+  loginError(error: string): string {
+    return this.build('/login', { error });
+  }
+
   private build(path: string, fragment: Record<string, string>): string {
     const url = new URL(path, this.base_url);
     url.hash = new URLSearchParams(fragment).toString();

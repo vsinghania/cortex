@@ -163,6 +163,12 @@ export class ApiClient {
     return user;
   }
 
+  static googleSignInUrl(return_to?: string): string {
+    const url = new URL(`${API_BASE_URL}/auth/google/start`);
+    if (return_to) url.searchParams.set('return_to', return_to);
+    return url.toString();
+  }
+
   static async login(email: string, password: string): Promise<AuthResponse> {
     const result = await ApiClient.request<AuthResponse>('/auth/login', {
       method: 'POST',

@@ -41,7 +41,7 @@ Each controller builds its own `express.Router`, exposes `getRouter()`, and bind
 
 ## 4. The SPA
 
-React 18 + React Router, Vite, no state library. `/login`, `/register`, `/forgot-password` and `/reset-password` are public; `/notes`, `/notes/:id`, `/chat`, `/voice` sit behind a `RequireAuth` route guard.
+React 18 + React Router, Vite, no state library. `/login`, `/register`, `/forgot-password` and `/reset-password` are public (login and register also offer "Continue with Google", a plain link to the API's `/auth/google/start`); `/notes`, `/notes/:id`, `/chat`, `/voice` sit behind a `RequireAuth` route guard.
 
 [api_client.ts](../web/src/lib/api_client.ts) is the only place `fetch` hits the API, and it owns the whole token dance: bearer from an in-memory `AuthStore`, `credentials: 'include'` for the refresh cookie, and **on a 401 it refreshes once and replays the request**, sharing one in-flight refresh across concurrent failures. Calls that work without a session — login, register, refresh, forgot and reset password — are excluded from that path. It unwraps the envelope and throws a typed `ApiError` whose message is the problem's `detail`.
 
@@ -51,7 +51,7 @@ Voice is the one exception to "talks only to the API" — the browser opens WebR
 
 ## 5. Gotchas
 
-- **A page reload logs the user out.** `AuthStore` is memory-only and nothing calls `/auth/refresh` on mount, so a valid `rt` cookie goes unused.
+- **A page reload keeps the session through the cookie, not the store.** `AuthStore` is memory-only; `main.tsx` calls `ApiClient.bootstrapSession()` before rendering, which refreshes from the `rt` cookie. Google sign-in relies on this: the API's callback sets the cookie and redirects, and the reload picks it up.
 - **Client types are copies, not imports.** `web/src/lib/*.types.ts` mirrors server shapes by hand; a changed payload fails at runtime, not at build. Update both in one change.
 - **CORS.** `CORS_ORIGINS` must list the SPA origin, since every request is credentialed; unset means reflect any origin.
 - **The SPA is not built or deployed by the Node image** — compose ships the API and MCP server only.

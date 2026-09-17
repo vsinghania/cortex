@@ -126,6 +126,10 @@ services:
       SMTP_PASS: ${SMTP_PASS:?SMTP_PASS is required}
       # Origin that links in emails point to (the SPA, not this API).
       APP_PUBLIC_URL: https://cortexapp.me
+      # Google sign-in stays off until both credentials are in .env.
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URI: https://api.cortexapp.me/api/v1/auth/google/callback
 
     ports:
     - "3000:3000"

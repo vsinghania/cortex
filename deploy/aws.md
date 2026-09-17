@@ -304,7 +304,7 @@ The app directory (`/home/ssm-user/cortex`) holds three files:
 | File | Owner | Contents |
 | --- | --- | --- |
 | `compose.yaml` | **CI — do not hand-edit** | shipped by every deploy from [docker-compose.prod.yml](docker-compose.prod.yml); local changes are silently reverted |
-| `.env` | human | the four secrets: `JWT_ACCESS_SECRET`, `OPENAI_API_KEY`, `MCP_NOTES_AUTH_TOKEN`, `SMTP_PASS` (the Resend API key, see §10). Automation never writes this file |
+| `.env` | human | the four secrets: `JWT_ACCESS_SECRET`, `OPENAI_API_KEY`, `MCP_NOTES_AUTH_TOKEN`, `SMTP_PASS` (the Resend API key, see §10); optionally `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` to turn on Google sign-in. Automation never writes this file |
 | `deploy.env` | CI | one line, `CORTEX_IMAGE=<registry>/cortex-app:<full-sha>` — which version is running |
 
 Splitting deployment state from secrets is what lets CI change the running version

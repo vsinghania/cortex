@@ -54,7 +54,7 @@ private static async loadInstance(): Promise<X> {
 
 **Zod at boundaries only** — HTTP bodies, MCP tool arguments, external API responses, config. Plain TypeScript past the line.
 
-**Two-shape DTOs with a decoration seam** — `RawRetrievedChunk` → `RetrievedChunk` (+ `document_title`), `redactUser` stripping `password_hash`, `toDomain` stripping `_id`. The shape leaving a layer is never the shape that entered it.
+**Two-shape DTOs with a decoration seam** — `RawRetrievedChunk` → `RetrievedChunk` (+ `document_title`), `SessionIssuer.toPublicUser` stripping `password_hash` and `google_sub`, `toDomain` stripping `_id`. The shape leaving a layer is never the shape that entered it.
 
 **Content-hash diffing** — chunk hashes make re-indexing incremental.
 

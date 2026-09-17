@@ -4,6 +4,7 @@ import { ApiClient } from '../lib/api_client';
 import { AuthLayout } from '../components/auth/auth_layout';
 import { AuthField } from '../components/auth/auth_field';
 import { SubmitButton } from '../components/auth/submit_button';
+import { GoogleButton } from '../components/auth/google_button';
 import { AppRoutes } from '../lib/app_routes';
 import { FormValidation } from '../lib/form_validation';
 
@@ -86,6 +87,7 @@ export function RegisterPage() {
         </div>
         {form_error && <div className="form-error" role="alert">{form_error}</div>}
         <SubmitButton busy={submitting} label="Create account" />
+        <GoogleButton />
         <p className="auth-alt">
           Already have an account? <Link to={AppRoutes.login()} className="text-link text-link-strong">Sign in</Link>
         </p>
