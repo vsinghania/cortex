@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { AppRoutes } from '../../lib/app_routes';
 import { BrandWordmark } from '../brand_wordmark';
 import { ThemeToggleButton } from '../theme_toggle_button';
 
@@ -45,6 +47,9 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             <BrandWordmark size="lg" />
           </div>
           {children}
+          <p className="auth-legal">
+            <Link to={AppRoutes.privacy()} className="text-link">Privacy Policy</Link>
+          </p>
         </div>
       </main>
     </div>
