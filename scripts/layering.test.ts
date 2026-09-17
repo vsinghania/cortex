@@ -36,9 +36,15 @@ const RULES: Rule[] = [
       'citation_svc',
       'embeddings_svc',
       'notes_svc',
+      'onenote_svc',
       'retrieval_svc',
       'voice_svc'
     ]
+  },
+  // Provider-facing and one-directional: it writes notes, nothing reads back from it.
+  {
+    module: 'onenote_svc',
+    forbidden: ['agent_svc', 'ai_svc', 'citation_svc', 'retrieval_svc', 'voice_svc']
   },
   {
     module: 'mailer_svc',

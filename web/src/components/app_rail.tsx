@@ -17,7 +17,8 @@ import { PopoverMenu } from './popover_menu';
 export type RailAction = {
   label: string;
   icon: IconName;
-  shortcut_label: string;
+  /** Omitted on screens that do not register the hotkey, so no badge promises one. */
+  shortcut_label?: string;
   onClick: () => void;
 };
 
@@ -58,12 +59,17 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
       </div>
 
       <div className="rail-action-wrap">
-        <button type="button" className="rail-action" onClick={action.onClick} title={`${action.label} (${action.shortcut_label})`}>
+        <button
+          type="button"
+          className="rail-action"
+          onClick={action.onClick}
+          title={action.shortcut_label ? `${action.label} (${action.shortcut_label})` : action.label}
+        >
           <span className="rail-action-label">
             <Icon name={action.icon} size={15} />
             {!collapsed && action.label}
           </span>
-          {!collapsed && <kbd className="kbd kbd-accent">{action.shortcut_label}</kbd>}
+          {!collapsed && action.shortcut_label && <kbd className="kbd kbd-accent">{action.shortcut_label}</kbd>}
           {collapsed && <span className="sr-only">{action.label}</span>}
         </button>
       </div>
@@ -145,10 +151,21 @@ function AccountFooter({ collapsed }: { collapsed: boolean }) {
           </div>
           <PopoverMenu label="Account menu" trigger={<Icon name="more" size={16} />} align="end" placement="above">
             {() => (
-              <button type="button" role="menuitem" className="menu-item" onClick={() => void handleLogout()}>
-                <Icon name="logout" size={14} />
-                Log out
-              </button>
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => navigate(AppRoutes.settings())}
+                >
+                  <Icon name="settings" size={14} />
+                  Settings
+                </button>
+                <button type="button" role="menuitem" className="menu-item" onClick={() => void handleLogout()}>
+                  <Icon name="logout" size={14} />
+                  Log out
+                </button>
+              </>
             )}
           </PopoverMenu>
         </>

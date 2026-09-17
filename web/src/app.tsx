@@ -23,6 +23,7 @@ import { VerifyEmailPage } from './pages/verify_email_page';
 import { PrivacyPage } from './pages/privacy_page';
 import { NotesPage } from './pages/notes_page';
 import { AssistantPage } from './pages/assistant_page';
+import { SettingsPage } from './pages/settings_page';
 
 export function App() {
   const theme = useTheme();
@@ -42,6 +43,7 @@ export function App() {
             {/* Optional segments keep one mounted page while the selection changes. */}
             <Route path="/notes/:note_id?" element={<NotesPage />} />
             <Route path="/chat/:conversation_id?" element={<AssistantPage />} />
+            <Route path={AppRoutes.settings()} element={<SettingsPage />} />
             <Route path="/voice" element={<Navigate to={AppRoutes.chat({ mode: 'voice' })} replace />} />
           </Route>
           <Route path="*" element={<Navigate to={AppRoutes.notes()} replace />} />

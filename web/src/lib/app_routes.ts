@@ -46,6 +46,11 @@ export class AppRoutes {
     return '/privacy';
   }
 
+  /** Where an integration's OAuth callback lands, with the outcome in the fragment. */
+  static settings(): string {
+    return '/settings';
+  }
+
   static notes(search = ''): string {
     return `/notes${AppRoutes.withQuestionMark(search)}`;
   }
