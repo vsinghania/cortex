@@ -42,6 +42,10 @@ export class AppRoutes {
     return '/verify-email';
   }
 
+  static privacy(): string {
+    return '/privacy';
+  }
+
   static notes(search = ''): string {
     return `/notes${AppRoutes.withQuestionMark(search)}`;
   }

@@ -48,7 +48,11 @@ class CallerFrame {
 
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
-  redact: { paths: ["password", "req.headers.authorization"], censor: "[REDACTED]" },
+  // Error-level HTTP logs carry full headers; the refresh cookie is a live credential.
+  redact: {
+    paths: ["password", "req.headers.authorization", "req.headers.cookie", 'res.headers["set-cookie"]'],
+    censor: "[REDACTED]"
+  },
   mixin() {
     const out: Record<string, unknown> = {};
     const store = TraceContext.get();

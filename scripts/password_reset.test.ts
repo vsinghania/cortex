@@ -75,6 +75,14 @@ class InMemoryUserRepo implements UserRepository {
     if (user) user.email_verified_at = at;
     return user;
   }
+  async findByGoogleSub(google_sub: string) {
+    return this.users.find((u) => u.google_sub === google_sub) ?? null;
+  }
+  async linkGoogleAccount(user_id: string, google_sub: string) {
+    const user = await this.findByUserId(user_id);
+    if (user) user.google_sub = google_sub;
+    return user;
+  }
 }
 
 class RecordingMailer implements MailerSvcInterface {

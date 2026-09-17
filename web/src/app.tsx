@@ -20,6 +20,7 @@ import { RegisterPage } from './pages/register_page';
 import { ForgotPasswordPage } from './pages/forgot_password_page';
 import { ResetPasswordPage } from './pages/reset_password_page';
 import { VerifyEmailPage } from './pages/verify_email_page';
+import { PrivacyPage } from './pages/privacy_page';
 import { NotesPage } from './pages/notes_page';
 import { AssistantPage } from './pages/assistant_page';
 
@@ -36,6 +37,7 @@ export function App() {
           <Route path={AppRoutes.forgotPassword()} element={<ForgotPasswordPage />} />
           <Route path={AppRoutes.resetPassword()} element={<ResetPasswordPage />} />
           <Route path={AppRoutes.verifyEmail()} element={<VerifyEmailPage />} />
+          <Route path={AppRoutes.privacy()} element={<PrivacyPage />} />
           <Route element={<RequireAuth />}>
             {/* Optional segments keep one mounted page while the selection changes. */}
             <Route path="/notes/:note_id?" element={<NotesPage />} />

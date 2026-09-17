@@ -24,12 +24,15 @@ export type AuthContext = {
   user_agent?: string | null;
 };
 
+/** A user as it may leave the service: no credentials or linked-account identifiers. */
+export type PublicUser = Omit<User, 'password_hash' | 'google_sub'>;
+
 export type AuthResult = {
-  user: Omit<User, 'password_hash'>;
+  user: PublicUser;
   tokens: TokenPair;
 };
 
-export type MeResult = Omit<User, 'password_hash'>;
+export type MeResult = PublicUser;
 
 export type RefreshResult = {
   tokens: TokenPair;

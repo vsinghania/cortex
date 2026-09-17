@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import { AuthLayout } from '../components/auth/auth_layout';
 import { AuthField } from '../components/auth/auth_field';
 import { SubmitButton } from '../components/auth/submit_button';
+import { GoogleButton } from '../components/auth/google_button';
 import { AppRoutes } from '../lib/app_routes';
+import { GoogleSignIn } from '../lib/google_sign_in';
 import { FormValidation } from '../lib/form_validation';
 
 type LocationState = { from?: string; notice?: string } | null;
@@ -19,6 +21,15 @@ export function LoginPage() {
   const [errors, set_errors] = useState<LoginErrors>({});
   const [form_error, set_form_error] = useState<string | null>(null);
   const [submitting, set_submitting] = useState(false);
+
+  const redirect_to = state?.from && AppRoutes.isInternalPath(state.from) && state.from !== AppRoutes.login()
+    ? state.from
+    : AppRoutes.notes();
+
+  useEffect(() => {
+    const google_error = GoogleSignIn.takeRedirectError();
+    if (google_error) set_form_error(google_error);
+  }, []);
 
   // A field's error goes away as soon as the user edits it, not on the next submit.
   function editField(key: keyof LoginErrors, setter: (value: string) => void) {
@@ -41,9 +52,6 @@ export function LoginPage() {
     set_submitting(true);
     try {
       await ApiClient.login(email, password);
-      const redirect_to = state?.from && AppRoutes.isInternalPath(state.from) && state.from !== AppRoutes.login()
-        ? state.from
-        : AppRoutes.notes();
       navigate(redirect_to, { replace: true });
     } catch (err) {
       set_form_error(err instanceof Error ? err.message : 'Login failed.');
@@ -84,6 +92,7 @@ export function LoginPage() {
         </div>
         {form_error && <div className="form-error" role="alert">{form_error}</div>}
         <SubmitButton busy={submitting} label="Sign in" />
+        <GoogleButton return_to={redirect_to} />
         <p className="auth-alt">
           Don't have an account? <Link to={AppRoutes.register()} className="text-link text-link-strong">Join now</Link>
         </p>

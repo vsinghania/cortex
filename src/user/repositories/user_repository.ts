@@ -27,6 +27,8 @@ export class MongooseUserRepository implements IUserRepository {
       email: input.email,
       name: input.name,
       password_hash: input.password_hash,
+      google_sub: input.google_sub,
+      email_verified_at: input.email_verified_at,
       roles: input.roles ?? ['user']
     });
     return MongooseUtils.toDomain<User>(created);
@@ -39,6 +41,11 @@ export class MongooseUserRepository implements IUserRepository {
 
   async findByEmail(email: string): Promise<User | null> {
     const found = await this.model.findOne({ email: email.toLowerCase().trim() }).lean();
+    return found ? (MongooseUtils.toDomain<User>(found) as User) : null;
+  }
+
+  async findByGoogleSub(google_sub: string): Promise<User | null> {
+    const found = await this.model.findOne({ google_sub }).lean();
     return found ? (MongooseUtils.toDomain<User>(found) as User) : null;
   }
 
@@ -70,6 +77,15 @@ export class MongooseUserRepository implements IUserRepository {
     const updated = await this.model.findOneAndUpdate(
       { user_id },
       { $set: { email_verified_at: at } },
+      { new: true }
+    ).lean();
+    return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
+  }
+
+  async linkGoogleAccount(user_id: string, google_sub: string): Promise<User | null> {
+    const updated = await this.model.findOneAndUpdate(
+      { user_id },
+      { $set: { google_sub } },
       { new: true }
     ).lean();
     return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
