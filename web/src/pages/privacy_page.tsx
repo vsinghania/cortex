@@ -44,6 +44,12 @@ export function PrivacyPage() {
               email address and email verification status Google shares with us. We don't request access
               to your contacts, Drive, Gmail or any other Google data.
             </li>
+            <li>
+              If you connect OneNote: the <strong>email address</strong> of the Microsoft account you
+              connected, and an access grant that lets Cortex read your OneNote notebooks. The grant is
+              encrypted before it is stored, and we request read-only access — Cortex never writes to or
+              deletes anything in OneNote. You can disconnect at any time from Settings.
+            </li>
             <li>When you signed up, last signed in, and verified your email address.</li>
           </ul>
 
@@ -114,6 +120,11 @@ export function PrivacyPage() {
                   <td>Sign in with Google, only if you use it</td>
                   <td>The sign-in exchange described above</td>
                 </tr>
+                <tr>
+                  <td>Microsoft</td>
+                  <td>Connecting OneNote, only if you use it</td>
+                  <td>The sign-in exchange described above, and read-only access to your OneNote content</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -165,6 +176,11 @@ export function PrivacyPage() {
                 Google account connections
               </a>
               . This stops future Google sign-ins; it doesn't delete your Cortex account.
+            </li>
+            <li>
+              <strong>Disconnect OneNote</strong>: use Disconnect in Settings. Cortex stops reading from
+              OneNote and deletes the stored access grant. Notes already imported stay in Cortex, and
+              nothing in OneNote is changed.
             </li>
           </ul>
           <p>
