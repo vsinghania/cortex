@@ -1,6 +1,8 @@
 import express from 'express';
 import { z } from 'zod';
 import { AppLinks } from '../../auth_svc/app_links.js';
+import { AuthSvc } from '../../auth_svc/auth_svc.js';
+import { REFRESH_COOKIE_NAME } from '../../auth_svc/utils/token_utils.js';
 import { ServiceUnavailableError } from '../../common/errors.js';
 import { logger } from '../../common/logger.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
@@ -17,10 +19,11 @@ const STATE_FIELD = 'onenote_oauth_state';
 const STATE_SCOPE = 'pending';
 
 /**
- * The callback is a plain browser navigation, so it carries no bearer token and the
- * cookie is the only thing that says whose connection this is. Sealed rather than
- * JSON, so it cannot be forged: a planted cookie naming someone else's user_id would
- * otherwise route the victim's OneNote into the attacker's account.
+ * The callback is a plain browser navigation, so it carries no bearer token and this
+ * cookie is what records who started the flow. Sealed rather than JSON because anyone
+ * can edit their own cookies: unsealed, a user could put someone else's user_id in it
+ * and sync their own OneNote into that account. Sealing does not stop a *genuine*
+ * cookie being planted in another browser - the session check at the callback does.
  */
 const PendingStateSchema = z.object({
   state: z.string().min(1),
@@ -113,8 +116,13 @@ export class OneNoteController {
     }
 
     try {
+      // The refresh cookie is SameSite=lax, so it rides along on this top-level
+      // navigation back from Microsoft and says who this browser is signed in as.
+      const refresh_token = (req as any).cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
+      const session_user_id = await (await AuthSvc.create()).sessionUserId(refresh_token);
+
       const onenote_svc = await OneNoteConnectionSvc.create();
-      await onenote_svc.completeAuthorization({ user_id: pending.user_id, code, state, pending });
+      await onenote_svc.completeAuthorization({ user_id: pending.user_id, session_user_id, code, state, pending });
       res.redirect(links.settings({ connected: 'onenote' }));
     } catch (err) {
       logger.error({ err }, 'onenote connect failed');

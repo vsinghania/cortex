@@ -28,7 +28,10 @@ type OneNoteConnectionSvcDeps = {
 };
 
 export type CompleteOneNoteAuthorizationInput = {
+  /** Who started the flow, from the sealed state cookie. */
   user_id: string;
+  /** Who this browser is signed in as right now, from its own session; null if nobody. */
+  session_user_id: string | null;
   code: string;
   state: string;
   pending: OneNoteOAuthState;
@@ -77,6 +80,17 @@ export class OneNoteConnectionSvc {
     if (!TokenUtils.constantTimeEquals(input.state, input.pending.state)) {
       logger.warn({ reason: 'state_mismatch' }, 'onenote connect rejected');
       throw new UnauthorizedError('OneNote authorization state mismatch');
+    }
+    // The state cookie can be genuine and still not be this browser's: someone can start
+    // a flow as themselves and plant their cookie here, so that whoever consents next has
+    // their OneNote routed into the planter's account. The browser's own session is what
+    // says who is actually at the keyboard.
+    if (input.session_user_id !== input.user_id) {
+      logger.warn(
+        { reason: input.session_user_id ? 'session_user_mismatch' : 'no_session', user_id: input.user_id },
+        'onenote connect rejected'
+      );
+      throw new UnauthorizedError('OneNote authorization does not belong to the signed-in user');
     }
 
     const session = await this.deps.microsoft.exchangeCode({

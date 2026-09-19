@@ -115,6 +115,7 @@ async function connect(overrides: { microsoft?: FakeMicrosoft; repo?: InMemoryCo
   const { pending } = await svc.startAuthorization();
   const connection = await svc.completeAuthorization({
     user_id: USER_ID,
+    session_user_id: USER_ID,
     code: 'code-1',
     state: pending.state,
     pending
@@ -151,7 +152,35 @@ test('a callback whose state does not match the cookie is rejected before the ex
   const { pending } = await svc.startAuthorization();
 
   await assert.rejects(
-    svc.completeAuthorization({ user_id: USER_ID, code: 'code-1', state: 'forged', pending }),
+    svc.completeAuthorization({ user_id: USER_ID, session_user_id: USER_ID, code: 'code-1', state: 'forged', pending }),
+    UnauthorizedError
+  );
+  assert.equal(microsoft.exchanged_with, undefined);
+});
+
+test('a genuine state cookie planted in another signed-in browser is rejected before the exchange', async () => {
+  const microsoft = new FakeMicrosoft();
+  const connection_repo = new InMemoryConnectionRepo();
+  const svc = await OneNoteConnectionSvc.create({ connection_repo, microsoft, secret_box });
+
+  // The planter started a real flow as themselves; the victim's browser is signed in as someone else.
+  const { pending } = await svc.startAuthorization();
+  await assert.rejects(
+    svc.completeAuthorization({ user_id: 'planter', session_user_id: 'victim', code: 'code-1', state: pending.state, pending }),
+    UnauthorizedError
+  );
+
+  assert.equal(microsoft.exchanged_with, undefined, "the victim's code is never exchanged");
+  assert.equal(connection_repo.rows.length, 0);
+});
+
+test('a callback in a browser with no live session is rejected before the exchange', async () => {
+  const microsoft = new FakeMicrosoft();
+  const svc = await OneNoteConnectionSvc.create({ connection_repo: new InMemoryConnectionRepo(), microsoft, secret_box });
+  const { pending } = await svc.startAuthorization();
+
+  await assert.rejects(
+    svc.completeAuthorization({ user_id: USER_ID, session_user_id: null, code: 'code-1', state: pending.state, pending }),
     UnauthorizedError
   );
   assert.equal(microsoft.exchanged_with, undefined);
@@ -198,7 +227,7 @@ test('a dead grant parks the connection as needs_reauth instead of retrying fore
 test('connecting a second time replaces the account rather than adding one', async () => {
   const { svc, connection_repo } = await connect();
   const { pending } = await svc.startAuthorization();
-  await svc.completeAuthorization({ user_id: USER_ID, code: 'code-2', state: pending.state, pending });
+  await svc.completeAuthorization({ user_id: USER_ID, session_user_id: USER_ID, code: 'code-2', state: pending.state, pending });
 
   assert.equal(connection_repo.rows.length, 1);
 });

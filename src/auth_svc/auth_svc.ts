@@ -115,6 +115,18 @@ export class AuthSvc implements AuthSvcInterface {
     return result;
   }
 
+  /**
+   * Whose live session a refresh token belongs to, without rotating it - for browser
+   * navigations such as an OAuth callback, which carry the refresh cookie but no
+   * bearer token. Null for a missing, revoked or expired session.
+   */
+  async sessionUserId(refresh_token: string | undefined): Promise<string | null> {
+    if (!refresh_token) return null;
+    const session = await this.deps.rt_repo.findByTokenHash(TokenUtils.sha256Base64Url(refresh_token));
+    if (!session || session.revoked_at || session.expires_at.getTime() <= Date.now()) return null;
+    return session.user_id;
+  }
+
   async refresh(refresh_token: string, ctx?: AuthContext): Promise<RefreshResult> {
     if (!refresh_token || typeof refresh_token !== 'string') {
       throw new BadRequestError('Missing refresh token');
