@@ -42,7 +42,7 @@ export function OneNoteCard() {
         </span>
         <div className="connection-title">
           <h3>Microsoft OneNote</h3>
-          <p>Bring your OneNote notebooks into Cortex and keep them up to date.</p>
+          <p>Bring your notebooks into Cortex, and ask questions across all your notes in one place.</p>
         </div>
       </div>
 
