@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ConfirmDialog } from '../confirm_dialog';
-import { Icon } from '../icon';
+import { OneNoteLogo } from './onenote_logo';
 import { useOneNoteConnection } from '../../lib/use_onenote_connection';
 import type { OneNoteConnection } from '../../lib/onenote.types';
 
@@ -38,7 +38,7 @@ export function OneNoteCard() {
     <article className="connection-card">
       <div className="connection-head">
         <span className="connection-icon" aria-hidden="true">
-          <Icon name="notes" size={18} />
+          <OneNoteLogo size={22} />
         </span>
         <div className="connection-title">
           <h3>Microsoft OneNote</h3>
