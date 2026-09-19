@@ -567,16 +567,6 @@ body {
   background: var(--surface-2);
 }
 
-.segmented-full {
-  display: flex;
-  margin: 0 8px 4px;
-}
-
-.segmented-full .segmented-item {
-  flex: 1;
-  justify-content: center;
-}
-
 .segmented-item {
   display: inline-flex;
   align-items: center;
@@ -4333,6 +4323,23 @@ body {
   color: var(--text);
   font-size: 14px;
   overflow-wrap: anywhere;
+}
+
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.settings-row-label {
+  color: var(--text);
+  font-size: 14px;
 }
 
 .connection-card {

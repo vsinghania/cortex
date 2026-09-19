@@ -3,6 +3,7 @@ import { AppRail } from '../components/app_rail';
 import { MobileShell } from '../components/mobile/mobile_shell';
 import { MobileBar, MobileBarButton, MobileBarTitle } from '../components/mobile/mobile_bar';
 import { OneNoteCard } from '../components/settings/onenote_card';
+import { ThemeSelector } from '../components/settings/theme_selector';
 import { AppRoutes } from '../lib/app_routes';
 import { useAuth } from '../lib/use_auth';
 import { useIsMobile } from '../lib/use_is_mobile';
@@ -29,6 +30,14 @@ function SettingsBody() {
               <dd>{user?.email ?? '—'}</dd>
             </div>
           </dl>
+        </section>
+
+        <section className="settings-section">
+          <h2>Appearance</h2>
+          <div className="settings-row">
+            <span className="settings-row-label">Theme</span>
+            <ThemeSelector />
+          </div>
         </section>
 
         <section className="settings-section">
