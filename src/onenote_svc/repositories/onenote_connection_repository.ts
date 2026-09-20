@@ -25,9 +25,24 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
     return new MongooseOneNoteConnectionRepository(conn, model);
   }
 
+  /**
+   * Reads are `.lean()`, which skips Mongoose defaults, so a document written before a
+   * field existed comes back without it. Array fields are normalised here rather than at
+   * every call site, where a missing one reads as `undefined.length` and takes the page
+   * down with it.
+   */
+  private static toConnection(doc: unknown): OneNoteConnection {
+    const connection = MongooseUtils.toDomain<OneNoteConnection>(doc);
+    return {
+      ...connection,
+      scopes: connection.scopes ?? [],
+      selected_notebook_ids: connection.selected_notebook_ids ?? []
+    };
+  }
+
   async findByUserId(user_id: string): Promise<OneNoteConnection | null> {
     const found = await this.model.findOne({ user_id }).lean();
-    return found ? MongooseUtils.toDomain<OneNoteConnection>(found) : null;
+    return found ? MongooseOneNoteConnectionRepository.toConnection(found) : null;
   }
 
   async upsert(input: CreateOneNoteConnectionInput): Promise<OneNoteConnection> {
@@ -51,7 +66,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
       )
       .lean();
 
-    return MongooseUtils.toDomain<OneNoteConnection>(updated);
+    return MongooseOneNoteConnectionRepository.toConnection(updated);
   }
 
   async updateTokenCache(params: { user_id: string; token_cache_sealed: string }): Promise<void> {
@@ -69,7 +84,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
       })
       .limit(params.limit)
       .lean();
-    return docs.map((d) => MongooseUtils.toDomain<OneNoteConnection>(d));
+    return docs.map((d) => MongooseOneNoteConnectionRepository.toConnection(d));
   }
 
   async updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<OneNoteConnection | null> {
@@ -80,7 +95,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
         { new: true }
       )
       .lean();
-    return updated ? MongooseUtils.toDomain<OneNoteConnection>(updated) : null;
+    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
   }
 
   async updateSyncState(params: {
@@ -94,7 +109,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
     if (Object.keys(set).length === 0) return this.findByUserId(params.user_id);
 
     const updated = await this.model.findOneAndUpdate({ user_id: params.user_id }, { $set: set }, { new: true }).lean();
-    return updated ? MongooseUtils.toDomain<OneNoteConnection>(updated) : null;
+    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
   }
 
   async updateStatus(params: {
