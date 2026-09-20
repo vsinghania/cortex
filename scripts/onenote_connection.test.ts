@@ -46,6 +46,8 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
       microsoft_name: input.identity.name,
       token_cache_sealed: input.token_cache_sealed,
       scopes: input.scopes,
+      // Reconnecting keeps whatever was already chosen, as the Mongo upsert does.
+      selected_notebook_ids: existing?.selected_notebook_ids ?? [],
       status: OneNoteConnectionStatus.Connected,
       created_at: existing?.created_at ?? new Date(),
       updated_at: new Date()
@@ -58,6 +60,12 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
   async updateTokenCache(params: { user_id: string; token_cache_sealed: string }) {
     const row = await this.findByUserId(params.user_id);
     if (row) row.token_cache_sealed = params.token_cache_sealed;
+  }
+
+  async updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }) {
+    const row = await this.findByUserId(params.user_id);
+    if (row) row.selected_notebook_ids = params.notebook_ids;
+    return row;
   }
 
   async updateStatus(params: { user_id: string; status: OneNoteConnectionStatus; last_error?: string }) {
@@ -107,10 +115,34 @@ class FakeMicrosoft implements MicrosoftOAuthAdapterInterface {
   }
 }
 
-async function connect(overrides: { microsoft?: FakeMicrosoft; repo?: InMemoryConnectionRepo } = {}) {
+class FakeGraph {
+  constructor(readonly notebooks = [{ id: 'nb-1', display_name: 'Personal' }, { id: 'nb-2', display_name: 'Work' }]) {}
+  async listNotebooks() {
+    return this.notebooks;
+  }
+  async listSections() {
+    return [];
+  }
+  async listPages() {
+    return { pages: [] };
+  }
+  async getPageContent() {
+    return '';
+  }
+}
+
+async function connect(
+  overrides: { microsoft?: FakeMicrosoft; repo?: InMemoryConnectionRepo; graph?: FakeGraph } = {}
+) {
   const connection_repo = overrides.repo ?? new InMemoryConnectionRepo();
   const microsoft = overrides.microsoft ?? new FakeMicrosoft();
-  const svc = await OneNoteConnectionSvc.create({ connection_repo, microsoft, secret_box });
+  const graph = overrides.graph ?? new FakeGraph();
+  const svc = await OneNoteConnectionSvc.create({
+    connection_repo,
+    microsoft,
+    secret_box,
+    createGraph: () => graph
+  });
 
   const { pending } = await svc.startAuthorization();
   const connection = await svc.completeAuthorization({
@@ -230,6 +262,53 @@ test('connecting a second time replaces the account rather than adding one', asy
   await svc.completeAuthorization({ user_id: USER_ID, session_user_id: USER_ID, code: 'code-2', state: pending.state, pending });
 
   assert.equal(connection_repo.rows.length, 1);
+});
+
+test('nothing is selected on a fresh connection, so nothing syncs by surprise', async () => {
+  const { svc, connection_repo } = await connect();
+
+  assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, []);
+  const notebooks = await svc.listNotebooks(USER_ID);
+  assert.deepEqual(
+    notebooks.map((n) => n.selected),
+    [false, false]
+  );
+});
+
+test('choosing notebooks marks them, and re-choosing replaces rather than appends', async () => {
+  const { svc, connection_repo } = await connect();
+
+  await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-2', 'nb-2'] });
+  assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, ['nb-2'], 'duplicates collapse');
+
+  const listed = await svc.listNotebooks(USER_ID);
+  assert.deepEqual(listed.find((n) => n.id === 'nb-2')?.selected, true);
+  assert.deepEqual(listed.find((n) => n.id === 'nb-1')?.selected, false);
+
+  await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] });
+  assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, ['nb-1']);
+});
+
+test('reconnecting the same account keeps the notebooks already chosen', async () => {
+  const { svc, connection_repo } = await connect();
+  await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] });
+
+  const { pending } = await svc.startAuthorization();
+  await svc.completeAuthorization({ user_id: USER_ID, session_user_id: USER_ID, code: 'c', state: pending.state, pending });
+
+  assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, ['nb-1']);
+});
+
+test('notebooks cannot be listed or chosen without a connection', async () => {
+  const svc = await OneNoteConnectionSvc.create({
+    connection_repo: new InMemoryConnectionRepo(),
+    microsoft: new FakeMicrosoft(),
+    secret_box,
+    createGraph: () => new FakeGraph()
+  });
+
+  await assert.rejects(svc.listNotebooks(USER_ID), /not connected/);
+  await assert.rejects(svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] }), /not connected/);
 });
 
 test('disconnecting removes the connection and reports whether there was one', async () => {

@@ -6,6 +6,7 @@ import { REFRESH_COOKIE_NAME } from '../../auth_svc/utils/token_utils.js';
 import { ServiceUnavailableError } from '../../common/errors.js';
 import { logger } from '../../common/logger.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
+import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 import { SecretBox } from '../../lib/crypto/secret_box.js';
 import { Time } from '../../lib/time.js';
 import { OneNoteConnectionSvc } from '../../onenote_svc/onenote_connection_svc.js';
@@ -33,6 +34,11 @@ const PendingStateSchema = z.object({
 
 type PendingState = z.infer<typeof PendingStateSchema>;
 
+/** Bounded so a malformed client cannot ask the sync to walk an unbounded list. */
+const SelectNotebooksSchema = z
+  .object({ notebook_ids: z.array(z.string().min(1).max(512)).max(100) })
+  .strict();
+
 export class OneNoteController {
   private readonly router: express.Router;
 
@@ -49,6 +55,8 @@ export class OneNoteController {
     this.router.post('/start', RequireAuthMiddleware.requireAuth, this.start.bind(this));
     this.router.get('/callback', this.callback.bind(this));
     this.router.get('/status', RequireAuthMiddleware.requireAuth, this.status.bind(this));
+    this.router.get('/notebooks', RequireAuthMiddleware.requireAuth, this.listNotebooks.bind(this));
+    this.router.put('/notebooks', RequireAuthMiddleware.requireAuth, this.selectNotebooks.bind(this));
     this.router.delete('/', RequireAuthMiddleware.requireAuth, this.disconnect.bind(this));
   }
 
@@ -141,6 +149,28 @@ export class OneNoteController {
       const onenote_svc = await OneNoteConnectionSvc.create();
       const connection = await onenote_svc.getConnection(req.auth!.user_id);
       res.status(200).json({ response: { available, connection } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  private async listNotebooks(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const onenote_svc = await OneNoteConnectionSvc.create();
+      const notebooks = await onenote_svc.listNotebooks(req.auth!.user_id);
+      res.status(200).json({ response: { notebooks } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ body: SelectNotebooksSchema })
+  private async selectNotebooks(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { notebook_ids } = req.body as { notebook_ids: string[] };
+      const onenote_svc = await OneNoteConnectionSvc.create();
+      const connection = await onenote_svc.selectNotebooks({ user_id: req.auth!.user_id, notebook_ids });
+      res.status(200).json({ response: { connection } });
     } catch (e) {
       next(e);
     }

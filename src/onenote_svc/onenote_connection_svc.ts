@@ -1,3 +1,5 @@
+import { GraphOneNoteAdapter } from './adapters/graph_onenote_adapter.js';
+import type { GraphOneNoteAdapterInterface } from './adapters/graph_onenote_adapter_interface.js';
 import { MicrosoftOAuthAdapter } from './adapters/microsoft_oauth_adapter.js';
 import type { MicrosoftOAuthAdapterInterface } from './adapters/microsoft_oauth_adapter_interface.js';
 import { OneNoteConfigLoader } from './config/onenote_config.js';
@@ -8,6 +10,7 @@ import {
   OneNoteConnectionStatus,
   type OneNoteAuthorization,
   type OneNoteConnection,
+  type OneNoteNotebookChoice,
   type OneNoteOAuthState,
   type PublicOneNoteConnection
 } from './types/onenote_connection.types.js';
@@ -25,6 +28,8 @@ type OneNoteConnectionSvcDeps = {
   connection_repo: OneNoteConnectionRepository;
   microsoft: MicrosoftOAuthAdapterInterface;
   secret_box: SecretBox;
+  /** Built per call, around a token getter, so one user's token never outlives its use. */
+  createGraph: (accessToken: () => Promise<string>) => GraphOneNoteAdapterInterface;
 };
 
 export type CompleteOneNoteAuthorizationInput = {
@@ -51,8 +56,14 @@ export class OneNoteConnectionSvc {
         overrides?.connection_repo ??
         (await MongooseOneNoteConnectionRepository.create({ db: DbNameResolver.resolve('onenote') })),
       microsoft: overrides?.microsoft ?? OneNoteConnectionSvc.createAdapter(),
-      secret_box: overrides?.secret_box ?? SecretBox.fromEnv()
+      secret_box: overrides?.secret_box ?? SecretBox.fromEnv(),
+      createGraph: overrides?.createGraph ?? ((accessToken) => GraphOneNoteAdapter.create({ accessToken }))
     });
+  }
+
+  /** The Graph reader for one user, authorized by that user's stored grant. */
+  graphFor(user_id: string): GraphOneNoteAdapterInterface {
+    return this.deps.createGraph(() => this.getAccessToken(user_id));
   }
 
   static toPublic(connection: OneNoteConnection): PublicOneNoteConnection {
@@ -152,6 +163,38 @@ export class OneNoteConnectionSvc {
       }
       throw err;
     }
+  }
+
+  /** The account's notebooks, each marked with whether it is currently syncing. */
+  async listNotebooks(user_id: string): Promise<OneNoteNotebookChoice[]> {
+    const connection = await this.requireConnection(user_id);
+    const notebooks = await this.graphFor(user_id).listNotebooks();
+    const selected = new Set(connection.selected_notebook_ids);
+
+    return notebooks.map((n) => ({ id: n.id, display_name: n.display_name, selected: selected.has(n.id) }));
+  }
+
+  /**
+   * Deselecting stops future syncs; it deliberately leaves already-imported notes in
+   * place, because deleting someone's notes on a checkbox would be a poor trade.
+   */
+  async selectNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<PublicOneNoteConnection> {
+    await this.requireConnection(params.user_id);
+    const unique = [...new Set(params.notebook_ids)];
+    const updated = await this.deps.connection_repo.updateSelectedNotebooks({
+      user_id: params.user_id,
+      notebook_ids: unique
+    });
+    if (!updated) throw new NotFoundError('OneNote is not connected');
+
+    logger.info({ user_id: params.user_id, notebook_count: unique.length }, 'onenote notebooks selected');
+    return OneNoteConnectionSvc.toPublic(updated);
+  }
+
+  private async requireConnection(user_id: string): Promise<OneNoteConnection> {
+    const connection = await this.deps.connection_repo.findByUserId(user_id);
+    if (!connection) throw new NotFoundError('OneNote is not connected');
+    return connection;
   }
 
   /** Leaves imported notes alone: they are the user's, and losing them would surprise. */

@@ -13,6 +13,8 @@ export interface OneNoteConnectionRepository {
   /** Written only when MSAL actually rotated something. */
   updateTokenCache(params: { user_id: string; token_cache_sealed: string }): Promise<void>;
 
+  updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<OneNoteConnection | null>;
+
   updateStatus(params: {
     user_id: string;
     status: OneNoteConnectionStatus;

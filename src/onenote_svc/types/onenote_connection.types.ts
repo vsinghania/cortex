@@ -59,6 +59,12 @@ export interface OneNoteConnection {
   token_cache_sealed: string;
   scopes: string[];
 
+  /**
+   * Which notebooks to sync. Empty means "not set up yet", never "sync everything" —
+   * a first connect must not pull an entire account by surprise.
+   */
+  selected_notebook_ids: string[];
+
   status: OneNoteConnectionStatus;
   last_error?: string;
   last_error_at?: Date;
@@ -77,6 +83,13 @@ export type PublicOneNoteConnection = Omit<
   OneNoteConnection,
   'token_cache_sealed' | 'microsoft_home_account_id'
 >;
+
+/** A notebook as the picker shows it. */
+export type OneNoteNotebookChoice = {
+  id: string;
+  display_name: string;
+  selected: boolean;
+};
 
 export type CreateOneNoteConnectionInput = {
   user_id: string;

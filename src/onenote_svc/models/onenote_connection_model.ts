@@ -22,6 +22,7 @@ export class OneNoteConnectionModelFactory extends BaseModelFactory<OneNoteConne
         // Sealed with SecretBox. Never logged, never returned to the SPA.
         token_cache_sealed: { type: String, required: true },
         scopes: { type: [String], required: true, default: [] },
+        selected_notebook_ids: { type: [String], required: true, default: [] },
 
         status: {
           type: String,
