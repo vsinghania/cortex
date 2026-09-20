@@ -129,6 +129,19 @@ export class OneNoteConnectionSvc {
   }
 
   /**
+   * The unredacted row, for callers inside the service boundary that need the watermark
+   * and the notebook selection. Never hand this to a controller — use getConnection.
+   */
+  async getStoredConnection(user_id: string): Promise<OneNoteConnection | null> {
+    return this.deps.connection_repo.findByUserId(user_id);
+  }
+
+  /** Called only by a sync pass that reached the end; see OneNoteSyncSvc.run. */
+  async recordSyncCompleted(params: { user_id: string; sync_watermark?: Date; last_synced_at: Date }): Promise<void> {
+    await this.deps.connection_repo.updateSyncState(params);
+  }
+
+  /**
    * The only place a stored cache is opened. MSAL decides whether the access token
    * still holds; a rotation is written back, and a dead grant parks the connection
    * so the UI can ask for a reconnect instead of retrying forever.

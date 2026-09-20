@@ -1,0 +1,49 @@
+/** What a sync pass carries between attempts, and what it reports when it stops. */
+
+export type OneNoteSyncMode = 'incremental' | 'full';
+
+/**
+ * Enough to resume in a later process. Sections are walked in id order, so the cursor is
+ * the last one fully drained; `page_next_link` resumes mid-section from Graph's own
+ * opaque link.
+ */
+export type OneNoteSyncCheckpoint = {
+  section_cursor?: string;
+  page_next_link?: string;
+  /** ISO. Promoted to the connection's watermark only when a pass completes. */
+  watermark_candidate?: string;
+  pages_seen?: number;
+};
+
+export type OneNoteSyncStats = {
+  sections: number;
+  pages_seen: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  failed: number;
+};
+
+export type OneNoteSyncResult = {
+  /** False when the wall-clock budget ran out; the caller re-enqueues from `checkpoint`. */
+  completed: boolean;
+  checkpoint?: OneNoteSyncCheckpoint;
+  stats: OneNoteSyncStats;
+};
+
+export type OneNoteSyncProgress = {
+  processed: number;
+  succeeded: number;
+  failed: number;
+};
+
+export type RunSyncParams = {
+  user_id: string;
+  mode: OneNoteSyncMode;
+  signal?: AbortSignal;
+  /** Wall-clock ceiling for this attempt; the job re-enqueues itself past it. */
+  budget_ms?: number;
+  checkpoint?: OneNoteSyncCheckpoint;
+  onProgress?: (progress: OneNoteSyncProgress) => void;
+  onError?: (entry: { item_id: string; message: string }) => void;
+};

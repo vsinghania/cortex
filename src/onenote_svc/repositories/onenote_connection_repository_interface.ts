@@ -15,6 +15,13 @@ export interface OneNoteConnectionRepository {
 
   updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<OneNoteConnection | null>;
 
+  /** The watermark only ever moves on a completed pass; see OneNoteSyncSvc. */
+  updateSyncState(params: {
+    user_id: string;
+    sync_watermark?: Date;
+    last_synced_at?: Date;
+  }): Promise<OneNoteConnection | null>;
+
   updateStatus(params: {
     user_id: string;
     status: OneNoteConnectionStatus;

@@ -72,6 +72,20 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
     return updated ? MongooseUtils.toDomain<OneNoteConnection>(updated) : null;
   }
 
+  async updateSyncState(params: {
+    user_id: string;
+    sync_watermark?: Date;
+    last_synced_at?: Date;
+  }): Promise<OneNoteConnection | null> {
+    const set: Record<string, unknown> = {};
+    if (params.sync_watermark) set.sync_watermark = params.sync_watermark;
+    if (params.last_synced_at) set.last_synced_at = params.last_synced_at;
+    if (Object.keys(set).length === 0) return this.findByUserId(params.user_id);
+
+    const updated = await this.model.findOneAndUpdate({ user_id: params.user_id }, { $set: set }, { new: true }).lean();
+    return updated ? MongooseUtils.toDomain<OneNoteConnection>(updated) : null;
+  }
+
   async updateStatus(params: {
     user_id: string;
     status: OneNoteConnectionStatus;
