@@ -9,3 +9,22 @@ export class OneNoteReauthRequiredError extends Error {
     this.name = 'OneNoteReauthRequiredError';
   }
 }
+
+/** Graph refused in a way no retry fixes: a bad request, or a resource that is gone. */
+export class GraphRequestFailedError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'GraphRequestFailedError';
+  }
+}
+
+/**
+ * Still throttled after this call's own retries. Retryable, but not here: the job's
+ * backoff waits it out without holding a worker slot.
+ */
+export class GraphThrottledError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'GraphThrottledError';
+  }
+}
