@@ -11,6 +11,8 @@ export type OneNoteConnectionState = {
   busy: boolean;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
+  /** Re-reads the connection after something else changed it: a sync, or the picker. */
+  reload: () => Promise<void>;
 };
 
 export function useOneNoteConnection(): OneNoteConnectionState {
@@ -63,5 +65,5 @@ export function useOneNoteConnection(): OneNoteConnectionState {
     }
   }, [reload]);
 
-  return { status, loading, busy, error, connect, disconnect };
+  return { status, loading, busy, error, connect, disconnect, reload };
 }

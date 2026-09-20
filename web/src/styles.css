@@ -4415,3 +4415,50 @@ body {
   gap: 8px;
   margin-top: 16px;
 }
+
+.notebook-picker {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.notebook-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notebook-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.notebook-item:hover {
+  background: var(--surface-2);
+}
+
+.notebook-item input {
+  accent-color: var(--accent);
+}
+
+.connection-sync {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.connection-sync .connection-actions {
+  margin-top: 0;
+}
