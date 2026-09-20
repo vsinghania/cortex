@@ -4,6 +4,8 @@ import { NoteVectorizeJobHandler } from '../../notes_svc/jobs/note_vectorize_job
 import { RefreshTokenPruneJobHandler } from '../../auth_svc/jobs/refresh_token_prune_job_handler.js';
 import { PasswordResetEmailJobHandler } from '../../auth_svc/jobs/password_reset_email_job_handler.js';
 import { EmailVerificationEmailJobHandler } from '../../auth_svc/jobs/email_verification_email_job_handler.js';
+import { OneNoteSyncJobHandler } from '../../onenote_svc/jobs/onenote_sync_job_handler.js';
+import { OneNoteSyncSweepJobHandler } from '../../onenote_svc/jobs/onenote_sync_sweep_job_handler.js';
 import { logger } from '../../common/logger.js';
 
 /**
@@ -26,6 +28,8 @@ export class JobHandlerBootstrap {
     registry.register(await RefreshTokenPruneJobHandler.create());
     registry.register(await PasswordResetEmailJobHandler.create());
     registry.register(await EmailVerificationEmailJobHandler.create());
+    registry.register(await OneNoteSyncJobHandler.create());
+    registry.register(await OneNoteSyncSweepJobHandler.create());
     logger.info({ job_names: registry.registeredNames() }, 'Job handlers registered');
   }
 }

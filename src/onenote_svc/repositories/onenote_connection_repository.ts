@@ -61,6 +61,17 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
     );
   }
 
+  async listSyncable(params: { limit: number }): Promise<OneNoteConnection[]> {
+    const docs = await this.model
+      .find({
+        status: OneNoteConnectionStatus.Connected,
+        'selected_notebook_ids.0': { $exists: true }
+      })
+      .limit(params.limit)
+      .lean();
+    return docs.map((d) => MongooseUtils.toDomain<OneNoteConnection>(d));
+  }
+
   async updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<OneNoteConnection | null> {
     const updated = await this.model
       .findOneAndUpdate(
