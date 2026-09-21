@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import type { NoteFolderNode } from '../../lib/note_folder.types';
 import type { NoteTagCount } from '../../lib/note.types';
 import { Icon } from '../icon';
+import { OneNoteLogo } from '../onenote_logo';
 import type { IconName } from '../icon';
 import type { FolderTreeNode, NoteFilters } from '../../lib/note_workspace.types';
 import { FolderTree } from '../../lib/folder_tree';
@@ -29,6 +30,11 @@ type CreateTarget = string | null | undefined;
  * differently: the next pass rebuilds it from the provider, so a rename or a move here
  * is undone. The icon is the cheapest place to say so before someone reorganises.
  */
+/** The single folder a provider hangs its tree under; it mirrors no container of its own. */
+function isProviderRoot(node: NoteFolderNode): boolean {
+  return node.source === 'onenote' && !node.container_type;
+}
+
 function folderIcon(node: NoteFolderNode): IconName {
   if (node.container_type === 'notebook') return 'notebook';
   if (node.container_type === 'section_group') return 'layers';
@@ -136,11 +142,17 @@ export function NotesRailSections(props: Props) {
               title={folderHint(node)}
               onClick={() => onSelect({ folder: node.id, archived: false, tag: null })}
             >
-              <Icon
-                name={folderIcon(node)}
-                size={14}
-                className={`rail-item-icon${node.source ? ' rail-item-icon-synced' : ''}`}
-              />
+              {/* The provider's own mark on the root it owns; its children stay monochrome
+                  so one coloured logo reads as a heading, not as noise down the tree. */}
+              {isProviderRoot(node) ? (
+                <OneNoteLogo size={14} className="rail-item-icon" />
+              ) : (
+                <Icon
+                  name={folderIcon(node)}
+                  size={14}
+                  className={`rail-item-icon${node.source ? ' rail-item-icon-synced' : ''}`}
+                />
+              )}
               <span className="rail-item-label">{node.name}</span>
               {node.note_count > 0 && <span className="rail-count">{node.note_count}</span>}
             </button>

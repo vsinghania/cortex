@@ -6,11 +6,11 @@ import { useId } from 'react';
  * dropped. Microsoft's brand rules ask that it not be recoloured or redrawn. Inline rather than fetched, so nothing loads from a
  * third-party CDN. The gradient id is per-instance so two logos on a page cannot clash.
  */
-export function OneNoteLogo({ size = 20 }: { size?: number }) {
+export function OneNoteLogo({ size = 20, className }: { size?: number; className?: string }) {
   const gradient_id = `onenote-${useId().replace(/:/g, '')}`;
 
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
+    <svg className={className} width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
       <defs>
         <linearGradient id={gradient_id} x1="5.822" y1="11.568" x2="20.178" y2="36.432" gradientUnits="userSpaceOnUse">
           <stop offset="0" stopColor="#8324b3" />
