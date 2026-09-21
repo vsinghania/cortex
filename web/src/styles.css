@@ -384,6 +384,20 @@ body {
   color: var(--accent);
 }
 
+/* The same affordance on a <button>, for actions that are not navigation. */
+.cx-app button.text-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cx-app button.text-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .cx-app .text-link:hover {
   color: var(--accent-hover);
 }
@@ -4436,104 +4450,103 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
 }
 
-.notebook-actions {
+.notebook-status-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notebook-status-row {
   display: flex;
-  gap: 6px;
+  gap: 10px;
   align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
 }
 
-.notebook-dirty {
-  color: var(--accent);
-  font-size: 12px;
-}
-
-/* Narrow screens scroll the table rather than squeezing the name column away. */
-.notebook-table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-}
-
-.notebook-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.notebook-table th {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border-soft);
-  color: var(--subtext);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-align: left;
-  text-transform: uppercase;
-}
-
-.notebook-table td {
-  padding: 5px 10px;
-  border-bottom: 1px solid var(--border-soft);
-  color: var(--text);
-  vertical-align: middle;
-}
-
-.notebook-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.notebook-table tbody tr:hover {
+.notebook-status-row:hover {
   background: var(--surface-2);
 }
 
-.notebook-table tbody tr.is-selected .notebook-name label {
-  color: var(--text);
-}
-
 .notebook-name {
-  max-width: 1px; /* lets the cell shrink so the ellipsis can apply */
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.notebook-name label {
-  display: block;
+.notebook-status {
+  flex: none;
   color: var(--subtext);
-  cursor: pointer;
-}
-
-.notebook-col-check {
-  width: 28px;
-}
-
-.notebook-col-check input {
-  display: block;
-  accent-color: var(--accent);
-}
-
-.notebook-col-synced {
-  width: 92px;
-  color: var(--subtext);
+  font-size: 12px;
   white-space: nowrap;
 }
 
-.notebook-col-action {
-  width: 32px;
-}
-
 .notebook-muted {
-  color: var(--subtext);
-  opacity: 0.55;
+  opacity: 0.7;
 }
 
 .notebook-syncing {
   color: var(--accent);
+}
+
+/* --- the chooser dialog --- */
+
+.notebook-chooser {
+  display: grid;
+  gap: 10px;
+  min-width: min(360px, 70vw);
+}
+
+.notebook-chooser-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.notebook-choices {
+  display: grid;
+  gap: 1px;
+  max-height: 46vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.notebook-choice {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 5px 6px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.notebook-choice:hover {
+  background: var(--surface-2);
+}
+
+.notebook-choice input {
+  accent-color: var(--accent);
+}
+
+.notebook-choice-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .connection-sync {

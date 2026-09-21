@@ -3,7 +3,9 @@ import { ConfirmDialog } from '../confirm_dialog';
 import { OneNoteLogo } from './onenote_logo';
 import { useOneNoteConnection } from '../../lib/use_onenote_connection';
 import { useOneNoteSync } from '../../lib/use_onenote_sync';
-import { OneNoteNotebookPicker } from './onenote_notebook_picker';
+import { DateFormat } from '../../lib/date_format';
+import { Icon } from '../icon';
+import { OneNoteNotebookDialog } from './onenote_notebook_dialog';
 import type { OneNoteConnection } from '../../lib/onenote.types';
 
 function formatDate(iso: string | undefined): string {
@@ -26,42 +28,96 @@ function ConnectionDetail({ connection }: { connection: OneNoteConnection }) {
   );
 }
 
+/**
+ * Status first: day to day the question is "is my stuff current?", not "which notebooks
+ * did I pick?". Choosing is a setup task and lives in a dialog.
+ */
 function SyncSection({ connection, onFinished }: { connection: OneNoteConnection; onFinished: () => void }) {
   const { job, running, scope, error, start } = useOneNoteSync({ onFinished });
-  const nothing_chosen = connection.selected_notebook_ids.length === 0;
+  const [choosing, set_choosing] = useState(false);
 
-  return (
-    <>
-      <OneNoteNotebookPicker
-        syncing_ids={running ? scope : undefined}
-        onSyncNotebook={(notebook_id) => void start({ notebook_ids: [notebook_id] })}
-        onSaved={onFinished}
-      />
+  const selected = connection.notebooks.filter((n) => connection.selected_notebook_ids.includes(n.id));
+  const chooser = (
+    <OneNoteNotebookDialog open={choosing} onClose={() => set_choosing(false)} onSaved={onFinished} />
+  );
 
+  if (selected.length === 0) {
+    return (
       <div className="connection-sync">
+        <p className="connection-meta">
+          Nothing is syncing yet. Choose the notebooks you want in Cortex.
+        </p>
         <div className="connection-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={running || nothing_chosen}
-            onClick={() => void start()}
-            title={nothing_chosen ? 'Choose a notebook first' : undefined}
-          >
-            {running ? 'Syncing…' : 'Sync all'}
+          <button type="button" className="btn btn-primary" onClick={() => set_choosing(true)}>
+            Choose notebooks
           </button>
         </div>
-
-        {job && (
-          <p className="connection-meta" role="status">
-            {running
-              ? `Imported ${job.progress.processed} page${job.progress.processed === 1 ? '' : 's'}…`
-              : `Finished: ${job.progress.succeeded} page${job.progress.succeeded === 1 ? '' : 's'} synced` +
-                (job.progress.failed ? `, ${job.progress.failed} skipped` : '')}
-          </p>
-        )}
-        {error && <p className="connection-error">{error}</p>}
+        {chooser}
       </div>
-    </>
+    );
+  }
+
+  return (
+    <div className="connection-sync">
+      <div className="notebook-head">
+        <p className="connection-meta">
+          Syncing {selected.length} of {connection.notebooks.length} notebook
+          {connection.notebooks.length === 1 ? '' : 's'}
+        </p>
+        <button type="button" className="text-link" onClick={() => set_choosing(true)}>
+          Choose notebooks
+        </button>
+      </div>
+
+      <ul className="notebook-status-list">
+        {selected.map((notebook) => {
+          // A null scope means the running pass covers every selected notebook.
+          const syncing = running && (scope === null || !!scope?.includes(notebook.id));
+          return (
+            <li key={notebook.id} className="notebook-status-row">
+              <span className="notebook-name">{notebook.display_name}</span>
+              <span className="notebook-status">
+                {syncing ? (
+                  <span className="notebook-syncing">syncing…</span>
+                ) : notebook.last_synced_at ? (
+                  <span title={DateFormat.full(notebook.last_synced_at)}>
+                    synced {DateFormat.relative(notebook.last_synced_at)}
+                  </span>
+                ) : (
+                  <span className="notebook-muted">not synced yet</span>
+                )}
+              </span>
+              <button
+                type="button"
+                className="icon-btn icon-btn-sm"
+                disabled={running}
+                aria-label={`Sync ${notebook.display_name}`}
+                title={`Sync ${notebook.display_name}`}
+                onClick={() => void start({ notebook_ids: [notebook.id] })}
+              >
+                <Icon name="refresh" size={13} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="connection-actions">
+        <button type="button" className="btn btn-primary" disabled={running} onClick={() => void start()}>
+          {running ? 'Syncing…' : 'Sync now'}
+        </button>
+        <span className="connection-meta">Updates on its own in the background.</span>
+      </div>
+
+      {job && !running && (
+        <p className="connection-meta" role="status">
+          {`Finished: ${job.progress.succeeded} page${job.progress.succeeded === 1 ? '' : 's'} synced` +
+            (job.progress.failed ? `, ${job.progress.failed} skipped` : '')}
+        </p>
+      )}
+      {error && <p className="connection-error">{error}</p>}
+      {chooser}
+    </div>
   );
 }
 

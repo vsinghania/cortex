@@ -9,6 +9,8 @@ export type OneNoteConnection = {
   scopes: string[];
   /** Empty means not set up yet: nothing syncs until at least one is chosen. */
   selected_notebook_ids: string[];
+  /** The account's notebooks as the server last read them, with each one's sync state. */
+  notebooks: OneNoteNotebookState[];
   status: OneNoteConnectionStatus;
   last_error?: string;
   last_error_at?: string;
@@ -25,13 +27,16 @@ export type OneNoteStatus = {
   connection: OneNoteConnection | null;
 };
 
-export type OneNoteNotebook = {
+export type OneNoteNotebookState = {
   id: string;
   display_name: string;
-  selected: boolean;
   /** Each notebook syncs on its own watermark, so each has its own last-synced time. */
   last_synced_at?: string;
   sync_watermark?: string;
+};
+
+export type OneNoteNotebook = OneNoteNotebookState & {
+  selected: boolean;
 };
 
 export type OneNoteJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
