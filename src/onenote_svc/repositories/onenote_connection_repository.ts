@@ -36,7 +36,8 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
     return {
       ...connection,
       scopes: connection.scopes ?? [],
-      selected_notebook_ids: connection.selected_notebook_ids ?? []
+      selected_notebook_ids: connection.selected_notebook_ids ?? [],
+      notebooks: connection.notebooks ?? []
     };
   }
 
@@ -94,6 +95,52 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
         { $set: { selected_notebook_ids: params.notebook_ids } },
         { new: true }
       )
+      .lean();
+    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
+  }
+
+  async cacheNotebooks(params: {
+    user_id: string;
+    notebooks: Array<{ id: string; display_name: string }>;
+    cached_at: Date;
+  }): Promise<OneNoteConnection | null> {
+    const existing = await this.findByUserId(params.user_id);
+    if (!existing) return null;
+
+    // Carry each notebook's watermark across the refresh: losing it would make the next
+    // pass re-read that notebook's whole history.
+    const state_by_id = new Map(existing.notebooks.map((n) => [n.id, n]));
+    const notebooks = params.notebooks.map((n) => ({
+      id: n.id,
+      display_name: n.display_name,
+      sync_watermark: state_by_id.get(n.id)?.sync_watermark,
+      last_synced_at: state_by_id.get(n.id)?.last_synced_at
+    }));
+
+    const updated = await this.model
+      .findOneAndUpdate(
+        { user_id: params.user_id },
+        { $set: { notebooks, notebooks_cached_at: params.cached_at } },
+        { new: true }
+      )
+      .lean();
+    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
+  }
+
+  async updateNotebookSyncState(params: {
+    user_id: string;
+    notebook_id: string;
+    sync_watermark?: Date;
+    last_synced_at: Date;
+  }): Promise<OneNoteConnection | null> {
+    const set: Record<string, unknown> = { 'notebooks.$[nb].last_synced_at': params.last_synced_at };
+    if (params.sync_watermark) set['notebooks.$[nb].sync_watermark'] = params.sync_watermark;
+
+    const updated = await this.model
+      .findOneAndUpdate({ user_id: params.user_id }, { $set: set }, {
+        new: true,
+        arrayFilters: [{ 'nb.id': params.notebook_id }]
+      })
       .lean();
     return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
   }

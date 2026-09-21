@@ -18,7 +18,24 @@ export interface OneNoteConnectionRepository {
 
   updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<OneNoteConnection | null>;
 
-  /** The watermark only ever moves on a completed pass; see OneNoteSyncSvc. */
+  /**
+   * Replaces the cached notebook list, keeping each surviving notebook's sync state.
+   * A notebook gone from Graph drops out; its imported notes are left alone.
+   */
+  cacheNotebooks(params: {
+    user_id: string;
+    notebooks: Array<{ id: string; display_name: string }>;
+    cached_at: Date;
+  }): Promise<OneNoteConnection | null>;
+
+  /** Per notebook, and only for one a pass read to the end; see OneNoteSyncSvc. */
+  updateNotebookSyncState(params: {
+    user_id: string;
+    notebook_id: string;
+    sync_watermark?: Date;
+    last_synced_at: Date;
+  }): Promise<OneNoteConnection | null>;
+
   updateSyncState(params: {
     user_id: string;
     sync_watermark?: Date;

@@ -8,6 +8,8 @@ export type OneNoteSyncMode = 'incremental' | 'full';
  * opaque link.
  */
 export type OneNoteSyncCheckpoint = {
+  /** The last notebook fully drained; notebooks are walked in id order. */
+  notebook_cursor?: string;
   section_cursor?: string;
   page_next_link?: string;
   /** ISO. Promoted to the connection's watermark only when a pass completes. */
@@ -16,6 +18,7 @@ export type OneNoteSyncCheckpoint = {
 };
 
 export type OneNoteSyncStats = {
+  notebooks: number;
   sections: number;
   pages_seen: number;
   created: number;
@@ -40,6 +43,11 @@ export type OneNoteSyncProgress = {
 export type RunSyncParams = {
   user_id: string;
   mode: OneNoteSyncMode;
+  /**
+   * Limits the pass to these notebooks. Safe because each notebook keeps its own
+   * watermark, so syncing one never advances another's past unread changes.
+   */
+  notebook_ids?: string[];
   signal?: AbortSignal;
   /** Wall-clock ceiling for this attempt; the job re-enqueues itself past it. */
   budget_ms?: number;

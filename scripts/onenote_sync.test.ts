@@ -135,6 +135,7 @@ function connection(overrides: Partial<OneNoteConnection> = {}): OneNoteConnecti
     token_cache_sealed: 'sealed',
     scopes: [],
     selected_notebook_ids: ['nb-1'],
+    notebooks: [{ id: 'nb-1', display_name: 'Tech' }],
     status: 'connected',
     created_at: new Date(),
     updated_at: new Date(),
@@ -147,18 +148,22 @@ async function buildSvc(args: { graph: FakeGraph; conn?: OneNoteConnection; note
   const folder_repo = new InMemoryFolderRepo();
   const folders_svc = await NoteFoldersSvc.create({ folder_repo, notes_svc: {} as NotesSvc });
   const stored = args.conn ?? connection();
-  const completed: Array<{ sync_watermark?: Date }> = [];
+  const completed: Array<{ last_synced_at: Date }> = [];
+  const notebooks_synced: Array<{ notebook_id: string; sync_watermark?: Date }> = [];
 
   const connection_svc = {
     getStoredConnection: async () => stored,
     graphFor: () => args.graph,
-    recordSyncCompleted: async (p: { sync_watermark?: Date }) => {
+    recordNotebookSynced: async (p: { notebook_id: string; sync_watermark?: Date }) => {
+      notebooks_synced.push(p);
+    },
+    recordSyncCompleted: async (p: { last_synced_at: Date }) => {
       completed.push(p);
     }
   } as unknown as OneNoteConnectionSvc;
 
   const svc = await OneNoteSyncSvc.create({ connection_svc, notes_svc: notes as unknown as NotesSvc, folders_svc });
-  return { svc, notes, folder_repo, completed, stored };
+  return { svc, notes, folder_repo, completed, notebooks_synced, stored };
 }
 
 // --- tests -----------------------------------------------------------------
@@ -248,17 +253,48 @@ test('one unreadable page is recorded and the pass still completes', async () =>
   assert.deepEqual(notes.notes.map((n) => n.external_id), ['p1', 'p3']);
 });
 
-test('the watermark moves only when a pass reaches the end', async () => {
+test("each notebook's watermark moves only when that notebook is read to the end", async () => {
   const newest = new Date('2026-09-10T12:00:00Z');
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], {
     'sec-1': [page('p1', 'Old', new Date('2026-09-01T00:00:00Z')), page('p2', 'New', newest)]
   });
-  const { svc, completed } = await buildSvc({ graph });
+  const { svc, notebooks_synced } = await buildSvc({ graph });
 
   await svc.run({ user_id: USER_ID, mode: 'full' });
 
-  assert.equal(completed.length, 1);
-  assert.equal(completed[0].sync_watermark?.toISOString(), newest.toISOString());
+  assert.equal(notebooks_synced.length, 1);
+  assert.equal(notebooks_synced[0].notebook_id, 'nb-1');
+  assert.equal(notebooks_synced[0].sync_watermark?.toISOString(), newest.toISOString());
+});
+
+test('a scoped pass leaves the other notebooks\' watermarks untouched', async () => {
+  const conn = connection({
+    selected_notebook_ids: ['nb-1', 'nb-2'],
+    notebooks: [
+      { id: 'nb-1', display_name: 'Tech' },
+      { id: 'nb-2', display_name: 'Personal' }
+    ]
+  });
+  const graph = new FakeGraph(
+    [section('sec-1', 'Auth', 'nb-1', 'Tech'), section('sec-2', 'Recipes', 'nb-2', 'Personal')],
+    { 'sec-1': [page('p1', 'Tokens')], 'sec-2': [page('p2', 'Soup')] }
+  );
+  const { svc, notebooks_synced, notes } = await buildSvc({ graph, conn });
+
+  await svc.run({ user_id: USER_ID, mode: 'full', notebook_ids: ['nb-2'] });
+
+  assert.deepEqual(notebooks_synced.map((n) => n.notebook_id), ['nb-2'], 'only the scoped notebook advances');
+  assert.deepEqual(notes.notes.map((n) => n.external_id), ['p2']);
+});
+
+test('a scope naming a notebook that is not selected syncs nothing', async () => {
+  const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] });
+  const { svc, notes } = await buildSvc({ graph });
+
+  const result = await svc.run({ user_id: USER_ID, mode: 'full', notebook_ids: ['nb-unselected'] });
+
+  assert.equal(result.stats.notebooks, 0);
+  assert.equal(notes.notes.length, 0);
 });
 
 test('an exhausted budget pauses with a checkpoint instead of finishing', async () => {
@@ -266,14 +302,14 @@ test('an exhausted budget pauses with a checkpoint instead of finishing', async 
     [section('sec-1', 'A', 'nb-1', 'Tech'), section('sec-2', 'B', 'nb-1', 'Tech')],
     { 'sec-1': [page('p1', 'One')], 'sec-2': [page('p2', 'Two')] }
   );
-  const { svc, completed, notes } = await buildSvc({ graph });
+  const { svc, notebooks_synced, notes } = await buildSvc({ graph });
 
   // Zero budget: the first section is finished, then the pass yields.
   const result = await svc.run({ user_id: USER_ID, mode: 'full', budget_ms: 0 });
 
   assert.equal(result.completed, false);
   assert.equal(result.checkpoint?.section_cursor, 'sec-1');
-  assert.equal(completed.length, 0, 'an unfinished pass must not move the watermark');
+  assert.equal(notebooks_synced.length, 0, 'an unfinished notebook must not move its watermark');
   assert.deepEqual(notes.notes.map((n) => n.external_id), ['p1']);
 });
 
@@ -298,7 +334,10 @@ test('resuming from a checkpoint continues after the section already drained', a
 test('an incremental pass asks Graph for pages since the watermark, less an overlap', async () => {
   const watermark = new Date('2026-09-10T12:00:00Z');
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [] });
-  const { svc } = await buildSvc({ graph, conn: connection({ sync_watermark: watermark }) });
+  const { svc } = await buildSvc({
+    graph,
+    conn: connection({ notebooks: [{ id: 'nb-1', display_name: 'Tech', sync_watermark: watermark }] })
+  });
 
   await svc.run({ user_id: USER_ID, mode: 'incremental' });
 
@@ -308,7 +347,10 @@ test('an incremental pass asks Graph for pages since the watermark, less an over
 
 test('a full pass ignores the watermark entirely', async () => {
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [] });
-  const { svc } = await buildSvc({ graph, conn: connection({ sync_watermark: new Date() }) });
+  const { svc } = await buildSvc({
+    graph,
+    conn: connection({ notebooks: [{ id: 'nb-1', display_name: 'Tech', sync_watermark: new Date() }] })
+  });
 
   await svc.run({ user_id: USER_ID, mode: 'full' });
 

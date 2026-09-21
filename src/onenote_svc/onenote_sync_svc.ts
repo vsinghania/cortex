@@ -11,7 +11,7 @@ import type { NoteFolder } from '../notes_svc/types/note_folder.types.js';
 import { OneNoteConnectionSvc } from './onenote_connection_svc.js';
 import type { GraphOneNoteAdapterInterface } from './adapters/graph_onenote_adapter_interface.js';
 import type { GraphPage, GraphSection } from './types/graph.types.js';
-import type { OneNoteConnection } from './types/onenote_connection.types.js';
+import type { OneNoteConnection, OneNoteNotebookState } from './types/onenote_connection.types.js';
 import type {
   OneNoteSyncCheckpoint,
   OneNoteSyncResult,
@@ -60,9 +60,12 @@ export class OneNoteSyncSvc {
     const connection = await this.requireSyncableConnection(params.user_id);
     const graph = this.deps.connection_svc.graphFor(params.user_id);
 
-    const sections = await this.selectedSections({ graph, connection, signal: params.signal });
+    const targets = OneNoteSyncSvc.targetNotebooks(connection, params.notebook_ids);
+    const sections_by_notebook = await this.sectionsByNotebook({ graph, targets, signal: params.signal });
+
     const stats: OneNoteSyncStats = {
-      sections: sections.length,
+      notebooks: targets.length,
+      sections: [...sections_by_notebook.values()].reduce((total, list) => total + list.length, 0),
       pages_seen: params.checkpoint?.pages_seen ?? 0,
       created: 0,
       updated: 0,
@@ -70,67 +73,80 @@ export class OneNoteSyncSvc {
       failed: 0
     };
 
-    const modified_after = params.mode === 'full' ? undefined : OneNoteSyncSvc.windowStart(connection);
     const folder_cache = new Map<string, NoteFolder>();
     let checkpoint: OneNoteSyncCheckpoint = { ...params.checkpoint };
-    let watermark = OneNoteSyncSvc.toDate(params.checkpoint?.watermark_candidate) ?? connection.sync_watermark;
 
-    for (const section of OneNoteSyncSvc.remaining(sections, checkpoint.section_cursor)) {
-      const folder = await this.folderForSection({ user_id: params.user_id, section, cache: folder_cache });
-      let next_link = checkpoint.page_next_link;
+    for (const notebook of OneNoteSyncSvc.remainingById(targets, checkpoint.notebook_cursor)) {
+      const sections = sections_by_notebook.get(notebook.id) ?? [];
+      const modified_after = params.mode === 'full' ? undefined : OneNoteSyncSvc.windowStart(notebook);
+      // Each notebook keeps its own high-water mark, so finishing one says nothing about
+      // how far the others have been read.
+      let watermark = OneNoteSyncSvc.toDate(checkpoint.watermark_candidate) ?? notebook.sync_watermark;
 
-      for (;;) {
-        params.signal?.throwIfAborted();
-        const batch = await graph.listPages({
-          section_id: section.id,
-          modified_after,
-          next_link,
-          signal: params.signal
-        });
+      for (const section of OneNoteSyncSvc.remainingById(sections, checkpoint.section_cursor)) {
+        const folder = await this.folderForSection({ user_id: params.user_id, section, cache: folder_cache });
+        let next_link = checkpoint.page_next_link;
 
-        for (const page of batch.pages) {
-          const outcome = await this.syncPage({ params, graph, page, section, folder });
-          stats[outcome] += 1;
-          stats.pages_seen += 1;
-          if (page.modified_at && (!watermark || page.modified_at > watermark)) watermark = page.modified_at;
-          params.onProgress?.({
-            processed: stats.pages_seen,
-            succeeded: stats.created + stats.updated + stats.unchanged,
-            failed: stats.failed
+        for (;;) {
+          params.signal?.throwIfAborted();
+          const batch = await graph.listPages({
+            section_id: section.id,
+            modified_after,
+            next_link,
+            signal: params.signal
           });
+
+          for (const page of batch.pages) {
+            const outcome = await this.syncPage({ params, graph, page, section, folder });
+            stats[outcome] += 1;
+            stats.pages_seen += 1;
+            if (page.modified_at && (!watermark || page.modified_at > watermark)) watermark = page.modified_at;
+            params.onProgress?.({
+              processed: stats.pages_seen,
+              succeeded: stats.created + stats.updated + stats.unchanged,
+              failed: stats.failed
+            });
+          }
+
+          next_link = batch.next_link;
+          checkpoint = {
+            notebook_cursor: checkpoint.notebook_cursor,
+            section_cursor: checkpoint.section_cursor,
+            page_next_link: next_link,
+            watermark_candidate: watermark?.toISOString(),
+            pages_seen: stats.pages_seen
+          };
+
+          if (!next_link) break;
+          if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
         }
 
-        next_link = batch.next_link;
+        // Section drained: the cursor moves, and a mid-section link must not outlive it.
         checkpoint = {
-          section_cursor: checkpoint.section_cursor,
-          page_next_link: next_link,
+          notebook_cursor: checkpoint.notebook_cursor,
+          section_cursor: section.id,
+          page_next_link: undefined,
           watermark_candidate: watermark?.toISOString(),
           pages_seen: stats.pages_seen
         };
-
-        if (!next_link) break;
-        if (Time.elapsedMs(started_ms) > budget_ms) {
-          return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
-        }
+        if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
       }
 
-      // Section drained: the cursor moves, and a mid-section link must not outlive it.
-      checkpoint = {
-        section_cursor: section.id,
-        page_next_link: undefined,
-        watermark_candidate: watermark?.toISOString(),
-        pages_seen: stats.pages_seen
-      };
-      if (Time.elapsedMs(started_ms) > budget_ms) {
-        return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
-      }
+      // Only a notebook read to its end may move its watermark: advancing it early would
+      // permanently skip whatever the abandoned part of the walk had not reached.
+      await this.deps.connection_svc.recordNotebookSynced({
+        user_id: params.user_id,
+        notebook_id: notebook.id,
+        sync_watermark: watermark,
+        last_synced_at: new Date()
+      });
+
+      checkpoint = { notebook_cursor: notebook.id, pages_seen: stats.pages_seen };
+      if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
     }
 
-    // Only a pass that reached the end may move the watermark: advancing it early would
-    // permanently skip whatever the abandoned part of the walk had not read yet.
     await this.deps.connection_svc.recordSyncCompleted({
       user_id: params.user_id,
-      sync_watermark: watermark,
       last_synced_at: new Date()
     });
 
@@ -271,16 +287,39 @@ export class OneNoteSyncSvc {
     return folder;
   }
 
-  private async selectedSections(args: {
-    graph: GraphOneNoteAdapterInterface;
-    connection: OneNoteConnection;
-    signal?: AbortSignal;
-  }): Promise<GraphSection[]> {
-    const chosen = new Set(args.connection.selected_notebook_ids);
-    const sections = await args.graph.listSections({ signal: args.signal });
-    return sections
-      .filter((s) => s.notebook && chosen.has(s.notebook.id))
+  /**
+   * A scope narrows to notebooks already chosen for syncing; asking for one that is not
+   * selected is a contradiction, not a request to sync it this once.
+   */
+  private static targetNotebooks(connection: OneNoteConnection, scope?: string[]): OneNoteNotebookState[] {
+    const selected = new Set(connection.selected_notebook_ids);
+    const wanted = scope?.length ? new Set(scope.filter((id) => selected.has(id))) : selected;
+
+    return connection.notebooks
+      .filter((n) => wanted.has(n.id))
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** One Graph call for the whole account, then grouped; sections come with their parents. */
+  private async sectionsByNotebook(args: {
+    graph: GraphOneNoteAdapterInterface;
+    targets: OneNoteNotebookState[];
+    signal?: AbortSignal;
+  }): Promise<Map<string, GraphSection[]>> {
+    const wanted = new Set(args.targets.map((n) => n.id));
+    const sections = await args.graph.listSections({ signal: args.signal });
+    const grouped = new Map<string, GraphSection[]>();
+
+    for (const section of sections) {
+      if (!section.notebook || !wanted.has(section.notebook.id)) continue;
+      const list = grouped.get(section.notebook.id) ?? [];
+      list.push(section);
+      grouped.set(section.notebook.id, list);
+    }
+    for (const list of grouped.values()) {
+      list.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    }
+    return grouped;
   }
 
   private async requireSyncableConnection(user_id: string): Promise<OneNoteConnection> {
@@ -292,17 +331,18 @@ export class OneNoteSyncSvc {
     return connection;
   }
 
-  private static windowStart(connection: OneNoteConnection): Date | undefined {
-    if (!connection.sync_watermark) return undefined;
-    return new Date(connection.sync_watermark.getTime() - WATERMARK_OVERLAP_MS);
+  private static windowStart(notebook: OneNoteNotebookState): Date | undefined {
+    if (!notebook.sync_watermark) return undefined;
+    return new Date(notebook.sync_watermark.getTime() - WATERMARK_OVERLAP_MS);
   }
 
-  private static remaining(sections: GraphSection[], cursor?: string): GraphSection[] {
-    if (!cursor) return sections;
-    const at = sections.findIndex((s) => s.id === cursor);
-    // An unknown cursor means the section is gone; restarting the walk is safe because
+  /** Everything after the cursor, in id order. */
+  private static remainingById<T extends { id: string }>(items: T[], cursor?: string): T[] {
+    if (!cursor) return items;
+    const at = items.findIndex((item) => item.id === cursor);
+    // An unknown cursor means that item is gone; restarting the walk is safe because
     // every write is an upsert.
-    return at < 0 ? sections : sections.slice(at + 1);
+    return at < 0 ? items : items.slice(at + 1);
   }
 
   private static paused(

@@ -48,6 +48,8 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
       scopes: input.scopes,
       // Reconnecting keeps whatever was already chosen, as the Mongo upsert does.
       selected_notebook_ids: existing?.selected_notebook_ids ?? [],
+      notebooks: existing?.notebooks ?? [],
+      notebooks_cached_at: existing?.notebooks_cached_at,
       status: OneNoteConnectionStatus.Connected,
       created_at: existing?.created_at ?? new Date(),
       updated_at: new Date()
@@ -60,6 +62,48 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
   async updateTokenCache(params: { user_id: string; token_cache_sealed: string }) {
     const row = await this.findByUserId(params.user_id);
     if (row) row.token_cache_sealed = params.token_cache_sealed;
+  }
+
+  async cacheNotebooks(params: {
+    user_id: string;
+    notebooks: Array<{ id: string; display_name: string }>;
+    cached_at: Date;
+  }) {
+    const row = await this.findByUserId(params.user_id);
+    if (!row) return null;
+    const state_by_id = new Map(row.notebooks.map((n) => [n.id, n]));
+    row.notebooks = params.notebooks.map((n) => ({
+      ...n,
+      sync_watermark: state_by_id.get(n.id)?.sync_watermark,
+      last_synced_at: state_by_id.get(n.id)?.last_synced_at
+    }));
+    row.notebooks_cached_at = params.cached_at;
+    return row;
+  }
+
+  async updateNotebookSyncState(params: {
+    user_id: string;
+    notebook_id: string;
+    sync_watermark?: Date;
+    last_synced_at: Date;
+  }) {
+    const row = await this.findByUserId(params.user_id);
+    const notebook = row?.notebooks.find((n) => n.id === params.notebook_id);
+    if (notebook) {
+      notebook.last_synced_at = params.last_synced_at;
+      if (params.sync_watermark) notebook.sync_watermark = params.sync_watermark;
+    }
+    return row;
+  }
+
+  async updateSyncState(params: { user_id: string; last_synced_at?: Date }) {
+    const row = await this.findByUserId(params.user_id);
+    if (row && params.last_synced_at) row.last_synced_at = params.last_synced_at;
+    return row;
+  }
+
+  async listSyncable() {
+    return this.rows.filter((r) => r.selected_notebook_ids.length > 0);
   }
 
   async updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }) {
@@ -116,8 +160,10 @@ class FakeMicrosoft implements MicrosoftOAuthAdapterInterface {
 }
 
 class FakeGraph {
-  constructor(readonly notebooks = [{ id: 'nb-1', display_name: 'Personal' }, { id: 'nb-2', display_name: 'Work' }]) {}
+  calls = 0;
+  constructor(public notebooks = [{ id: 'nb-1', display_name: 'Personal' }, { id: 'nb-2', display_name: 'Work' }]) {}
   async listNotebooks() {
+    this.calls += 1;
     return this.notebooks;
   }
   async listSections() {
@@ -297,6 +343,58 @@ test('reconnecting the same account keeps the notebooks already chosen', async (
   await svc.completeAuthorization({ user_id: USER_ID, session_user_id: USER_ID, code: 'c', state: pending.state, pending });
 
   assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, ['nb-1']);
+});
+
+test('the notebook list is cached, so opening settings does not call Microsoft again', async () => {
+  const graph = new FakeGraph();
+  const { svc } = await connect({ graph });
+
+  await svc.listNotebooks(USER_ID);
+  await svc.listNotebooks(USER_ID);
+  await svc.listNotebooks(USER_ID);
+
+  assert.equal(graph.calls, 1, 'one fetch to fill the cache, then none');
+});
+
+test('a refresh goes past the cache and picks up a rename', async () => {
+  const graph = new FakeGraph();
+  const { svc } = await connect({ graph });
+  await svc.listNotebooks(USER_ID);
+
+  graph.notebooks = [{ id: 'nb-1', display_name: 'Personal (renamed)' }, { id: 'nb-2', display_name: 'Work' }];
+  const cached = await svc.listNotebooks(USER_ID);
+  assert.equal(cached[0].display_name, 'Personal', 'a rename is invisible until refreshed');
+
+  const refreshed = await svc.listNotebooks(USER_ID, { refresh: true });
+  assert.equal(graph.calls, 2);
+  assert.equal(refreshed[0].display_name, 'Personal (renamed)');
+});
+
+test('refreshing the list keeps each notebook where its sync had got to', async () => {
+  const graph = new FakeGraph();
+  const { svc, connection_repo } = await connect({ graph });
+  await svc.listNotebooks(USER_ID);
+
+  const watermark = new Date('2026-09-10T12:00:00Z');
+  await svc.recordNotebookSynced({ user_id: USER_ID, notebook_id: 'nb-1', sync_watermark: watermark, last_synced_at: new Date() });
+
+  await svc.listNotebooks(USER_ID, { refresh: true });
+
+  const nb1 = connection_repo.rows[0].notebooks.find((n) => n.id === 'nb-1');
+  assert.equal(nb1?.sync_watermark?.toISOString(), watermark.toISOString(), 'losing it would re-read the whole notebook');
+  assert.ok(nb1?.last_synced_at);
+});
+
+test('a notebook deleted in OneNote drops out of the list on refresh', async () => {
+  const graph = new FakeGraph();
+  const { svc, connection_repo } = await connect({ graph });
+  await svc.listNotebooks(USER_ID);
+
+  graph.notebooks = [{ id: 'nb-2', display_name: 'Work' }];
+  const refreshed = await svc.listNotebooks(USER_ID, { refresh: true });
+
+  assert.deepEqual(refreshed.map((n) => n.id), ['nb-2']);
+  assert.equal(connection_repo.rows[0].notebooks.length, 1);
 });
 
 test('notebooks cannot be listed or chosen without a connection', async () => {

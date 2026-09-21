@@ -42,7 +42,13 @@ const SelectNotebooksSchema = z
   .strict();
 
 /** `full` ignores the watermark and re-reads everything; the default is the cheap pass. */
-const StartSyncSchema = z.object({ mode: z.enum(['incremental', 'full']).optional() }).strict();
+const StartSyncSchema = z
+  .object({
+    mode: z.enum(['incremental', 'full']).optional(),
+    /** Narrows the pass; safe because each notebook carries its own watermark. */
+    notebook_ids: z.array(z.string().min(1).max(512)).max(100).optional()
+  })
+  .strict();
 
 export class OneNoteController {
   private readonly router: express.Router;
@@ -164,7 +170,9 @@ export class OneNoteController {
   private async listNotebooks(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const onenote_svc = await OneNoteConnectionSvc.create();
-      const notebooks = await onenote_svc.listNotebooks(req.auth!.user_id);
+      // ?refresh=1 is the "Refresh list" button asking to go past the cache.
+      const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+      const notebooks = await onenote_svc.listNotebooks(req.auth!.user_id, { refresh });
       res.status(200).json({ response: { notebooks } });
     } catch (e) {
       next(e);
@@ -191,7 +199,8 @@ export class OneNoteController {
   private async startSync(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const user_id = req.auth!.user_id;
-      const mode = (req.body as { mode?: 'incremental' | 'full' })?.mode ?? 'incremental';
+      const body = (req.body ?? {}) as { mode?: 'incremental' | 'full'; notebook_ids?: string[] };
+      const mode = body.mode ?? 'incremental';
 
       const onenote_svc = await OneNoteConnectionSvc.create();
       const connection = await onenote_svc.getConnection(user_id);
@@ -205,7 +214,7 @@ export class OneNoteController {
         const job = await jobs_svc.enqueue({
           name: OneNoteJobName.OneNoteSync,
           user_id,
-          payload: { user_id, mode, reason: 'manual' },
+          payload: { user_id, mode, reason: 'manual', notebook_ids: body.notebook_ids ?? null },
           dedup_key: OneNoteJobKeys.syncDedupKey(user_id),
           requested_by: user_id
         });

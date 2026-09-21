@@ -33,6 +33,8 @@ export const OneNoteSyncPayloadSchema = z
     user_id: z.string().min(1),
     mode: z.enum(['incremental', 'full']).default('incremental'),
     reason: z.enum(['manual', 'scheduled', 'continuation']).default('scheduled'),
+    /** Absent means every selected notebook; a scope narrows the pass to these. */
+    notebook_ids: z.array(z.string().min(1).max(512)).max(100).nullish(),
     resume: ResumeSchema
   })
   .strict();

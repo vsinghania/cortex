@@ -23,6 +23,22 @@ export class OneNoteConnectionModelFactory extends BaseModelFactory<OneNoteConne
         token_cache_sealed: { type: String, required: true },
         scopes: { type: [String], required: true, default: [] },
         selected_notebook_ids: { type: [String], required: true, default: [] },
+        notebooks: {
+          type: [
+            new Schema(
+              {
+                id: { type: String, required: true },
+                display_name: { type: String, required: true },
+                sync_watermark: { type: Date, default: undefined },
+                last_synced_at: { type: Date, default: undefined }
+              },
+              { _id: false, id: false }
+            )
+          ],
+          required: true,
+          default: []
+        },
+        notebooks_cached_at: { type: Date, default: undefined },
 
         status: {
           type: String,

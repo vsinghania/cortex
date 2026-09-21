@@ -65,6 +65,10 @@ export interface OneNoteConnection {
    */
   selected_notebook_ids: string[];
 
+  /** The account's notebooks as last read from Graph, with each one's own sync state. */
+  notebooks: OneNoteNotebookState[];
+  notebooks_cached_at?: Date;
+
   status: OneNoteConnectionStatus;
   last_error?: string;
   last_error_at?: Date;
@@ -84,10 +88,20 @@ export type PublicOneNoteConnection = Omit<
   'token_cache_sealed' | 'microsoft_home_account_id'
 >;
 
-/** A notebook as the picker shows it. */
-export type OneNoteNotebookChoice = {
+/**
+ * Per-notebook sync state. The watermark lives here rather than on the connection so a
+ * sync scoped to one notebook is safe: a single shared watermark advanced by a scoped
+ * pass would permanently skip whatever changed in the notebooks it did not read.
+ */
+export type OneNoteNotebookState = {
   id: string;
   display_name: string;
+  sync_watermark?: Date;
+  last_synced_at?: Date;
+};
+
+/** A notebook as the picker shows it. */
+export type OneNoteNotebookChoice = OneNoteNotebookState & {
   selected: boolean;
 };
 

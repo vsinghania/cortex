@@ -23,6 +23,8 @@ import { Time } from '../lib/time.js';
 
 /** The AAD field name; changing it would orphan every stored cache. */
 const TOKEN_CACHE_FIELD = 'onenote_token_cache';
+/** Notebooks are created rarely, so a day-old list is nearly always right. */
+const NOTEBOOK_CACHE_TTL_MS = Time.hoursToMs(24);
 
 type OneNoteConnectionSvcDeps = {
   connection_repo: OneNoteConnectionRepository;
@@ -178,13 +180,42 @@ export class OneNoteConnectionSvc {
     }
   }
 
-  /** The account's notebooks, each marked with whether it is currently syncing. */
-  async listNotebooks(user_id: string): Promise<OneNoteNotebookChoice[]> {
-    const connection = await this.requireConnection(user_id);
-    const notebooks = await this.graphFor(user_id).listNotebooks();
-    const selected = new Set(connection.selected_notebook_ids);
+  /**
+   * Served from the cached list unless it is stale or a refresh is asked for, so opening
+   * settings does not call Microsoft every time. The cost is that a notebook renamed in
+   * OneNote keeps its old name here until the cache turns over or the user refreshes.
+   */
+  async listNotebooks(user_id: string, opts: { refresh?: boolean } = {}): Promise<OneNoteNotebookChoice[]> {
+    let connection = await this.requireConnection(user_id);
 
-    return notebooks.map((n) => ({ id: n.id, display_name: n.display_name, selected: selected.has(n.id) }));
+    if (opts.refresh || OneNoteConnectionSvc.cacheIsStale(connection)) {
+      const fetched = await this.graphFor(user_id).listNotebooks();
+      connection =
+        (await this.deps.connection_repo.cacheNotebooks({
+          user_id,
+          notebooks: fetched.map((n) => ({ id: n.id, display_name: n.display_name })),
+          cached_at: new Date()
+        })) ?? connection;
+      logger.info({ user_id, notebook_count: fetched.length }, 'onenote notebook list refreshed');
+    }
+
+    const selected = new Set(connection.selected_notebook_ids);
+    return connection.notebooks.map((n) => ({ ...n, selected: selected.has(n.id) }));
+  }
+
+  /** Called by a sync pass that finished one notebook; see OneNoteSyncSvc. */
+  async recordNotebookSynced(params: {
+    user_id: string;
+    notebook_id: string;
+    sync_watermark?: Date;
+    last_synced_at: Date;
+  }): Promise<void> {
+    await this.deps.connection_repo.updateNotebookSyncState(params);
+  }
+
+  private static cacheIsStale(connection: OneNoteConnection): boolean {
+    if (!connection.notebooks_cached_at || connection.notebooks.length === 0) return true;
+    return Date.now() - connection.notebooks_cached_at.getTime() > NOTEBOOK_CACHE_TTL_MS;
   }
 
   /**

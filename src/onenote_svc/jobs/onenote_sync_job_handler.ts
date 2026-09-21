@@ -48,6 +48,7 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
       const result = await this.sync_svc.run({
         user_id: payload.user_id,
         mode: payload.mode,
+        notebook_ids: payload.notebook_ids ?? undefined,
         signal: ctx.signal,
         budget_ms: BUDGET_MS,
         checkpoint: OneNoteSyncJobHandler.resumeFrom(payload, ctx),
@@ -108,6 +109,8 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
           user_id: payload.user_id,
           mode: payload.mode,
           reason: 'continuation',
+          // The scope has to survive, or a continuation would widen to every notebook.
+          notebook_ids: payload.notebook_ids ?? null,
           resume: checkpoint ?? null
         },
         delay_ms: CONTINUATION_DELAY_MS

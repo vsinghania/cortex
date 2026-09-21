@@ -99,8 +99,30 @@ test('a paused pass hands its checkpoint to a continuation job', async () => {
   assert.equal(jobs.enqueued.length, 1);
   const continuation = jobs.enqueued[0];
   assert.equal(continuation.name, OneNoteJobName.OneNoteSync);
-  assert.deepEqual(continuation.payload, { user_id: USER_ID, mode: 'full', reason: 'continuation', resume: checkpoint });
+  assert.deepEqual(continuation.payload, {
+    user_id: USER_ID,
+    mode: 'full',
+    reason: 'continuation',
+    notebook_ids: null,
+    resume: checkpoint
+  });
   assert.equal(continuation.dedup_key, undefined, 'it would collide with the job creating it');
+});
+
+test('a scoped pass stays scoped when it continues', async () => {
+  const jobs = new FakeJobs();
+  const handler = await OneNoteSyncJobHandler.create({
+    sync_svc: syncSvc(async () => ({ completed: false, checkpoint: { pages_seen: 1 }, stats: EMPTY_STATS })),
+    jobs_svc: jobs as unknown as JobsSvcInterface
+  });
+
+  await handler.handle(
+    { user_id: USER_ID, mode: 'incremental', reason: 'manual', notebook_ids: ['nb-2'] },
+    context()
+  );
+
+  const payload = jobs.enqueued[0].payload as { notebook_ids: string[] };
+  assert.deepEqual(payload.notebook_ids, ['nb-2'], 'a continuation must not widen to every notebook');
 });
 
 test('a continuation resumes from the payload it was given', async () => {
