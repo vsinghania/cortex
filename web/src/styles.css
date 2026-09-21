@@ -4560,3 +4560,38 @@ body {
 .connection-sync .connection-actions {
   margin-top: 0;
 }
+
+.sync-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.sync-progress-track {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+/* Indeterminate: the page count is not known until the walk ends, so there is no
+   honest percentage to fill. */
+.sync-progress-bar {
+  width: 32%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: sync-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes sync-slide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(420%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-progress-bar {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}

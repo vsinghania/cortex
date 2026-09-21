@@ -6,7 +6,20 @@ import { useOneNoteSync } from '../../lib/use_onenote_sync';
 import { DateFormat } from '../../lib/date_format';
 import { Icon } from '../icon';
 import { OneNoteNotebookDialog } from './onenote_notebook_dialog';
-import type { OneNoteActiveSync, OneNoteConnection } from '../../lib/onenote.types';
+import type { OneNoteActiveSync, OneNoteConnection, OneNoteSyncJob } from '../../lib/onenote.types';
+
+/** Live counts while a pass runs, and the tally once it stops. */
+function describeProgress(progress: OneNoteSyncJob['progress'] | undefined, running: boolean): string {
+  const pages = progress?.processed ?? 0;
+  const failed = progress?.failed ?? 0;
+  const noun = `page${pages === 1 ? '' : 's'}`;
+
+  if (running) {
+    return pages === 0 ? 'Looking for changes…' : `${pages} ${noun} so far…`;
+  }
+  const done = pages === 0 ? 'Already up to date' : `Synced ${pages} ${noun}`;
+  return failed ? `${done}, ${failed} skipped` : done;
+}
 
 function formatDate(iso: string | undefined): string {
   if (!iso) return 'never';
@@ -116,10 +129,20 @@ function SyncSection({
         </button>
       </div>
 
+      {running && (
+        <div className="sync-progress" role="status" aria-live="polite">
+          {/* Indeterminate on purpose: the page count is only known once the walk ends,
+              so any percentage here would be invented. */}
+          <div className="sync-progress-track">
+            <div className="sync-progress-bar" />
+          </div>
+          <p className="connection-meta">{describeProgress(job?.progress, true)}</p>
+        </div>
+      )}
+
       {job && !running && (
         <p className="connection-meta" role="status">
-          {`Finished: ${job.progress.succeeded} page${job.progress.succeeded === 1 ? '' : 's'} synced` +
-            (job.progress.failed ? `, ${job.progress.failed} skipped` : '')}
+          {describeProgress(job.progress, false)}
         </p>
       )}
       {error && <p className="connection-error">{error}</p>}
