@@ -458,6 +458,31 @@ Things that bite when editing these rows by hand later:
 - **`auth_token_env` names an env var, not the token.** web-server reads
   `MCP_NOTES_AUTH_TOKEN` from its environment; the secret never goes in Mongo.
 
+### After deploying `edited_at` — backfill every note
+
+Notes gained `edited_at`: when a note last changed *where it is authored* — the provider's
+timestamp for an imported note, Cortex's own for a native one — and the notes list now
+sorts by it. **This is not a OneNote concern**: every note already in the database needs
+it, and a missing field sorts as null, so untouched notes fall to the bottom of the list
+until this runs.
+
+The script ships with the release, so it can only run after the deploy. Run it straight
+away; until it finishes the list is merely misordered, nothing is lost.
+
+```sh
+cd /home/ssm-user/cortex
+docker compose exec -T web-server npm run notes:backfill-edited-at            # dry run, counts
+docker compose exec -T web-server npm run notes:backfill-edited-at -- --apply
+```
+
+It sets `provider_updated_at ?? updated_at` and only touches documents with no
+`edited_at`, so re-running is safe and a second run reports zero.
+
+For native notes that value is approximate: `updated_at` was also bumped by tagging and by
+embedding completing, so a note may read as edited when its embedding finished. Pins,
+archives and folder moves never bumped it. The information to do better is gone, and from
+this release on `edited_at` moves only on a real content change.
+
 ### Fresh database — create the OneNote sync schedule
 
 Schedules are data too, and for the same reason: nothing seeds them at boot, so a
