@@ -37,6 +37,45 @@ test('no run of blank lines survives', () => {
   assert.equal(md, 'One\n\nTwo');
 });
 
+test('the document title does not leak into the body', () => {
+  // OneNote sends a whole document; turndown walks the head too, so the page name was
+  // landing as the body's first line, duplicating the note's own title.
+  const html = '<html><head><title>Oauth and OIDC</title><meta charset="utf-8"></head><body><p>First line.</p></body></html>';
+
+  assert.equal(converter.convert(html), 'First line.');
+});
+
+test('emphasis written as a style, not a tag, still converts', () => {
+  // A real OneNote page had 27 of these and not one <strong>.
+  const bold = '<p><span style="font-weight:bold">Core concepts</span></p>';
+  const italic = '<p><span style="font-style:italic">aside</span></p>';
+
+  assert.equal(converter.convert(bold), '**Core concepts**');
+  assert.equal(converter.convert(italic), '*aside*');
+  assert.equal(converter.convert('<p><span style="font-weight:700">Heavy</span></p>'), '**Heavy**');
+  assert.equal(converter.convert('<p><span style="font-weight:normal">Plain</span></p>'), 'Plain');
+});
+
+test('emphasis markers hug their text, so the markdown actually renders', () => {
+  // "** bold **" is not emphasis at all; space around the phrase belongs outside the
+  // markers, and the spacing either side has to survive.
+  assert.equal(
+    converter.convert('<p>See <span style="font-weight:bold"> the docs </span> for more.</p>'),
+    'See **the docs** for more.'
+  );
+  assert.equal(converter.convert('<p>a <span style="font-weight:bold">b</span> c</p>'), 'a **b** c');
+});
+
+test('a styled span holding only whitespace produces no empty emphasis', () => {
+  const md = converter.convert('<p>a<span style="font-weight:bold">   </span>b</p>');
+  assert.equal(md.includes('****'), false);
+});
+
+test('a styled block is left alone, so whole paragraphs are not wrapped', () => {
+  const md = converter.convert('<div style="font-weight:bold"><p>One</p><p>Two</p></div>');
+  assert.equal(md, 'One\n\nTwo');
+});
+
 test('lists survive, nested ones included', () => {
   const md = converter.convert('<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>');
 
