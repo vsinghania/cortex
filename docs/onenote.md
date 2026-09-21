@@ -3,8 +3,8 @@
 Read-only sync from Microsoft OneNote into Cortex notes. A user connects their Microsoft
 account once from Settings; Cortex then keeps a mirror of their OneNote pages.
 
-Phase 1 (this document's current scope) covers **connecting and disconnecting** an
-account. Syncing, attachments and scheduling follow in later phases.
+Covers connecting an account and syncing its pages. Images and deletion handling
+follow in later phases.
 
 ## Configuration
 
@@ -80,6 +80,61 @@ client would mix users' tokens together.
 `OneNoteReauthRequiredError`, which parks the connection as `needs_reauth` so the UI can
 ask for a reconnect instead of retrying forever.
 
+## Sync
+
+Read-only, one way. A pass walks the sections of the **selected notebooks** and upserts
+each page as a note keyed by `(source, external_id)`, so re-running updates in place.
+
+**Nothing syncs until a notebook is ticked.** An empty selection means "not set up yet",
+never "sync everything" — connecting an account must not pull it all by surprise.
+
+**Enumeration is one call.** `/me/onenote/sections?$expand=parentNotebook,parentSectionGroup`
+returns every section with its parents, so there is no notebook → group → section walk.
+Pages are then listed per section; the account-wide `/me/onenote/pages` is documented as
+not returning everything for large accounts.
+
+**Change detection is a timestamp watermark**, because Graph has no delta query for
+OneNote pages. The filter is `lastModifiedDateTime gt (watermark - 5 minutes)`: provider
+clocks are not instant, and an exact boundary silently drops pages. Re-reading a few is
+nearly free because the page's HTML is hashed into `metadata.provider_etag` (OneNote
+exposes no real ETag) and an unchanged page costs one Graph call and no write.
+
+**The watermark advances only on a pass that reached the end.** Advancing it early would
+permanently skip whatever the abandoned part of the walk had not read — silent, and
+unrecoverable without a full resync.
+
+**Folders are matched by provider id, not name** (`NoteFolder.source` / `external_id` /
+`container_type`), under a single `OneNote` root. Renaming a notebook in OneNote renames
+the Cortex folder; renaming the Cortex folder does not make the next sync build a second
+one. A name already taken gets a suffix derived from the provider id, so it is stable.
+
+**Imported notes are read-only.** The upsert overwrites the body wholesale, so an editable
+mirror would silently eat edits. Tags, pin and archive are untouched by the sync and stay
+the user's; folder is derived from OneNote, so a move is reverted on the next pass.
+
+### Jobs
+
+| Job | What it does |
+| --- | --- |
+| `onenote_sync` | One account's pass. Budgeted (~8 min), then checkpoints and enqueues a continuation. |
+| `onenote_sync_sweep` | System-wide fan-out on a schedule: one `onenote_sync` per connected account. |
+
+**Why the budget.** `JOBS_CONCURRENCY` is 1 and the pool is a single global FIFO, so a
+long sync sits in front of `note_vectorize` for the note being edited right now, and in
+front of every password-reset email. A large first import is therefore a series of short
+jobs rather than one long one.
+
+**The continuation carries its checkpoint in the payload**, not the queue's checkpoint
+field, which only survives retries of the *same* job. It also carries no `dedup_key`: it
+would collide with the job creating it, which holds that key until it completes.
+
+**Overrun needs no guard of ours.** The schedule and the manual enqueue both carry
+`onenote-sync:<user_id>`, so a sweep firing while an account's sync is still running
+collides on `uniq_job_dedup_active`, skips that window and logs it.
+
+**The schedule is data, not code** — see `deploy/aws.md`. Without that one-off `PUT`,
+sync only ever runs when someone presses "Sync now".
+
 ## Gotchas
 
 - **The redirect URI must match the Azure registration character for character**, including
@@ -98,3 +153,12 @@ ask for a reconnect instead of retrying forever.
   Cortex user would collide on OneNote page ids.
 - **Disconnecting leaves imported notes in place.** They are the user's, and deleting them
   would surprise. Nothing is ever written back to OneNote.
+- **`.lean()` reads skip Mongoose defaults**, so a document written before a field existed
+  comes back without it — which once took the settings page down via `undefined.length`.
+  `MongooseOneNoteConnectionRepository.toConnection` normalises array fields on every read;
+  a new non-optional field needs the same, or a backfill.
+- **Deleted OneNote pages are not detectable yet.** Graph reports no deletions and there is
+  no delta query, so a page deleted in OneNote leaves its Cortex note behind until the
+  reconciliation pass lands.
+- **OneNote writes a `<p>` per visual line**, so converted notes have a blank line between
+  most lines. Spacer paragraphs are dropped and blank runs collapsed; the rest is faithful.
