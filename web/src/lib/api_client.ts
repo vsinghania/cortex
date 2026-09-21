@@ -209,6 +209,14 @@ export class ApiClient {
     });
   }
 
+  /** Re-reads one page from OneNote now; inline, so it answers with the updated note. */
+  static async syncOneNoteNote(note_id: string): Promise<{ note: Note }> {
+    return ApiClient.request<{ note: Note }>(
+      `/integrations/onenote/notes/${encodeURIComponent(note_id)}/sync`,
+      { method: 'POST' },
+    );
+  }
+
   static async getOneNoteSyncJob(job_id: string): Promise<{ job: OneNoteSyncJob }> {
     return ApiClient.request<{ job: OneNoteSyncJob }>(`/integrations/onenote/sync/${encodeURIComponent(job_id)}`);
   }

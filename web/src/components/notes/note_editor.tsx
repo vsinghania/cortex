@@ -13,6 +13,7 @@ import { useNowTick } from '../../lib/use_now_tick';
 import { useIsMobile } from '../../lib/use_is_mobile';
 import { NoteOutline } from '../../lib/note_outline';
 import { MarkdownPreview } from '../markdown_preview';
+import { ImportedNoteBanner } from './imported_note_banner';
 import { NoteToolbar } from './note_toolbar';
 import { MobileNoteBar } from './mobile_note_bar';
 import { TagEditor } from './tag_editor';
@@ -57,6 +58,10 @@ type Props = {
  */
 export function NoteEditor(props: Props) {
   const { note, chunk_id } = props;
+  // A note mirroring a provider is read-only here: the next sync overwrites its body
+  // wholesale, so an edit would be a promise we are about to break. The server enforces
+  // it with a 403; this just stops inviting it.
+  const imported = !!note && note.source !== 'native';
   const is_mobile = useIsMobile();
   const [title, set_title] = useState(note?.title === UNTITLED_NOTE_TITLE ? '' : note?.title ?? '');
   const [body, set_body] = useState(note?.body ?? '');
@@ -211,7 +216,7 @@ export function NoteEditor(props: Props) {
           folders_by_id={props.folders_by_id}
           folder_tree={props.folder_tree}
           mode={mode}
-          show_mode={!chunk_id}
+          show_mode={!chunk_id && !imported}
           suggest={suggest_control}
           onBack={props.onBack ?? (() => void 0)}
           onOpenChat={props.onOpenChat ?? (() => void 0)}
@@ -227,7 +232,7 @@ export function NoteEditor(props: Props) {
           folders_by_id={props.folders_by_id}
           folder_tree={props.folder_tree}
           mode={mode}
-          show_mode={!chunk_id}
+          show_mode={!chunk_id && !imported}
           list_collapsed={props.list_collapsed}
           chat_open={props.chat_open}
           onToggleList={props.onToggleList}
@@ -241,6 +246,8 @@ export function NoteEditor(props: Props) {
 
       <div className="editor-scroll" ref={scroll_ref}>
         <div className="editor-column">
+          {note && imported && <ImportedNoteBanner note={note} onSynced={props.onSaved} />}
+
           <textarea
             ref={title_el_ref}
             className={`editor-title${note?.is_archived ? ' editor-title-archived' : ''}`}
@@ -249,7 +256,7 @@ export function NoteEditor(props: Props) {
             placeholder={UNTITLED_NOTE_TITLE}
             aria-label="Title"
             spellCheck={false}
-            readOnly={!!chunk_id}
+            readOnly={!!chunk_id || imported}
             onChange={(e) => handleTitleChange(e.target.value.replace(/\n/g, ' '))}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -297,7 +304,7 @@ export function NoteEditor(props: Props) {
 
           {chunk_id && note ? (
             <CitationSourceView note_id={note.id} body={body} chunk_id={chunk_id} return_link={props.return_link} onEdit={props.onDismissCitation} />
-          ) : mode === 'edit' ? (
+          ) : mode === 'edit' && !imported ? (
             <textarea
               ref={body_el_ref}
               className="editor-body"

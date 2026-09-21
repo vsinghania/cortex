@@ -13,6 +13,7 @@ import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 import { SecretBox } from '../../lib/crypto/secret_box.js';
 import { Time } from '../../lib/time.js';
 import { OneNoteConnectionSvc } from '../../onenote_svc/onenote_connection_svc.js';
+import { OneNoteSyncSvc } from '../../onenote_svc/onenote_sync_svc.js';
 import { CookieOptions } from '../cookie_options.js';
 
 const STATE_COOKIE_NAME = 'ms_oauth';
@@ -73,6 +74,7 @@ export class OneNoteController {
     this.router.put('/notebooks', RequireAuthMiddleware.requireAuth, this.selectNotebooks.bind(this));
     this.router.post('/sync', RequireAuthMiddleware.requireAuth, this.startSync.bind(this));
     this.router.get('/sync/:job_id', RequireAuthMiddleware.requireAuth, this.syncStatus.bind(this));
+    this.router.post('/notes/:note_id/sync', RequireAuthMiddleware.requireAuth, this.syncNote.bind(this));
     this.router.delete('/', RequireAuthMiddleware.requireAuth, this.disconnect.bind(this));
   }
 
@@ -288,6 +290,23 @@ export class OneNoteController {
       notebook_ids: (job.payload as { notebook_ids?: string[] | null })?.notebook_ids ?? null,
       current_notebook_id: (job.checkpoint as { current_notebook_id?: string } | undefined)?.current_notebook_id ?? null
     };
+  }
+
+  /**
+   * One page, inline. A Graph read plus an upsert is about a second, so making this a
+   * job would cost more in waiting for the queue than in doing the work.
+   */
+  private async syncNote(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const sync_svc = await OneNoteSyncSvc.create();
+      const note = await sync_svc.syncNote({
+        user_id: req.auth!.user_id,
+        note_id: String(req.params.note_id ?? '')
+      });
+      res.status(200).json({ response: { note } });
+    } catch (e) {
+      next(e);
+    }
   }
 
   private async disconnect(req: express.Request, res: express.Response, next: express.NextFunction) {

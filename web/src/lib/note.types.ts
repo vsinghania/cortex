@@ -30,6 +30,10 @@ export type Note = {
   is_pinned?: boolean;
   is_deleted: boolean;
   vectorization?: { status: NoteVectorizationStatus };
+  /** Set on imported notes: where the page lives on the provider, and when it last synced. */
+  metadata?: { provider_url?: string; provider_etag?: string };
+  last_synced_at?: string;
+  provider_updated_at?: string;
   created_at: string;
   updated_at: string;
 };
