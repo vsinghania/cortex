@@ -65,6 +65,17 @@ export function NoteEditor(props: Props) {
   const is_mobile = useIsMobile();
   const [title, set_title] = useState(note?.title === UNTITLED_NOTE_TITLE ? '' : note?.title ?? '');
   const [body, set_body] = useState(note?.body ?? '');
+
+  // An imported note has no local edits to protect - it cannot be typed into - so its
+  // content only ever changes because a sync replaced it. The view follows the prop
+  // rather than the seed it mounted with, or a "Sync now" shows stale text until reload.
+  const imported_title = imported ? note?.title : undefined;
+  const imported_body = imported ? note?.body : undefined;
+  useEffect(() => {
+    if (imported_title === undefined || imported_body === undefined) return;
+    set_title(imported_title === UNTITLED_NOTE_TITLE ? '' : imported_title);
+    set_body(imported_body);
+  }, [imported_title, imported_body]);
   const [mode, set_mode] = useState<EditorMode>('edit');
   const [create_error, set_create_error] = useState<string | null>(null);
   const title_value_ref = useRef(title);
