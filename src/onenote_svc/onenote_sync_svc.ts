@@ -35,6 +35,13 @@ const ROOT_EXTERNAL_ID = 'root';
  * unchanged page costs one Graph call and no write.
  */
 const WATERMARK_OVERLAP_MS = Time.minutesToMs(5);
+/**
+ * Stamped into `provider_etag` beside the content hash. The hash answers "did the page
+ * change?", which is the wrong question on its own: when the converter changes, the page
+ * has not moved but the markdown we would now produce has. Bumping this invalidates every
+ * stored etag, so the next ordinary pass re-converts instead of needing a manual resync.
+ */
+const CONVERTER_VERSION = 'v2';
 const DEFAULT_BUDGET_MS = Time.minutesToMs(8);
 
 type OneNoteSyncSvcDeps = {
@@ -289,8 +296,10 @@ export class OneNoteSyncSvc {
         external_id: page.id
       });
 
-      // OneNote exposes no ETag, so metadata.provider_etag holds a hash of the HTML.
-      if (existing && existing.metadata?.provider_etag === content_hash) {
+      // OneNote exposes no ETag, so metadata.provider_etag holds a hash of the HTML plus
+      // the converter version. A full pass rewrites regardless: that is what makes it the
+      // tool for backfilling after a conversion change.
+      if (params.mode !== 'full' && existing && existing.metadata?.provider_etag === content_hash) {
         await this.deps.notes_svc.updateNote(
           params.user_id,
           { source: NoteSource.OneNote, external_id: page.id },
@@ -480,7 +489,7 @@ export class OneNoteSyncSvc {
   private static converter_instance?: HtmlToMarkdown;
 
   private static hash(html: string): string {
-    return createHash('sha256').update(html).digest('base64url');
+    return `${CONVERTER_VERSION}:${createHash('sha256').update(html).digest('base64url')}`;
   }
 
   private static toDate(iso?: string): Date | undefined {

@@ -223,13 +223,48 @@ test('an unchanged page is not rewritten, only re-stamped', async () => {
   await first.svc.run({ user_id: USER_ID, mode: 'full' });
   const created_before = first.notes.created;
 
+  // Incremental: the pass that runs on a schedule, where skipping is the whole point.
   const again = await buildSvc({ graph, notes: first.notes });
-  const result = await again.svc.run({ user_id: USER_ID, mode: 'full' });
+  const result = await again.svc.run({ user_id: USER_ID, mode: 'incremental' });
 
   assert.equal(result.stats.unchanged, 1);
   assert.equal(result.stats.created + result.stats.updated, 0);
   assert.equal(first.notes.created, created_before, 'no second write of the same body');
   assert.deepEqual(Object.keys(first.notes.patches[0]).sort(), ['last_synced_at', 'sync_status']);
+});
+
+test('a full pass rewrites even when the page has not changed', async () => {
+  // How a conversion fix reaches notes already imported: the page is identical, but the
+  // markdown we would now produce is not.
+  const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] });
+  const first = await buildSvc({ graph });
+  await first.svc.run({ user_id: USER_ID, mode: 'full' });
+  const created_before = first.notes.created;
+
+  const again = await buildSvc({ graph, notes: first.notes });
+  const result = await again.svc.run({ user_id: USER_ID, mode: 'full' });
+
+  assert.equal(result.stats.unchanged, 0, 'full means full');
+  assert.equal(result.stats.updated, 1);
+  assert.ok(first.notes.created > created_before, 'the body is written again');
+});
+
+test('a stored note converted by an older version is re-converted', async () => {
+  const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] });
+  const { svc, notes } = await buildSvc({ graph });
+  await svc.run({ user_id: USER_ID, mode: 'full' });
+
+  // What a note imported before the converter changed looks like: a bare hash, with no
+  // version stamped beside it.
+  notes.notes[0].metadata = { ...notes.notes[0].metadata, provider_etag: 'bare-hash-from-before' };
+  const created_before = notes.created;
+
+  const result = await (await buildSvc({ graph, notes })).svc.run({ user_id: USER_ID, mode: 'incremental' });
+
+  assert.equal(result.stats.unchanged, 0);
+  assert.equal(result.stats.updated, 1, 'an ordinary pass heals it, with no manual resync');
+  assert.ok(notes.created > created_before);
+  assert.match(notes.notes[0].metadata?.provider_etag ?? '', /^v\d+:/);
 });
 
 test('a page whose content changed is written again', async () => {
