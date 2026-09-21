@@ -74,7 +74,7 @@ function SyncSection({
   onFinished: () => void;
 }) {
   const active = last_sync && ACTIVE_SYNC_STATUSES.has(last_sync.status) ? last_sync : null;
-  const { job, running, scope, error, start } = useOneNoteSync({ onFinished, active });
+  const { job, running, scope, current_notebook_id, error, start } = useOneNoteSync({ onFinished, active });
   // A failure the browser never saw, because it happened before this page was loaded.
   const stale_failure = !job && last_sync?.status === 'failed' ? last_sync : null;
   const [choosing, set_choosing] = useState(false);
@@ -114,8 +114,11 @@ function SyncSection({
 
       <ul className="notebook-status-list">
         {selected.map((notebook) => {
-          // A null scope means the running pass covers every selected notebook.
-          const syncing = running && (scope === null || !!scope?.includes(notebook.id));
+          // The pass works through notebooks one at a time, so only the one it is on
+          // says "syncing". Before the first checkpoint lands, fall back to the scope.
+          const in_scope = scope === null || !!scope?.includes(notebook.id);
+          const syncing =
+            running && in_scope && (current_notebook_id ? current_notebook_id === notebook.id : true);
           return (
             <li key={notebook.id} className="notebook-status-row">
               <span className="notebook-name">{notebook.display_name}</span>

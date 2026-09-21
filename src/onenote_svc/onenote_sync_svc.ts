@@ -85,6 +85,11 @@ export class OneNoteSyncSvc {
 
     for (const notebook of OneNoteSyncSvc.remainingById(targets, checkpoint.notebook_cursor)) {
      try {
+      // Published so the card can light up this notebook alone, rather than every
+      // selected one, while the pass works through them in turn.
+      checkpoint = { ...checkpoint, current_notebook_id: notebook.id };
+      params.onCheckpoint?.(checkpoint);
+
       const sections = sections_by_notebook.get(notebook.id) ?? [];
       const modified_after = params.mode === 'full' ? undefined : OneNoteSyncSvc.windowStart(notebook);
       // Each notebook keeps its own high-water mark, so finishing one says nothing about
@@ -173,7 +178,7 @@ export class OneNoteSyncSvc {
         last_synced_at: new Date()
       });
 
-      checkpoint = { notebook_cursor: notebook.id, pages_seen: stats.pages_seen };
+      checkpoint = { notebook_cursor: notebook.id, current_notebook_id: undefined, pages_seen: stats.pages_seen };
       params.onCheckpoint?.(checkpoint);
       if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
      } catch (err) {

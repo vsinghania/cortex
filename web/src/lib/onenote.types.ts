@@ -34,6 +34,8 @@ export type OneNoteLastSync = {
   finished_at: string | null;
   /** Which notebooks the run covered; null means every selected one. */
   notebook_ids: string[] | null;
+  /** The notebook being read right now, so only that row shows as syncing. */
+  current_notebook_id: string | null;
 };
 
 /** `available` is false when the server has no Microsoft credentials configured. */
@@ -68,6 +70,8 @@ export type OneNoteSyncJob = {
   result: Record<string, unknown> | null;
   last_error: string | null;
   finished_at: string | null;
+  /** The notebook being read right now, so only that row shows as syncing. */
+  current_notebook_id: string | null;
 };
 
 /** `job_id` is null only when a sync was already running and could not be identified. */

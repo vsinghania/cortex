@@ -10,6 +10,8 @@ export type OneNoteSyncMode = 'incremental' | 'full';
 export type OneNoteSyncCheckpoint = {
   /** The last notebook fully drained; notebooks are walked in id order. */
   notebook_cursor?: string;
+  /** The one being read right now. Informational: the UI marks only this row as syncing. */
+  current_notebook_id?: string;
   section_cursor?: string;
   page_next_link?: string;
   /** ISO. Promoted to the connection's watermark only when a pass completes. */

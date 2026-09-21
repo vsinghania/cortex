@@ -16,6 +16,8 @@ export type OneNoteSyncState = {
   running: boolean;
   /** Which notebooks the running pass covers; null means all of them. */
   scope: string[] | null;
+  /** The notebook being read right now, when the server has said. */
+  current_notebook_id: string | null;
   error: string | null;
   start: (options?: StartSyncOptions) => Promise<void>;
 };
@@ -30,6 +32,7 @@ export function useOneNoteSync(
 ): OneNoteSyncState {
   const [job, set_job] = useState<OneNoteSyncJob | null>(null);
   const [scope, set_scope] = useState<string[] | null>(null);
+  const [current_notebook_id, set_current] = useState<string | null>(null);
   const [error, set_error] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
   const on_finished = useRef(params.onFinished);
@@ -48,6 +51,7 @@ export function useOneNoteSync(
       try {
         const { job: latest } = await ApiClient.getOneNoteSyncJob(job_id);
         set_job(latest);
+        set_current(latest.current_notebook_id);
 
         if (ACTIVE_STATUSES.has(latest.status)) {
           timer.current = window.setTimeout(() => void poll(job_id), POLL_INTERVAL_MS);
@@ -79,6 +83,7 @@ export function useOneNoteSync(
     if (!active || adopted.current === active.job_id) return;
     adopted.current = active.job_id;
     set_scope(active.notebook_ids);
+    set_current(active.current_notebook_id);
     void poll(active.job_id);
   }, [params.active, poll]);
 
@@ -104,5 +109,5 @@ export function useOneNoteSync(
     [clear, poll]
   );
 
-  return { job, scope, running: !!job && ACTIVE_STATUSES.has(job.status), error, start };
+  return { job, scope, current_notebook_id, running: !!job && ACTIVE_STATUSES.has(job.status), error, start };
 }

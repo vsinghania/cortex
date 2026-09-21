@@ -253,7 +253,9 @@ export class OneNoteController {
             progress: job.progress,
             result: job.result ?? null,
             last_error: job.last_error ?? null,
-            finished_at: job.finished_at ?? null
+            finished_at: job.finished_at ?? null,
+            current_notebook_id:
+              (job.checkpoint as { current_notebook_id?: string } | undefined)?.current_notebook_id ?? null
           }
         }
       });
@@ -283,7 +285,8 @@ export class OneNoteController {
       result: job.result ?? null,
       last_error: job.last_error ?? null,
       finished_at: job.finished_at ?? null,
-      notebook_ids: (job.payload as { notebook_ids?: string[] | null })?.notebook_ids ?? null
+      notebook_ids: (job.payload as { notebook_ids?: string[] | null })?.notebook_ids ?? null,
+      current_notebook_id: (job.checkpoint as { current_notebook_id?: string } | undefined)?.current_notebook_id ?? null
     };
   }
 
