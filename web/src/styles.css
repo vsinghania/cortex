@@ -4626,3 +4626,9 @@ body {
 .imported-banner-error {
   color: var(--danger);
 }
+
+/* Sync-managed folders read as slightly apart from the ones you made yourself. */
+.rail-item-icon-synced {
+  color: var(--accent);
+  opacity: 0.75;
+}

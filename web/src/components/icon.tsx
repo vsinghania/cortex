@@ -67,6 +67,7 @@ const ICON_PATHS = {
   menu: ['M3 6h18', 'M3 12h18', 'M3 18h18'],
   info: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 16v-5', 'M12 8h.01'],
   refresh: ['M21 12a9 9 0 1 1-2.64-6.36', 'M21 4v5h-5'],
+  notebook: ['M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z', 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20', 'M9 2v20'],
 } satisfies Record<string, string[]>;
 
 export type IconName = keyof typeof ICON_PATHS;

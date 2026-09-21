@@ -24,6 +24,24 @@ type Props = {
 /** `undefined` means no create input is open; `null` means one is open at the top level. */
 type CreateTarget = string | null | undefined;
 
+/**
+ * A folder a sync owns looks different from one the user made, because it behaves
+ * differently: the next pass rebuilds it from the provider, so a rename or a move here
+ * is undone. The icon is the cheapest place to say so before someone reorganises.
+ */
+function folderIcon(node: NoteFolderNode): IconName {
+  if (node.container_type === 'notebook') return 'notebook';
+  if (node.container_type === 'section_group') return 'layers';
+  if (node.container_type === 'section') return 'notes';
+  return node.source ? 'refresh' : 'folder';
+}
+
+function folderHint(node: NoteFolderNode): string | undefined {
+  if (!node.source) return undefined;
+  const kind = node.container_type?.replace('_', ' ') ?? 'folder';
+  return `${node.name} — a ${kind} synced from ${node.source}. Renaming or moving it here is undone by the next sync.`;
+}
+
 export function NotesRailSections(props: Props) {
   const { collapsed, folders, tags, filters, onSelect } = props;
   const tree = useMemo(() => FolderTree.build(folders), [folders]);
@@ -112,8 +130,17 @@ export function NotesRailSections(props: Props) {
             ) : (
               <span className="tree-chevron-spacer" aria-hidden="true" />
             )}
-            <button type="button" className="tree-select" onClick={() => onSelect({ folder: node.id, archived: false, tag: null })}>
-              <Icon name="folder" size={14} className="rail-item-icon" />
+            <button
+              type="button"
+              className="tree-select"
+              title={folderHint(node)}
+              onClick={() => onSelect({ folder: node.id, archived: false, tag: null })}
+            >
+              <Icon
+                name={folderIcon(node)}
+                size={14}
+                className={`rail-item-icon${node.source ? ' rail-item-icon-synced' : ''}`}
+              />
               <span className="rail-item-label">{node.name}</span>
               {node.note_count > 0 && <span className="rail-count">{node.note_count}</span>}
             </button>
