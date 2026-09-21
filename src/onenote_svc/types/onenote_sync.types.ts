@@ -53,5 +53,10 @@ export type RunSyncParams = {
   budget_ms?: number;
   checkpoint?: OneNoteSyncCheckpoint;
   onProgress?: (progress: OneNoteSyncProgress) => void;
+  /**
+   * Called as the walk advances, so a run that dies mid-pass is resumed rather than
+   * restarted. Without it a reclaimed job re-reads everything it had already done.
+   */
+  onCheckpoint?: (checkpoint: OneNoteSyncCheckpoint) => void;
   onError?: (entry: { item_id: string; message: string }) => void;
 };

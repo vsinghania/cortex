@@ -40,9 +40,7 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
 
   async handle(payload: OneNoteSyncPayload, ctx: JobContext): Promise<JobResult> {
     const start_ms = performance.now();
-    // A resumed attempt must keep the counters it already reported, or `processed` jumps
-    // backwards in the UI after a lease reclaim.
-    const seeded = ctx.progress.processed ?? 0;
+    const resume = OneNoteSyncJobHandler.resumeFrom(payload, ctx);
 
     try {
       const result = await this.sync_svc.run({
@@ -51,13 +49,14 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
         notebook_ids: payload.notebook_ids ?? undefined,
         signal: ctx.signal,
         budget_ms: BUDGET_MS,
-        checkpoint: OneNoteSyncJobHandler.resumeFrom(payload, ctx),
-        onProgress: (p) =>
-          ctx.reportProgress({
-            processed: Math.max(seeded, p.processed),
-            succeeded: p.succeeded,
-            failed: p.failed
-          }),
+        checkpoint: resume,
+        // The pass seeds its own counters from the checkpoint, so these are already
+        // cumulative. Clamping them to the last reported value instead would freeze the
+        // number whenever a reclaimed run legitimately restarts.
+        onProgress: (p) => ctx.reportProgress(p),
+        // Persisted by the lease heartbeat, so a worker that dies mid-pass is resumed
+        // from here rather than re-reading everything it had already done.
+        onCheckpoint: (checkpoint) => ctx.setCheckpoint(checkpoint as Record<string, unknown>),
         onError: (entry) => ctx.recordError(entry)
       });
 

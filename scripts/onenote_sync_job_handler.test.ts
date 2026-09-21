@@ -168,21 +168,46 @@ test("this job's own checkpoint beats the payload, since a retry is newer", asyn
   assert.equal(seen[0].checkpoint?.section_cursor, 'fresh');
 });
 
-test('progress never goes backwards after a reclaim', async () => {
+test('a resumed pass continues its counters from the checkpoint it was handed', async () => {
+  const seen: RunSyncParams[] = [];
   const handler = await OneNoteSyncJobHandler.create({
     sync_svc: syncSvc(async (params) => {
-      params.onProgress?.({ processed: 2, succeeded: 2, failed: 0 });
+      seen.push(params);
+      // What the pass reports is already cumulative: it seeds from checkpoint.pages_seen.
+      params.onProgress?.({ processed: 102, succeeded: 102, failed: 0 });
       return { completed: true, stats: EMPTY_STATS };
     }),
     jobs_svc: new FakeJobs() as unknown as JobsSvcInterface
   });
-  const ctx = context({ progress: { processed: 100, succeeded: 100, failed: 0 }, attempt: 2 }) as JobContext & {
-    reported: JobProgress[];
-  };
+  const ctx = context({
+    progress: { processed: 100, succeeded: 100, failed: 0 },
+    checkpoint: { section_cursor: 'sec-3', pages_seen: 100 },
+    attempt: 2
+  }) as JobContext & { reported: JobProgress[] };
 
   await handler.handle({ user_id: USER_ID, mode: 'incremental', reason: 'scheduled' }, ctx);
 
-  assert.equal(ctx.reported.at(-1)?.processed, 100, 'seeded from what a previous attempt reported');
+  assert.equal(seen[0].checkpoint?.pages_seen, 100, 'the pass is told where it got to');
+  assert.equal(ctx.reported.at(-1)?.processed, 102);
+});
+
+test('the walk checkpoints as it goes, so a dead worker resumes instead of restarting', async () => {
+  const handler = await OneNoteSyncJobHandler.create({
+    sync_svc: syncSvc(async (params) => {
+      params.onCheckpoint?.({ section_cursor: 'sec-1', pages_seen: 20 });
+      params.onCheckpoint?.({ section_cursor: 'sec-2', pages_seen: 45 });
+      return { completed: true, stats: EMPTY_STATS };
+    }),
+    jobs_svc: new FakeJobs() as unknown as JobsSvcInterface
+  });
+  const ctx = context() as JobContext & { checkpoints: Record<string, unknown>[] };
+
+  await handler.handle({ user_id: USER_ID, mode: 'incremental', reason: 'scheduled' }, ctx);
+
+  assert.deepEqual(ctx.checkpoints, [
+    { section_cursor: 'sec-1', pages_seen: 20 },
+    { section_cursor: 'sec-2', pages_seen: 45 }
+  ]);
 });
 
 test('a dead grant fails permanently; throttling fails retryably', async () => {

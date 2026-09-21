@@ -117,6 +117,7 @@ export class OneNoteSyncSvc {
             pages_seen: stats.pages_seen
           };
 
+          params.onCheckpoint?.(checkpoint);
           if (!next_link) break;
           if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
         }
@@ -129,6 +130,7 @@ export class OneNoteSyncSvc {
           watermark_candidate: watermark?.toISOString(),
           pages_seen: stats.pages_seen
         };
+        params.onCheckpoint?.(checkpoint);
         if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
       }
 
@@ -142,6 +144,7 @@ export class OneNoteSyncSvc {
       });
 
       checkpoint = { notebook_cursor: notebook.id, pages_seen: stats.pages_seen };
+      params.onCheckpoint?.(checkpoint);
       if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
     }
 
