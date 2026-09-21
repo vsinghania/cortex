@@ -4434,60 +4434,106 @@ body {
 
 .notebook-head {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   justify-content: space-between;
 }
 
-.notebook-row {
+.notebook-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  padding: 3px 6px;
-  border-radius: 6px;
 }
 
-.notebook-row:hover {
+.notebook-dirty {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* Narrow screens scroll the table rather than squeezing the name column away. */
+.notebook-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+
+.notebook-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.notebook-table th {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--subtext);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.notebook-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.notebook-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.notebook-table tbody tr:hover {
   background: var(--surface-2);
 }
 
-.notebook-item {
-  display: flex;
-  flex: 1;
-  gap: 8px;
-  min-width: 0;
-  align-items: center;
+.notebook-table tbody tr.is-selected .notebook-name label {
   color: var(--text);
-  font-size: 14px;
-  cursor: pointer;
 }
 
 .notebook-name {
+  max-width: 1px; /* lets the cell shrink so the ellipsis can apply */
+  width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.notebook-status {
-  flex: none;
+.notebook-name label {
+  display: block;
   color: var(--subtext);
-  font-size: 12px;
+  cursor: pointer;
 }
 
-.notebook-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+.notebook-col-check {
+  width: 28px;
 }
 
-.btn-sm {
-  gap: 5px;
-  padding: 3px 8px;
-  font-size: 12px;
-}
-
-.notebook-item input {
+.notebook-col-check input {
+  display: block;
   accent-color: var(--accent);
+}
+
+.notebook-col-synced {
+  width: 92px;
+  color: var(--subtext);
+  white-space: nowrap;
+}
+
+.notebook-col-action {
+  width: 32px;
+}
+
+.notebook-muted {
+  color: var(--subtext);
+  opacity: 0.55;
+}
+
+.notebook-syncing {
+  color: var(--accent);
 }
 
 .connection-sync {

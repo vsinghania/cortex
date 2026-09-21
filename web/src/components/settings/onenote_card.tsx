@@ -18,7 +18,9 @@ function ConnectionDetail({ connection }: { connection: OneNoteConnection }) {
       <span className="connection-meta">
         {connection.status === 'needs_reauth'
           ? 'Microsoft access expired or was revoked. Connect again to resume syncing.'
-          : `Connected ${formatDate(connection.created_at)} · last synced ${formatDate(connection.last_synced_at)}`}
+          : // Per-notebook times live in the table; repeating an account-wide one here
+            // only invites the two to disagree.
+            `Connected ${formatDate(connection.created_at)}`}
       </span>
     </div>
   );
