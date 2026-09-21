@@ -29,6 +29,9 @@ export type OneNoteNotebook = {
   id: string;
   display_name: string;
   selected: boolean;
+  /** Each notebook syncs on its own watermark, so each has its own last-synced time. */
+  last_synced_at?: string;
+  sync_watermark?: string;
 };
 
 export type OneNoteJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';

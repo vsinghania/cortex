@@ -24,34 +24,42 @@ function ConnectionDetail({ connection }: { connection: OneNoteConnection }) {
   );
 }
 
-function SyncRow({ connection, onFinished }: { connection: OneNoteConnection; onFinished: () => void }) {
-  const { job, running, error, start } = useOneNoteSync({ onFinished });
+function SyncSection({ connection, onFinished }: { connection: OneNoteConnection; onFinished: () => void }) {
+  const { job, running, scope, error, start } = useOneNoteSync({ onFinished });
   const nothing_chosen = connection.selected_notebook_ids.length === 0;
 
   return (
-    <div className="connection-sync">
-      <div className="connection-actions">
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={running || nothing_chosen}
-          onClick={() => void start()}
-          title={nothing_chosen ? 'Choose a notebook first' : undefined}
-        >
-          {running ? 'Syncing…' : 'Sync now'}
-        </button>
-      </div>
+    <>
+      <OneNoteNotebookPicker
+        syncing_ids={running ? scope : undefined}
+        onSyncNotebook={(notebook_id) => void start({ notebook_ids: [notebook_id] })}
+        onSaved={onFinished}
+      />
 
-      {job && (
-        <p className="connection-meta" role="status">
-          {running
-            ? `Imported ${job.progress.processed} page${job.progress.processed === 1 ? '' : 's'}…`
-            : `Finished: ${job.progress.succeeded} page${job.progress.succeeded === 1 ? '' : 's'} synced` +
-              (job.progress.failed ? `, ${job.progress.failed} skipped` : '')}
-        </p>
-      )}
-      {error && <p className="connection-error">{error}</p>}
-    </div>
+      <div className="connection-sync">
+        <div className="connection-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={running || nothing_chosen}
+            onClick={() => void start()}
+            title={nothing_chosen ? 'Choose a notebook first' : undefined}
+          >
+            {running ? 'Syncing…' : 'Sync all'}
+          </button>
+        </div>
+
+        {job && (
+          <p className="connection-meta" role="status">
+            {running
+              ? `Imported ${job.progress.processed} page${job.progress.processed === 1 ? '' : 's'}…`
+              : `Finished: ${job.progress.succeeded} page${job.progress.succeeded === 1 ? '' : 's'} synced` +
+                (job.progress.failed ? `, ${job.progress.failed} skipped` : '')}
+          </p>
+        )}
+        {error && <p className="connection-error">{error}</p>}
+      </div>
+    </>
   );
 }
 
@@ -89,10 +97,7 @@ export function OneNoteCard() {
         <>
           <ConnectionDetail connection={connection} />
           {connection.status !== 'needs_reauth' && (
-            <>
-              <OneNoteNotebookPicker onChanged={() => void reload()} />
-              <SyncRow connection={connection} onFinished={() => void reload()} />
-            </>
+            <SyncSection connection={connection} onFinished={() => void reload()} />
           )}
         </>
       )}

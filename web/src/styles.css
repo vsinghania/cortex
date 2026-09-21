@@ -4432,19 +4432,58 @@ body {
   list-style: none;
 }
 
-.notebook-item {
+.notebook-head {
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 4px 6px;
+  justify-content: space-between;
+}
+
+.notebook-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 6px;
   border-radius: 6px;
+}
+
+.notebook-row:hover {
+  background: var(--surface-2);
+}
+
+.notebook-item {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+  align-items: center;
   color: var(--text);
   font-size: 14px;
   cursor: pointer;
 }
 
-.notebook-item:hover {
-  background: var(--surface-2);
+.notebook-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notebook-status {
+  flex: none;
+  color: var(--subtext);
+  font-size: 12px;
+}
+
+.notebook-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-sm {
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
 }
 
 .notebook-item input {

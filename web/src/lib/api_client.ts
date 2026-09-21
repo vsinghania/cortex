@@ -186,9 +186,11 @@ export class ApiClient {
     return ApiClient.request<{ disconnected: boolean }>('/integrations/onenote', { method: 'DELETE' });
   }
 
-  /** Reads the live list from Microsoft, so it reflects notebooks added since connecting. */
-  static async getOneNoteNotebooks(): Promise<{ notebooks: OneNoteNotebook[] }> {
-    return ApiClient.request<{ notebooks: OneNoteNotebook[] }>('/integrations/onenote/notebooks');
+  /** Served from the server's cache unless `refresh` asks it to call Microsoft again. */
+  static async getOneNoteNotebooks(refresh = false): Promise<{ notebooks: OneNoteNotebook[] }> {
+    return ApiClient.request<{ notebooks: OneNoteNotebook[] }>(
+      `/integrations/onenote/notebooks${refresh ? '?refresh=1' : ''}`,
+    );
   }
 
   static async selectOneNoteNotebooks(notebook_ids: string[]): Promise<{ connection: OneNoteConnection }> {
@@ -198,10 +200,12 @@ export class ApiClient {
     });
   }
 
-  static async startOneNoteSync(mode: 'incremental' | 'full' = 'incremental'): Promise<OneNoteSyncStart> {
+  static async startOneNoteSync(
+    params: { mode?: 'incremental' | 'full'; notebook_ids?: string[] } = {},
+  ): Promise<OneNoteSyncStart> {
     return ApiClient.request<OneNoteSyncStart>('/integrations/onenote/sync', {
       method: 'POST',
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify(params),
     });
   }
 

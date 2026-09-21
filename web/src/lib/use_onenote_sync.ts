@@ -5,11 +5,19 @@ import type { OneNoteSyncJob } from './onenote.types';
 const POLL_INTERVAL_MS = 2000;
 const ACTIVE_STATUSES = new Set(['queued', 'running']);
 
+export type StartSyncOptions = {
+  mode?: 'incremental' | 'full';
+  /** Absent means every selected notebook; naming one scopes the pass to it. */
+  notebook_ids?: string[];
+};
+
 export type OneNoteSyncState = {
   job: OneNoteSyncJob | null;
   running: boolean;
+  /** Which notebooks the running pass covers; null means all of them. */
+  scope: string[] | null;
   error: string | null;
-  start: (mode?: 'incremental' | 'full') => Promise<void>;
+  start: (options?: StartSyncOptions) => Promise<void>;
 };
 
 /**
@@ -19,6 +27,7 @@ export type OneNoteSyncState = {
  */
 export function useOneNoteSync(params: { onFinished?: () => void } = {}): OneNoteSyncState {
   const [job, set_job] = useState<OneNoteSyncJob | null>(null);
+  const [scope, set_scope] = useState<string[] | null>(null);
   const [error, set_error] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
   const on_finished = useRef(params.onFinished);
@@ -58,11 +67,12 @@ export function useOneNoteSync(params: { onFinished?: () => void } = {}): OneNot
   );
 
   const start = useCallback(
-    async (mode: 'incremental' | 'full' = 'incremental') => {
+    async (options: StartSyncOptions = {}) => {
       clear();
       set_error(null);
+      set_scope(options.notebook_ids ?? null);
       try {
-        const started = await ApiClient.startOneNoteSync(mode);
+        const started = await ApiClient.startOneNoteSync(options);
         if (!started.job_id) {
           // Already running and the running job could not be named; the next poll of
           // the connection will show its result.
@@ -77,5 +87,5 @@ export function useOneNoteSync(params: { onFinished?: () => void } = {}): OneNot
     [clear, poll]
   );
 
-  return { job, running: !!job && ACTIVE_STATUSES.has(job.status), error, start };
+  return { job, scope, running: !!job && ACTIVE_STATUSES.has(job.status), error, start };
 }
