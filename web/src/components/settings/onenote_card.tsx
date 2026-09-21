@@ -21,6 +21,16 @@ function describeProgress(progress: OneNoteSyncJob['progress'] | undefined, runn
   return failed ? `${done}, ${failed} skipped` : done;
 }
 
+/**
+ * Sections Cortex cannot read — password-protected ones, most often. Worth saying out
+ * loud: otherwise those notes are quietly missing and nothing explains why.
+ */
+function describeSkipped(result: OneNoteSyncJob['result']): string | null {
+  const skipped = Number((result as { sections_skipped?: number } | null)?.sections_skipped ?? 0);
+  if (!skipped) return null;
+  return `${skipped} section${skipped === 1 ? '' : 's'} couldn't be read — password-protected sections stay in OneNote.`;
+}
+
 function formatDate(iso: string | undefined): string {
   if (!iso) return 'never';
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -141,9 +151,12 @@ function SyncSection({
       )}
 
       {job && !running && (
-        <p className="connection-meta" role="status">
-          {describeProgress(job.progress, false)}
-        </p>
+        <>
+          <p className="connection-meta" role="status">
+            {describeProgress(job.progress, false)}
+          </p>
+          {describeSkipped(job.result) && <p className="connection-meta">{describeSkipped(job.result)}</p>}
+        </>
       )}
       {error && <p className="connection-error">{error}</p>}
       {chooser}

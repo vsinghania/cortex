@@ -25,6 +25,8 @@ export type OneNoteSyncStats = {
   updated: number;
   unchanged: number;
   failed: number;
+  /** Sections Cortex could not read, such as password-protected ones. */
+  sections_skipped: number;
 };
 
 export type OneNoteSyncResult = {

@@ -17,6 +17,11 @@ import type { OneNoteConnectionSvc } from '../src/onenote_svc/onenote_connection
 import type { GraphPage, GraphSection } from '../src/onenote_svc/types/graph.types.js';
 import type { OneNoteConnection } from '../src/onenote_svc/types/onenote_connection.types.js';
 import { BadRequestError } from '../src/common/errors.js';
+import {
+  GraphForbiddenError,
+  GraphRequestFailedError,
+  OneNoteReauthRequiredError
+} from '../src/onenote_svc/onenote_errors.js';
 
 const USER_ID = 'user-1';
 
@@ -98,7 +103,9 @@ class FakeGraph {
     private readonly sections: GraphSection[],
     private readonly pages: Record<string, GraphPage[]>,
     private readonly content: Record<string, string> = {},
-    private readonly failing_pages = new Set<string>()
+    private readonly failing_pages = new Set<string>(),
+    /** Thrown by listPages for that section, as Graph would for a locked one. */
+    private readonly failing_sections: Record<string, Error> = {}
   ) {}
 
   async listNotebooks() {
@@ -109,6 +116,8 @@ class FakeGraph {
   }
   async listPages(p: { section_id: string; modified_after?: Date; next_link?: string }) {
     this.list_pages_calls.push(p);
+    const failure = this.failing_sections[p.section_id];
+    if (failure) throw failure;
     return { pages: this.pages[p.section_id] ?? [] };
   }
   async getPageContent(p: { page_id: string }) {
@@ -251,6 +260,48 @@ test('one unreadable page is recorded and the pass still completes', async () =>
   assert.equal(result.stats.created, 2);
   assert.deepEqual(errors.map((e) => e.item_id), ['p2']);
   assert.deepEqual(notes.notes.map((n) => n.external_id), ['p1', 'p3']);
+});
+
+test('a password-protected section is skipped, and the rest of the pass still runs', async () => {
+  // Graph answers 403 / 20185 for an encrypted section. Reading that as a dead grant
+  // stopped a real sync at the same page count every time.
+  const graph = new FakeGraph(
+    [
+      section('sec-1', 'Notes', 'nb-1', 'Tech'),
+      section('sec-2', 'Personal', 'nb-1', 'Tech'),
+      section('sec-3', 'KB', 'nb-1', 'Tech')
+    ],
+    { 'sec-1': [page('p1', 'One')], 'sec-3': [page('p3', 'Three')] },
+    {},
+    new Set(),
+    { 'sec-2': new GraphForbiddenError('Encrypted sections are not accessible.', '20185') }
+  );
+  const { svc, notes } = await buildSvc({ graph });
+  const errors: Array<{ item_id: string; message: string }> = [];
+
+  const result = await svc.run({ user_id: USER_ID, mode: 'full', onError: (e) => errors.push(e) });
+
+  assert.equal(result.completed, true, 'one locked section must not end the pass');
+  assert.equal(result.stats.sections_skipped, 1);
+  assert.deepEqual(notes.notes.map((n) => n.external_id), ['p1', 'p3'], 'sections either side still import');
+  assert.match(errors[0].message, /Personal: Encrypted/);
+});
+
+test('a section that has gone is skipped, but a dead grant still stops everything', async () => {
+  const gone = new FakeGraph([section('sec-1', 'Gone', 'nb-1', 'Tech')], {}, {}, new Set(), {
+    'sec-1': new GraphRequestFailedError('Graph request failed (404)', 404, '20001')
+  });
+  const { svc: tolerant } = await buildSvc({ graph: gone });
+  const result = await tolerant.run({ user_id: USER_ID, mode: 'full' });
+
+  assert.equal(result.completed, true);
+  assert.equal(result.stats.sections_skipped, 1);
+
+  const revoked = new FakeGraph([section('sec-1', 'Notes', 'nb-1', 'Tech')], {}, {}, new Set(), {
+    'sec-1': new OneNoteReauthRequiredError()
+  });
+  const { svc: strict } = await buildSvc({ graph: revoked });
+  await assert.rejects(strict.run({ user_id: USER_ID, mode: 'full' }), OneNoteReauthRequiredError);
 });
 
 test("each notebook's watermark moves only when that notebook is read to the end", async () => {

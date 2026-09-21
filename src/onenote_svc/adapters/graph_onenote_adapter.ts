@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { logger } from '../../common/logger.js';
 import { Delay } from '../../lib/delay.js';
 import { Time } from '../../lib/time.js';
-import { GraphRequestFailedError, GraphThrottledError, OneNoteReauthRequiredError } from '../onenote_errors.js';
+import {
+  GraphForbiddenError,
+  GraphRequestFailedError,
+  GraphThrottledError,
+  OneNoteReauthRequiredError
+} from '../onenote_errors.js';
 import { GraphRetryPolicy } from './graph_retry_policy.js';
 import type { GraphOneNoteAdapterInterface } from './graph_onenote_adapter_interface.js';
 import type {
@@ -163,11 +168,20 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
       const excerpt = (await resp.text().catch(() => '')).slice(0, BODY_EXCERPT_CHARS);
 
       if (decision.outcome === 'permanent') {
-        // A 401 here means the grant died mid-sync, not that the request was malformed.
-        if (resp.status === 401 || resp.status === 403) {
-          throw new OneNoteReauthRequiredError(`Microsoft refused the request (${resp.status})`);
+        const graph = GraphOneNoteAdapter.errorFrom(excerpt);
+        // 401 is the grant; 403 is this resource. Conflating them turns a locked section
+        // into a bogus "reconnect your account".
+        if (resp.status === 401) {
+          throw new OneNoteReauthRequiredError(`Microsoft rejected the token${graph.code ? ` (${graph.code})` : ''}`);
         }
-        throw new GraphRequestFailedError(`Graph request failed (${resp.status})`, resp.status);
+        if (resp.status === 403) {
+          throw new GraphForbiddenError(graph.message ?? 'Microsoft refused access to this item', graph.code);
+        }
+        throw new GraphRequestFailedError(
+          `Graph request failed (${resp.status}${graph.code ? ` ${graph.code}` : ''})`,
+          resp.status,
+          graph.code
+        );
       }
       if (decision.outcome === 'give_up') {
         throw new GraphThrottledError(`Graph is throttling (${resp.status})`, resp.status);
@@ -176,6 +190,16 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
       logger.warn({ status: resp.status, attempt, delay_ms: decision.delay_ms, body_excerpt: excerpt }, 'graph request retrying');
       await Delay.forMs(decision.delay_ms, signal);
       waited_ms += decision.delay_ms;
+    }
+  }
+
+  /** Graph puts a machine-readable code beside its message; keep it for diagnosis. */
+  private static errorFrom(body: string): { code?: string; message?: string } {
+    try {
+      const parsed = JSON.parse(body) as { error?: { code?: string; message?: string } };
+      return { code: parsed.error?.code, message: parsed.error?.message };
+    } catch {
+      return {};
     }
   }
 

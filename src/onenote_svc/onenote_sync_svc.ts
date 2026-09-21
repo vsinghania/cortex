@@ -9,6 +9,7 @@ import { NotesSvc } from '../notes_svc/notes_svc.js';
 import { NoteSource, SyncStatus } from '../notes_svc/types/note.types.js';
 import type { NoteFolder } from '../notes_svc/types/note_folder.types.js';
 import { OneNoteConnectionSvc } from './onenote_connection_svc.js';
+import { GraphForbiddenError, GraphRequestFailedError } from './onenote_errors.js';
 import type { GraphOneNoteAdapterInterface } from './adapters/graph_onenote_adapter_interface.js';
 import type { GraphPage, GraphSection } from './types/graph.types.js';
 import type { OneNoteConnection, OneNoteNotebookState } from './types/onenote_connection.types.js';
@@ -70,7 +71,8 @@ export class OneNoteSyncSvc {
       created: 0,
       updated: 0,
       unchanged: 0,
-      failed: 0
+      failed: 0,
+      sections_skipped: 0
     };
 
     const folder_cache = new Map<string, NoteFolder>();
@@ -84,6 +86,9 @@ export class OneNoteSyncSvc {
       let watermark = OneNoteSyncSvc.toDate(checkpoint.watermark_candidate) ?? notebook.sync_watermark;
 
       for (const section of OneNoteSyncSvc.remainingById(sections, checkpoint.section_cursor)) {
+       // A section Cortex may not read - a password-protected one, most often - is not a
+       // reason to abandon the pass: it is recorded and stepped over.
+       try {
         const folder = await this.folderForSection({ user_id: params.user_id, section, cache: folder_cache });
         let next_link = checkpoint.page_next_link;
 
@@ -132,6 +137,25 @@ export class OneNoteSyncSvc {
         };
         params.onCheckpoint?.(checkpoint);
         if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
+       } catch (err) {
+        if (!OneNoteSyncSvc.isSkippableSection(err)) throw err;
+
+        stats.sections_skipped += 1;
+        params.onError?.({ item_id: section.id, message: `${section.display_name}: ${(err as Error).message}` });
+        logger.info(
+          { user_id: params.user_id, section_id: section.id, graph_code: OneNoteSyncSvc.graphCode(err) },
+          'onenote section skipped'
+        );
+
+        checkpoint = {
+          notebook_cursor: checkpoint.notebook_cursor,
+          section_cursor: section.id,
+          page_next_link: undefined,
+          watermark_candidate: watermark?.toISOString(),
+          pages_seen: stats.pages_seen
+        };
+        params.onCheckpoint?.(checkpoint);
+       }
       }
 
       // Only a notebook read to its end may move its watermark: advancing it early would
@@ -158,6 +182,20 @@ export class OneNoteSyncSvc {
       'onenote sync completed'
     );
     return { completed: true, stats };
+  }
+
+  /**
+   * Forbidden means this section, not the grant: an encrypted OneNote section answers
+   * 403 with code 20185. Gone means it was deleted between the listing and the walk.
+   */
+  private static isSkippableSection(err: unknown): boolean {
+    if (err instanceof GraphForbiddenError) return true;
+    return err instanceof GraphRequestFailedError && (err.status === 404 || err.status === 410);
+  }
+
+  private static graphCode(err: unknown): string | undefined {
+    if (err instanceof GraphForbiddenError || err instanceof GraphRequestFailedError) return err.graph_code;
+    return undefined;
   }
 
   private async syncPage(args: {
