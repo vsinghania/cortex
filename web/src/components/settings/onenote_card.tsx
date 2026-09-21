@@ -106,7 +106,6 @@ function SyncSection({ connection, onFinished }: { connection: OneNoteConnection
         <button type="button" className="btn btn-primary" disabled={running} onClick={() => void start()}>
           {running ? 'Syncing…' : 'Sync now'}
         </button>
-        <span className="connection-meta">Updates on its own in the background.</span>
       </div>
 
       {job && !running && (
