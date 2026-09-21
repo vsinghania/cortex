@@ -30,7 +30,10 @@ export class OneNoteConnectionModelFactory extends BaseModelFactory<OneNoteConne
                 id: { type: String, required: true },
                 display_name: { type: String, required: true },
                 sync_watermark: { type: Date, default: undefined },
-                last_synced_at: { type: Date, default: undefined }
+                last_synced_at: { type: Date, default: undefined },
+                last_error: { type: String, default: undefined },
+                last_error_at: { type: Date, default: undefined },
+                consecutive_failures: { type: Number, default: 0 }
               },
               { _id: false, id: false }
             )

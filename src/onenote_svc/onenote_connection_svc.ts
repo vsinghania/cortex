@@ -203,6 +203,15 @@ export class OneNoteConnectionSvc {
     return connection.notebooks.map((n) => ({ ...n, selected: selected.has(n.id) }));
   }
 
+  /**
+   * Called when a pass gave up on one notebook. Durable on purpose: the job record it
+   * could be derived from is reaped on a TTL, and a notification needs to tell "just
+   * started failing" from "has been failing for days".
+   */
+  async recordNotebookFailed(params: { user_id: string; notebook_id: string; reason: string }): Promise<void> {
+    await this.deps.connection_repo.recordNotebookFailure({ ...params, at: new Date() });
+  }
+
   /** Called by a sync pass that finished one notebook; see OneNoteSyncSvc. */
   async recordNotebookSynced(params: {
     user_id: string;

@@ -159,6 +159,7 @@ async function buildSvc(args: { graph: FakeGraph; conn?: OneNoteConnection; note
   const stored = args.conn ?? connection();
   const completed: Array<{ last_synced_at: Date }> = [];
   const notebooks_synced: Array<{ notebook_id: string; sync_watermark?: Date }> = [];
+  const notebooks_failed: Array<{ notebook_id: string; reason: string }> = [];
 
   const connection_svc = {
     getStoredConnection: async () => stored,
@@ -166,13 +167,16 @@ async function buildSvc(args: { graph: FakeGraph; conn?: OneNoteConnection; note
     recordNotebookSynced: async (p: { notebook_id: string; sync_watermark?: Date }) => {
       notebooks_synced.push(p);
     },
+    recordNotebookFailed: async (p: { notebook_id: string; reason: string }) => {
+      notebooks_failed.push(p);
+    },
     recordSyncCompleted: async (p: { last_synced_at: Date }) => {
       completed.push(p);
     }
   } as unknown as OneNoteConnectionSvc;
 
   const svc = await OneNoteSyncSvc.create({ connection_svc, notes_svc: notes as unknown as NotesSvc, folders_svc });
-  return { svc, notes, folder_repo, completed, notebooks_synced, stored };
+  return { svc, notes, folder_repo, completed, notebooks_synced, notebooks_failed, stored };
 }
 
 // --- tests -----------------------------------------------------------------
@@ -302,6 +306,28 @@ test('a section that has gone is skipped, but a dead grant still stops everythin
   });
   const { svc: strict } = await buildSvc({ graph: revoked });
   await assert.rejects(strict.run({ user_id: USER_ID, mode: 'full' }), OneNoteReauthRequiredError);
+});
+
+test('a failed pass records the reason against the notebook it died on', async () => {
+  const revoked = new FakeGraph([section('sec-1', 'Notes', 'nb-1', 'Tech')], {}, {}, new Set(), {
+    'sec-1': new OneNoteReauthRequiredError()
+  });
+  const { svc, notebooks_failed } = await buildSvc({ graph: revoked });
+
+  await assert.rejects(svc.run({ user_id: USER_ID, mode: 'full' }), OneNoteReauthRequiredError);
+
+  // Durable, because the job row carrying this is reaped on a TTL.
+  assert.deepEqual(notebooks_failed, [{ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' }]);
+});
+
+test('a cancelled pass is not recorded as a notebook failure', async () => {
+  const graph = new FakeGraph([section('sec-1', 'Notes', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'One')] });
+  const { svc, notebooks_failed } = await buildSvc({ graph });
+  const controller = new AbortController();
+  controller.abort(new Error('worker draining'));
+
+  await assert.rejects(svc.run({ user_id: USER_ID, mode: 'full', signal: controller.signal }));
+  assert.deepEqual(notebooks_failed, [], 'a shutdown is not the notebook going wrong');
 });
 
 test("each notebook's watermark moves only when that notebook is read to the end", async () => {

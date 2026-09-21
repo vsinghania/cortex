@@ -133,14 +133,38 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
     sync_watermark?: Date;
     last_synced_at: Date;
   }): Promise<OneNoteConnection | null> {
-    const set: Record<string, unknown> = { 'notebooks.$[nb].last_synced_at': params.last_synced_at };
+    const set: Record<string, unknown> = {
+      'notebooks.$[nb].last_synced_at': params.last_synced_at,
+      // A success ends the streak, so a later failure reads as newly broken.
+      'notebooks.$[nb].consecutive_failures': 0
+    };
     if (params.sync_watermark) set['notebooks.$[nb].sync_watermark'] = params.sync_watermark;
 
     const updated = await this.model
-      .findOneAndUpdate({ user_id: params.user_id }, { $set: set }, {
-        new: true,
-        arrayFilters: [{ 'nb.id': params.notebook_id }]
-      })
+      .findOneAndUpdate(
+        { user_id: params.user_id },
+        { $set: set, $unset: { 'notebooks.$[nb].last_error': '', 'notebooks.$[nb].last_error_at': '' } },
+        { new: true, arrayFilters: [{ 'nb.id': params.notebook_id }] }
+      )
+      .lean();
+    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
+  }
+
+  async recordNotebookFailure(params: {
+    user_id: string;
+    notebook_id: string;
+    reason: string;
+    at: Date;
+  }): Promise<OneNoteConnection | null> {
+    const updated = await this.model
+      .findOneAndUpdate(
+        { user_id: params.user_id },
+        {
+          $set: { 'notebooks.$[nb].last_error': params.reason, 'notebooks.$[nb].last_error_at': params.at },
+          $inc: { 'notebooks.$[nb].consecutive_failures': 1 }
+        },
+        { new: true, arrayFilters: [{ 'nb.id': params.notebook_id }] }
+      )
       .lean();
     return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
   }

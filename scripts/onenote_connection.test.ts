@@ -92,6 +92,20 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
     if (notebook) {
       notebook.last_synced_at = params.last_synced_at;
       if (params.sync_watermark) notebook.sync_watermark = params.sync_watermark;
+      notebook.last_error = undefined;
+      notebook.last_error_at = undefined;
+      notebook.consecutive_failures = 0;
+    }
+    return row;
+  }
+
+  async recordNotebookFailure(params: { user_id: string; notebook_id: string; reason: string; at: Date }) {
+    const row = await this.findByUserId(params.user_id);
+    const notebook = row?.notebooks.find((n) => n.id === params.notebook_id);
+    if (notebook) {
+      notebook.last_error = params.reason;
+      notebook.last_error_at = params.at;
+      notebook.consecutive_failures = (notebook.consecutive_failures ?? 0) + 1;
     }
     return row;
   }
@@ -395,6 +409,26 @@ test('a notebook deleted in OneNote drops out of the list on refresh', async () 
 
   assert.deepEqual(refreshed.map((n) => n.id), ['nb-2']);
   assert.equal(connection_repo.rows[0].notebooks.length, 1);
+});
+
+test('a failure is recorded against the notebook, and a later success clears it', async () => {
+  const { svc, connection_repo } = await connect();
+  await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] });
+  await svc.listNotebooks(USER_ID);
+
+  await svc.recordNotebookFailed({ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' });
+  await svc.recordNotebookFailed({ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' });
+
+  let nb1 = connection_repo.rows[0].notebooks.find((n) => n.id === 'nb-1');
+  assert.equal(nb1?.last_error, 'reauth_required');
+  assert.equal(nb1?.consecutive_failures, 2, 'a streak is what tells a new problem from an old one');
+  assert.ok(nb1?.last_error_at);
+
+  await svc.recordNotebookSynced({ user_id: USER_ID, notebook_id: 'nb-1', last_synced_at: new Date() });
+
+  nb1 = connection_repo.rows[0].notebooks.find((n) => n.id === 'nb-1');
+  assert.equal(nb1?.last_error, undefined, 'a success clears the error');
+  assert.equal(nb1?.consecutive_failures, 0);
 });
 
 test('notebooks cannot be listed or chosen without a connection', async () => {

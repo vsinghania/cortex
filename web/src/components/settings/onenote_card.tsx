@@ -77,9 +77,6 @@ function SyncSection({
   const { job, running, scope, error, start } = useOneNoteSync({ onFinished, active });
   // A failure the browser never saw, because it happened before this page was loaded.
   const stale_failure = !job && last_sync?.status === 'failed' ? last_sync : null;
-  // Only a scoped run points at particular notebooks. A run over all of them that died
-  // partway says nothing about the ones it never reached, so it marks none of them.
-  const failed_ids = stale_failure?.notebook_ids ?? null;
   const [choosing, set_choosing] = useState(false);
 
   const selected = connection.notebooks.filter((n) => connection.selected_notebook_ids.includes(n.id));
@@ -123,9 +120,12 @@ function SyncSection({
             <li key={notebook.id} className="notebook-status-row">
               <span className="notebook-name">{notebook.display_name}</span>
               <span className="notebook-status">
-                {failed_ids?.includes(notebook.id) ? (
-                  <span className="notebook-failed" title={syncFailureText(stale_failure?.last_error)}>
-                    sync failed
+                {/* Read from the notebook itself, so it survives the job row being reaped. */}
+                {!syncing && notebook.last_error ? (
+                  <span className="notebook-failed" title={syncFailureText(notebook.last_error)}>
+                    {notebook.consecutive_failures && notebook.consecutive_failures > 1
+                      ? `failed ${notebook.consecutive_failures}×`
+                      : 'sync failed'}
                   </span>
                 ) : syncing ? (
                   <span className="notebook-syncing">syncing…</span>

@@ -49,6 +49,10 @@ export type OneNoteNotebookState = {
   /** Each notebook syncs on its own watermark, so each has its own last-synced time. */
   last_synced_at?: string;
   sync_watermark?: string;
+  /** Set when this notebook's last pass failed; cleared by its next success. */
+  last_error?: string;
+  last_error_at?: string;
+  consecutive_failures?: number;
 };
 
 export type OneNoteNotebook = OneNoteNotebookState & {

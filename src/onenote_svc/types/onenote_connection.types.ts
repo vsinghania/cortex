@@ -98,6 +98,15 @@ export type OneNoteNotebookState = {
   display_name: string;
   sync_watermark?: Date;
   last_synced_at?: Date;
+
+  /** Why this notebook last failed, cleared by its next success. */
+  last_error?: string;
+  last_error_at?: Date;
+  /**
+   * Runs failed back to back. Notifications want the transition from zero, not a fresh
+   * alert every time the schedule fires against a problem that has not changed.
+   */
+  consecutive_failures?: number;
 };
 
 /** A notebook as the picker shows it. */

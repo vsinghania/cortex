@@ -9,7 +9,12 @@ import { NotesSvc } from '../notes_svc/notes_svc.js';
 import { NoteSource, SyncStatus } from '../notes_svc/types/note.types.js';
 import type { NoteFolder } from '../notes_svc/types/note_folder.types.js';
 import { OneNoteConnectionSvc } from './onenote_connection_svc.js';
-import { GraphForbiddenError, GraphRequestFailedError } from './onenote_errors.js';
+import {
+  GraphForbiddenError,
+  GraphRequestFailedError,
+  GraphThrottledError,
+  OneNoteReauthRequiredError
+} from './onenote_errors.js';
 import type { GraphOneNoteAdapterInterface } from './adapters/graph_onenote_adapter_interface.js';
 import type { GraphPage, GraphSection } from './types/graph.types.js';
 import type { OneNoteConnection, OneNoteNotebookState } from './types/onenote_connection.types.js';
@@ -79,6 +84,7 @@ export class OneNoteSyncSvc {
     let checkpoint: OneNoteSyncCheckpoint = { ...params.checkpoint };
 
     for (const notebook of OneNoteSyncSvc.remainingById(targets, checkpoint.notebook_cursor)) {
+     try {
       const sections = sections_by_notebook.get(notebook.id) ?? [];
       const modified_after = params.mode === 'full' ? undefined : OneNoteSyncSvc.windowStart(notebook);
       // Each notebook keeps its own high-water mark, so finishing one says nothing about
@@ -170,6 +176,18 @@ export class OneNoteSyncSvc {
       checkpoint = { notebook_cursor: notebook.id, pages_seen: stats.pages_seen };
       params.onCheckpoint?.(checkpoint);
       if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
+     } catch (err) {
+      // Whatever ended the pass, it ended on this notebook - record it there before it
+      // propagates, so the reason outlives the job row that carried it.
+      if (!params.signal?.aborted) {
+        await this.deps.connection_svc.recordNotebookFailed({
+          user_id: params.user_id,
+          notebook_id: notebook.id,
+          reason: OneNoteSyncSvc.failureReason(err)
+        });
+      }
+      throw err;
+     }
     }
 
     await this.deps.connection_svc.recordSyncCompleted({
@@ -191,6 +209,14 @@ export class OneNoteSyncSvc {
   private static isSkippableSection(err: unknown): boolean {
     if (err instanceof GraphForbiddenError) return true;
     return err instanceof GraphRequestFailedError && (err.status === 404 || err.status === 410);
+  }
+
+  /** A short code the UI turns into a sentence; the same vocabulary the job uses. */
+  private static failureReason(err: unknown): string {
+    if (err instanceof OneNoteReauthRequiredError) return 'reauth_required';
+    if (err instanceof GraphThrottledError) return 'throttled';
+    const code = OneNoteSyncSvc.graphCode(err);
+    return code ? `graph_${code}` : 'sync_failed';
   }
 
   private static graphCode(err: unknown): string | undefined {

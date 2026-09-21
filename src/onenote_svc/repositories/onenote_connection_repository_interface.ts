@@ -36,6 +36,14 @@ export interface OneNoteConnectionRepository {
     last_synced_at: Date;
   }): Promise<OneNoteConnection | null>;
 
+  /** Records why one notebook's pass failed, and how many times running. */
+  recordNotebookFailure(params: {
+    user_id: string;
+    notebook_id: string;
+    reason: string;
+    at: Date;
+  }): Promise<OneNoteConnection | null>;
+
   updateSyncState(params: {
     user_id: string;
     sync_watermark?: Date;
