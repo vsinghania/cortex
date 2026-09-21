@@ -4600,32 +4600,16 @@ body {
   color: var(--danger);
 }
 
-.imported-banner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.imported-meta {
+  display: inline-flex;
+  gap: 5px;
   align-items: center;
-  margin-bottom: 14px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--subtext);
-  font-size: 13px;
 }
 
-.imported-banner-text {
-  flex: 1;
-  min-width: 180px;
-}
-
-.imported-banner-time {
-  opacity: 0.8;
-}
-
-.imported-banner-error {
+.imported-meta-error {
   color: var(--danger);
 }
+
 
 /* Sync-managed folders read as slightly apart from the ones you made yourself. */
 .rail-item-icon-synced {

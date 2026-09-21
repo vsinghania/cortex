@@ -13,7 +13,7 @@ import { useNowTick } from '../../lib/use_now_tick';
 import { useIsMobile } from '../../lib/use_is_mobile';
 import { NoteOutline } from '../../lib/note_outline';
 import { MarkdownPreview } from '../markdown_preview';
-import { ImportedNoteBanner } from './imported_note_banner';
+import { ImportedNoteMeta } from './imported_note_meta';
 import { NoteToolbar } from './note_toolbar';
 import { MobileNoteBar } from './mobile_note_bar';
 import { TagEditor } from './tag_editor';
@@ -246,8 +246,6 @@ export function NoteEditor(props: Props) {
 
       <div className="editor-scroll" ref={scroll_ref}>
         <div className="editor-column">
-          {note && imported && <ImportedNoteBanner note={note} onSynced={props.onSaved} />}
-
           <textarea
             ref={title_el_ref}
             className={`editor-title${note?.is_archived ? ' editor-title-archived' : ''}`}
@@ -281,6 +279,12 @@ export function NoteEditor(props: Props) {
               <>
                 <span className="meta-dot" aria-hidden="true">·</span>
                 <TagEditor tags={note.tags} onChange={(tags) => props.onOrganize({ tags })} />
+                {imported && (
+                  <>
+                    <span className="meta-dot" aria-hidden="true">·</span>
+                    <ImportedNoteMeta note={note} onSynced={props.onSaved} />
+                  </>
+                )}
               </>
             )}
           </div>
