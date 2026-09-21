@@ -12,6 +12,17 @@ export type ResolvedNoteSort = {
   needs_case_insensitive_collation: boolean;
 };
 
+/**
+ * `updated_at` stays the public name of the sort, because that is what a reader means by
+ * it. It is backed by `edited_at`, so an imported note orders by when it changed in
+ * OneNote rather than by when a sync happened to rewrite the row.
+ */
+const SORT_COLUMN: Record<NoteSortField, string> = {
+  updated_at: 'edited_at',
+  created_at: 'created_at',
+  title: 'title'
+};
+
 export class NoteListSort {
   static readonly FIELDS = ['updated_at', 'created_at', 'title'] as const satisfies readonly NoteSortField[];
   static readonly ORDERS = ['asc', 'desc'] as const satisfies readonly NoteSortOrder[];
@@ -38,7 +49,7 @@ export class NoteListSort {
   static resolve(params: { sort?: NoteListSortOption; has_query: boolean }): ResolvedNoteSort {
     if (params.has_query && !params.sort) {
       return {
-        sort: { score: { $meta: 'textScore' }, is_pinned: -1, updated_at: -1, id: -1 },
+        sort: { score: { $meta: 'textScore' }, is_pinned: -1, edited_at: -1, id: -1 },
         by_relevance: true,
         needs_case_insensitive_collation: false
       };
@@ -47,7 +58,7 @@ export class NoteListSort {
     const { field, order } = params.sort ?? NoteListSort.DEFAULT;
     const direction = order === 'asc' ? 1 : -1;
     return {
-      sort: { is_pinned: -1, [field]: direction, id: direction },
+      sort: { is_pinned: -1, [SORT_COLUMN[field]]: direction, id: direction },
       by_relevance: false,
       needs_case_insensitive_collation: field === 'title'
     };

@@ -270,8 +270,8 @@ export function NoteEditor(props: Props) {
           <div className="editor-meta">
             {note && (
               <>
-                <time className="mono-meta" dateTime={note.updated_at} title={DateFormat.full(note.updated_at)}>
-                  {DateFormat.full(note.updated_at)}
+                <time className="mono-meta" dateTime={note.edited_at} title={DateFormat.full(note.edited_at)}>
+                  {DateFormat.full(note.edited_at)}
                 </time>
                 <span className="meta-dot" aria-hidden="true">·</span>
               </>
