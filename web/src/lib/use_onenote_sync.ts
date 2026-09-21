@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiClient } from './api_client';
-import type { OneNoteSyncJob } from './onenote.types';
+import type { OneNoteActiveSync, OneNoteSyncJob } from './onenote.types';
 
 const POLL_INTERVAL_MS = 2000;
 const ACTIVE_STATUSES = new Set(['queued', 'running']);
@@ -25,7 +25,9 @@ export type OneNoteSyncState = {
  * with a partial result and enqueues a follow-up job we are not tracking, so the count
  * shown is this segment's, not the whole import's.
  */
-export function useOneNoteSync(params: { onFinished?: () => void } = {}): OneNoteSyncState {
+export function useOneNoteSync(
+  params: { onFinished?: () => void; active?: OneNoteActiveSync | null } = {}
+): OneNoteSyncState {
   const [job, set_job] = useState<OneNoteSyncJob | null>(null);
   const [scope, set_scope] = useState<string[] | null>(null);
   const [error, set_error] = useState<string | null>(null);
@@ -66,9 +68,24 @@ export function useOneNoteSync(params: { onFinished?: () => void } = {}): OneNot
     []
   );
 
+  /**
+   * Pick up a run the server says is already going — the case where a sync was started,
+   * then the page reloaded. Guarded by a ref so a status refresh mid-run does not
+   * restart the poll loop on top of itself.
+   */
+  const adopted = useRef<string | null>(null);
+  useEffect(() => {
+    const active = params.active;
+    if (!active || adopted.current === active.job_id) return;
+    adopted.current = active.job_id;
+    set_scope(active.notebook_ids);
+    void poll(active.job_id);
+  }, [params.active, poll]);
+
   const start = useCallback(
     async (options: StartSyncOptions = {}) => {
       clear();
+      adopted.current = null;
       set_error(null);
       set_scope(options.notebook_ids ?? null);
       try {

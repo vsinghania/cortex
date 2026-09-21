@@ -5,6 +5,7 @@ import { AuthSvc } from '../../auth_svc/auth_svc.js';
 import { REFRESH_COOKIE_NAME } from '../../auth_svc/utils/token_utils.js';
 import { BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError } from '../../common/errors.js';
 import { JobsSvc } from '../../jobs_svc/jobs_svc.js';
+import { JobStatus } from '../../jobs_svc/types/job.types.js';
 import { OneNoteJobKeys, OneNoteJobName } from '../../onenote_svc/jobs/onenote_job.types.js';
 import { logger } from '../../common/logger.js';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
@@ -20,6 +21,8 @@ const STATE_TTL_MS = Time.minutesToMs(10);
 const STATE_FIELD = 'onenote_oauth_state';
 /** There is no per-user binding to seal against yet; the field name is the whole scope. */
 const STATE_SCOPE = 'pending';
+/** Newest first, so a handful is enough to find one that is still going. */
+const ACTIVE_SYNC_LOOKBACK = 5;
 
 /**
  * The callback is a plain browser navigation, so it carries no bearer token and this
@@ -161,7 +164,9 @@ export class OneNoteController {
 
       const onenote_svc = await OneNoteConnectionSvc.create();
       const connection = await onenote_svc.getConnection(req.auth!.user_id);
-      res.status(200).json({ response: { available, connection } });
+      res.status(200).json({
+        response: { available, connection, active_sync: await OneNoteController.activeSync(req.auth!.user_id) }
+      });
     } catch (e) {
       next(e);
     }
@@ -255,6 +260,21 @@ export class OneNoteController {
     } catch (e) {
       next(e);
     }
+  }
+
+  /**
+   * A sync already in flight, so a reloaded page can pick the run back up. Without this
+   * the job id lives only in the tab that started it: refresh, and the UI forgets a sync
+   * is running and offers to start another.
+   */
+  private static async activeSync(user_id: string) {
+    const jobs_svc = await JobsSvc.getInstance();
+    const recent = await jobs_svc.listJobs({ name: OneNoteJobName.OneNoteSync, user_id, limit: ACTIVE_SYNC_LOOKBACK });
+    const active = recent.find((job) => job.status === JobStatus.Queued || job.status === JobStatus.Running);
+    if (!active) return null;
+
+    const scope = (active.payload as { notebook_ids?: string[] | null })?.notebook_ids ?? null;
+    return { job_id: active.id, status: active.status, progress: active.progress, notebook_ids: scope };
   }
 
   private async disconnect(req: express.Request, res: express.Response, next: express.NextFunction) {

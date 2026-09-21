@@ -21,10 +21,20 @@ export type OneNoteConnection = {
   updated_at: string;
 };
 
+/** A sync already running, so a reloaded page can pick it back up. */
+export type OneNoteActiveSync = {
+  job_id: string;
+  status: OneNoteJobStatus;
+  progress: { total?: number; processed: number; succeeded: number; failed: number };
+  /** Which notebooks the run covers; null means every selected one. */
+  notebook_ids: string[] | null;
+};
+
 /** `available` is false when the server has no Microsoft credentials configured. */
 export type OneNoteStatus = {
   available: boolean;
   connection: OneNoteConnection | null;
+  active_sync: OneNoteActiveSync | null;
 };
 
 export type OneNoteNotebookState = {

@@ -6,7 +6,7 @@ import { useOneNoteSync } from '../../lib/use_onenote_sync';
 import { DateFormat } from '../../lib/date_format';
 import { Icon } from '../icon';
 import { OneNoteNotebookDialog } from './onenote_notebook_dialog';
-import type { OneNoteConnection } from '../../lib/onenote.types';
+import type { OneNoteActiveSync, OneNoteConnection } from '../../lib/onenote.types';
 
 function formatDate(iso: string | undefined): string {
   if (!iso) return 'never';
@@ -32,8 +32,16 @@ function ConnectionDetail({ connection }: { connection: OneNoteConnection }) {
  * Status first: day to day the question is "is my stuff current?", not "which notebooks
  * did I pick?". Choosing is a setup task and lives in a dialog.
  */
-function SyncSection({ connection, onFinished }: { connection: OneNoteConnection; onFinished: () => void }) {
-  const { job, running, scope, error, start } = useOneNoteSync({ onFinished });
+function SyncSection({
+  connection,
+  active_sync,
+  onFinished
+}: {
+  connection: OneNoteConnection;
+  active_sync: OneNoteActiveSync | null;
+  onFinished: () => void;
+}) {
+  const { job, running, scope, error, start } = useOneNoteSync({ onFinished, active: active_sync });
   const [choosing, set_choosing] = useState(false);
 
   const selected = connection.notebooks.filter((n) => connection.selected_notebook_ids.includes(n.id));
@@ -154,7 +162,11 @@ export function OneNoteCard() {
         <>
           <ConnectionDetail connection={connection} />
           {connection.status !== 'needs_reauth' && (
-            <SyncSection connection={connection} onFinished={() => void reload()} />
+            <SyncSection
+              connection={connection}
+              active_sync={status?.active_sync ?? null}
+              onFinished={() => void reload()}
+            />
           )}
         </>
       )}
