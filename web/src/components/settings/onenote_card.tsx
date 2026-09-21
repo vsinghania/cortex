@@ -6,7 +6,16 @@ import { useOneNoteSync } from '../../lib/use_onenote_sync';
 import { DateFormat } from '../../lib/date_format';
 import { Icon } from '../icon';
 import { OneNoteNotebookDialog } from './onenote_notebook_dialog';
-import type { OneNoteActiveSync, OneNoteConnection, OneNoteSyncJob } from '../../lib/onenote.types';
+import type { OneNoteConnection, OneNoteLastSync, OneNoteSyncJob } from '../../lib/onenote.types';
+
+const ACTIVE_SYNC_STATUSES = new Set(['queued', 'running']);
+
+/** The job's reason code is for us; this is what a person needs to do about it. */
+function syncFailureText(reason: string | null | undefined): string {
+  if (reason === 'reauth_required') return 'Microsoft access expired. Connect again to resume syncing.';
+  if (reason === 'throttled') return 'Microsoft is rate limiting us. The next scheduled sync will retry.';
+  return "The last sync didn't finish. Try again, or wait for the next scheduled one.";
+}
 
 /** Live counts while a pass runs, and the tally once it stops. */
 function describeProgress(progress: OneNoteSyncJob['progress'] | undefined, running: boolean): string {
@@ -57,14 +66,20 @@ function ConnectionDetail({ connection }: { connection: OneNoteConnection }) {
  */
 function SyncSection({
   connection,
-  active_sync,
+  last_sync,
   onFinished
 }: {
   connection: OneNoteConnection;
-  active_sync: OneNoteActiveSync | null;
+  last_sync: OneNoteLastSync | null;
   onFinished: () => void;
 }) {
-  const { job, running, scope, error, start } = useOneNoteSync({ onFinished, active: active_sync });
+  const active = last_sync && ACTIVE_SYNC_STATUSES.has(last_sync.status) ? last_sync : null;
+  const { job, running, scope, error, start } = useOneNoteSync({ onFinished, active });
+  // A failure the browser never saw, because it happened before this page was loaded.
+  const stale_failure = !job && last_sync?.status === 'failed' ? last_sync : null;
+  // Only a scoped run points at particular notebooks. A run over all of them that died
+  // partway says nothing about the ones it never reached, so it marks none of them.
+  const failed_ids = stale_failure?.notebook_ids ?? null;
   const [choosing, set_choosing] = useState(false);
 
   const selected = connection.notebooks.filter((n) => connection.selected_notebook_ids.includes(n.id));
@@ -108,7 +123,11 @@ function SyncSection({
             <li key={notebook.id} className="notebook-status-row">
               <span className="notebook-name">{notebook.display_name}</span>
               <span className="notebook-status">
-                {syncing ? (
+                {failed_ids?.includes(notebook.id) ? (
+                  <span className="notebook-failed" title={syncFailureText(stale_failure?.last_error)}>
+                    sync failed
+                  </span>
+                ) : syncing ? (
                   <span className="notebook-syncing">syncing…</span>
                 ) : notebook.last_synced_at ? (
                   <span title={DateFormat.full(notebook.last_synced_at)}>
@@ -148,6 +167,12 @@ function SyncSection({
           </div>
           <p className="connection-meta">{describeProgress(job?.progress, true)}</p>
         </div>
+      )}
+
+      {stale_failure && (
+        <p className="connection-error" role="status">
+          {syncFailureText(stale_failure.last_error)}
+        </p>
       )}
 
       {job && !running && (
@@ -200,7 +225,7 @@ export function OneNoteCard() {
           {connection.status !== 'needs_reauth' && (
             <SyncSection
               connection={connection}
-              active_sync={status?.active_sync ?? null}
+              last_sync={status?.last_sync ?? null}
               onFinished={() => void reload()}
             />
           )}

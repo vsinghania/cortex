@@ -21,8 +21,8 @@ const STATE_TTL_MS = Time.minutesToMs(10);
 const STATE_FIELD = 'onenote_oauth_state';
 /** There is no per-user binding to seal against yet; the field name is the whole scope. */
 const STATE_SCOPE = 'pending';
-/** Newest first, so a handful is enough to find one that is still going. */
-const ACTIVE_SYNC_LOOKBACK = 5;
+/** Newest first, so a handful is enough to find the latest run. */
+const SYNC_LOOKBACK = 5;
 
 /**
  * The callback is a plain browser navigation, so it carries no bearer token and this
@@ -165,7 +165,7 @@ export class OneNoteController {
       const onenote_svc = await OneNoteConnectionSvc.create();
       const connection = await onenote_svc.getConnection(req.auth!.user_id);
       res.status(200).json({
-        response: { available, connection, active_sync: await OneNoteController.activeSync(req.auth!.user_id) }
+        response: { available, connection, last_sync: await OneNoteController.lastSync(req.auth!.user_id) }
       });
     } catch (e) {
       next(e);
@@ -263,18 +263,28 @@ export class OneNoteController {
   }
 
   /**
-   * A sync already in flight, so a reloaded page can pick the run back up. Without this
-   * the job id lives only in the tab that started it: refresh, and the UI forgets a sync
-   * is running and offers to start another.
+   * The most recent sync, whatever became of it. Reporting only running jobs meant a
+   * failure vanished on reload: the error lived in the tab that saw it, and the card
+   * went back to looking idle with no explanation for stale notebooks.
    */
-  private static async activeSync(user_id: string) {
+  private static async lastSync(user_id: string) {
     const jobs_svc = await JobsSvc.getInstance();
-    const recent = await jobs_svc.listJobs({ name: OneNoteJobName.OneNoteSync, user_id, limit: ACTIVE_SYNC_LOOKBACK });
-    const active = recent.find((job) => job.status === JobStatus.Queued || job.status === JobStatus.Running);
-    if (!active) return null;
+    const recent = await jobs_svc.listJobs({ name: OneNoteJobName.OneNoteSync, user_id, limit: SYNC_LOOKBACK });
+    // Prefer one still going; otherwise the newest finished, which `list` sorts first.
+    const job =
+      recent.find((candidate) => candidate.status === JobStatus.Queued || candidate.status === JobStatus.Running) ??
+      recent[0];
+    if (!job) return null;
 
-    const scope = (active.payload as { notebook_ids?: string[] | null })?.notebook_ids ?? null;
-    return { job_id: active.id, status: active.status, progress: active.progress, notebook_ids: scope };
+    return {
+      job_id: job.id,
+      status: job.status,
+      progress: job.progress,
+      result: job.result ?? null,
+      last_error: job.last_error ?? null,
+      finished_at: job.finished_at ?? null,
+      notebook_ids: (job.payload as { notebook_ids?: string[] | null })?.notebook_ids ?? null
+    };
   }
 
   private async disconnect(req: express.Request, res: express.Response, next: express.NextFunction) {

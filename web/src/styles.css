@@ -4595,3 +4595,7 @@ body {
     opacity: 0.5;
   }
 }
+
+.notebook-failed {
+  color: var(--danger);
+}

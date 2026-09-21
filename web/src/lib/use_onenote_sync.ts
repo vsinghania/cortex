@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiClient } from './api_client';
-import type { OneNoteActiveSync, OneNoteSyncJob } from './onenote.types';
+import type { OneNoteLastSync, OneNoteSyncJob } from './onenote.types';
 
 const POLL_INTERVAL_MS = 2000;
 const ACTIVE_STATUSES = new Set(['queued', 'running']);
@@ -26,7 +26,7 @@ export type OneNoteSyncState = {
  * shown is this segment's, not the whole import's.
  */
 export function useOneNoteSync(
-  params: { onFinished?: () => void; active?: OneNoteActiveSync | null } = {}
+  params: { onFinished?: () => void; active?: OneNoteLastSync | null } = {}
 ): OneNoteSyncState {
   const [job, set_job] = useState<OneNoteSyncJob | null>(null);
   const [scope, set_scope] = useState<string[] | null>(null);

@@ -21,12 +21,18 @@ export type OneNoteConnection = {
   updated_at: string;
 };
 
-/** A sync already running, so a reloaded page can pick it back up. */
-export type OneNoteActiveSync = {
+/**
+ * The most recent sync, whatever became of it: a running one so a reloaded page can pick
+ * it back up, or a finished one so a failure is still visible after a refresh.
+ */
+export type OneNoteLastSync = {
   job_id: string;
   status: OneNoteJobStatus;
   progress: { total?: number; processed: number; succeeded: number; failed: number };
-  /** Which notebooks the run covers; null means every selected one. */
+  result: Record<string, unknown> | null;
+  last_error: string | null;
+  finished_at: string | null;
+  /** Which notebooks the run covered; null means every selected one. */
   notebook_ids: string[] | null;
 };
 
@@ -34,7 +40,7 @@ export type OneNoteActiveSync = {
 export type OneNoteStatus = {
   available: boolean;
   connection: OneNoteConnection | null;
-  active_sync: OneNoteActiveSync | null;
+  last_sync: OneNoteLastSync | null;
 };
 
 export type OneNoteNotebookState = {
