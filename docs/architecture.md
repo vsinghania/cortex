@@ -72,6 +72,7 @@ The user id travels: JWT claim → `req.auth.user_id` → `TraceContext` → `x-
 | [voice.md](voice.md) | Ephemeral OpenAI Realtime sessions |
 | [web.md](web.md) | HTTP surface and the SPA that consumes it |
 | [platform.md](platform.md) | Logger, errors, trace context, middlewares, lib wrappers, db |
+| — | `admin_svc`: the admin users view. A read model over the user, auth, notes, agent and onenote databases: one page of users, then one batched `$in` lookup per database, since separate databases cannot join. Its repository methods are the only reads across users besides the notes maintenance sweep. Only web-server may import it, enforced in [layering.test.ts](../scripts/layering.test.ts). |
 
 Dependencies point one way:
 

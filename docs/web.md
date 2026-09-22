@@ -15,6 +15,7 @@ All under `/api/v1`. Per-endpoint request and response shapes live in the [bruno
 | `/agent` | bearer; create/update need `admin` | [agent_svc.md](agent_svc.md) |
 | `/notes` | bearer | [recall.md](recall.md) |
 | `/voice` | bearer | [voice.md](voice.md) |
+| `/admin` | bearer + `admin`, applied once by the parent router | notes reindex, [jobs_svc](jobs_svc.md), users overview (`admin_svc`) |
 | `/health/db`, `/healthz` | none | Mongo connection state (503 when down) |
 | `/mcp/notes` | upstream bearer only | proxy → [mcp.md](mcp.md) |
 
@@ -41,7 +42,7 @@ Each controller builds its own `express.Router`, exposes `getRouter()`, and bind
 
 ## 4. The SPA
 
-React 18 + React Router, Vite, no state library. `/login`, `/register`, `/forgot-password`, `/reset-password` and `/privacy` are public (login and register also offer "Continue with Google", a plain link to the API's `/auth/google/start`); `/notes`, `/notes/:id`, `/chat`, `/voice` sit behind a `RequireAuth` route guard.
+React 18 + React Router, Vite, no state library. `/login`, `/register`, `/forgot-password`, `/reset-password` and `/privacy` are public (login and register also offer "Continue with Google", a plain link to the API's `/auth/google/start`); `/notes`, `/notes/:id`, `/chat`, `/voice` sit behind a `RequireAuth` route guard. `/admin/*` (today just `/admin/users`) is nested one level further, behind `RequireAdmin`; the rail shows its entry only to admins, and admin views are listed in `AdminNav`. The guard only hides the page: the API's role gate is the real check.
 
 [api_client.ts](../web/src/lib/api_client.ts) is the only place `fetch` hits the API, and it owns the whole token dance: bearer from an in-memory `AuthStore`, `credentials: 'include'` for the refresh cookie, and **on a 401 it refreshes once and replays the request**, sharing one in-flight refresh across concurrent failures. Calls that work without a session — login, register, refresh, forgot and reset password — are excluded from that path. It unwraps the envelope and throws a typed `ApiError` whose message is the problem's `detail`.
 
