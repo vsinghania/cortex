@@ -1,0 +1,47 @@
+info:
+  name: onenote-sync
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: "{{base_url}}/integrations/onenote/sync"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "mode": "incremental",
+        "notebook_ids": null
+      }
+  auth: inherit
+
+docs: |-
+  Enqueues a sync and answers 202 with the job to poll - it does not wait for the run.
+
+  `notebook_ids: null` syncs every selected notebook; a list scopes the run to those.
+  `mode: "full"` re-reads and re-converts every page, ignoring the change hash, which is
+  what picks up a converter change; `"incremental"` only looks past the watermark.
+
+  A sync already running is not an error: the response then carries that run's id with
+  `already_running: true`.
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        // Set either way: on a conflict the id is the run already in flight, which is
+        // the one worth polling.
+        const body = res.getBody();
+        const sync = body && body.response;
+        if (sync && sync.job_id) {
+          bru.setEnvVar('sync_job_id', sync.job_id);
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

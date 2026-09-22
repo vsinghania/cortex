@@ -1,0 +1,24 @@
+info:
+  name: onenote-sync-note
+  type: http
+  seq: 7
+
+http:
+  method: POST
+  url: "{{base_url}}/integrations/onenote/notes/{{note_id}}/sync"
+  auth: inherit
+
+docs: |-
+  Re-reads one page and answers with the updated note. Inline, not a job: a Graph read
+  plus an upsert costs about a second, less than waiting for the queue.
+
+  Like an incremental run it skips a page whose content hash is unchanged, so it will not
+  by itself repair a note converted by an older converter - a `mode: "full"` sync does.
+
+  404s unless the note belongs to the caller and came from OneNote.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

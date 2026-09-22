@@ -1,0 +1,19 @@
+info:
+  name: onenote-disconnect
+  type: http
+  seq: 8
+
+http:
+  method: DELETE
+  url: "{{base_url}}/integrations/onenote"
+  auth: inherit
+
+docs: |-
+  Drops the stored Microsoft credential and the notebook selection. Already-imported
+  notes and their folders stay - they simply stop being updated.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

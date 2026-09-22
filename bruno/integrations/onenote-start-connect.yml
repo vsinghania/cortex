@@ -1,0 +1,22 @@
+info:
+  name: onenote-start-connect
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{base_url}}/integrations/onenote/start"
+  auth: inherit
+
+docs: |-
+  Answers with the Microsoft consent URL rather than redirecting, because the callback has
+  to know which Cortex user is connecting and a browser navigation carries no bearer token.
+
+  Open the returned `url` in a browser to finish: the `ms_oauth` cookie this sets is bound
+  to it, so the flow cannot be completed from here.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

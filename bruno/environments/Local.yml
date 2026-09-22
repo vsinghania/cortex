@@ -18,3 +18,7 @@ variables:
     value: ""
   - name: schedule_id
     value: ""
+  - name: notebook_id
+    value: ""
+  - name: sync_job_id
+    value: ""

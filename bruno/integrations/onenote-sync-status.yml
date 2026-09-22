@@ -1,0 +1,22 @@
+info:
+  name: onenote-sync-status
+  type: http
+  seq: 6
+
+http:
+  method: GET
+  url: "{{base_url}}/integrations/onenote/sync/{{sync_job_id}}"
+  auth: inherit
+
+docs: |-
+  Polls the run that onenote-sync started - `progress` counts pages as they land, and
+  `current_notebook_id` says which notebook the walk is in.
+
+  Scoped to the caller: someone else's job, or a job of another kind, reads as 404 rather
+  than as a job you may not see.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
