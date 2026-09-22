@@ -92,3 +92,23 @@ for (const rule of RULES) {
     assert.deepEqual(violations, [], `forbidden imports:\n  ${violations.join('\n  ')}`);
   });
 }
+
+/*
+ * admin_svc is a read model over the domains, composed only by the web-server. A domain
+ * importing it back would make every domain depend on every other one through it.
+ */
+const ADMIN_READ_MODEL = 'admin_svc';
+const ADMIN_READ_MODEL_CALLERS = new Set([ADMIN_READ_MODEL, 'web-server']);
+
+test(`only web-server imports ${ADMIN_READ_MODEL}`, () => {
+  const violations: string[] = [];
+  for (const module of readdirSync(SRC)) {
+    if (ADMIN_READ_MODEL_CALLERS.has(module) || !statSync(join(SRC, module)).isDirectory()) continue;
+    for (const file of tsFilesUnder(join(SRC, module))) {
+      for (const specifier of importedPaths(readFileSync(file, 'utf8'))) {
+        if (specifier.includes(`/${ADMIN_READ_MODEL}/`)) violations.push(`${relative(SRC, file)} -> ${specifier}`);
+      }
+    }
+  }
+  assert.deepEqual(violations, [], `forbidden imports:\n  ${violations.join('\n  ')}`);
+});

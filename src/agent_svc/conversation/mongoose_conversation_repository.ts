@@ -2,6 +2,7 @@ import type { Connection, Model } from 'mongoose';
 import type { ContextRef, Conversation, ConversationMessage } from '../types/conversation.types.js';
 import type {
   ConversationRepositoryInterface,
+  ConversationUserCount,
   ListConversationsForUserParams,
 } from './conversation_repository_interface.js';
 import {
@@ -86,6 +87,16 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
       .limit(limit)
       .lean();
     return docs.map((d) => MongooseUtils.toDomain<Conversation>(d));
+  }
+
+  /** Unscoped by design - see ConversationUserCount. */
+  async countConversationsByUser(user_ids: string[]): Promise<ConversationUserCount[]> {
+    if (user_ids.length === 0) return [];
+    return this.conv_model.aggregate<ConversationUserCount>([
+      { $match: { user_id: { $in: user_ids } } },
+      { $group: { _id: '$user_id', count: { $sum: 1 } } },
+      { $project: { _id: 0, user_id: '$_id', count: 1 } },
+    ]);
   }
 
   async setLastProviderResponseId(

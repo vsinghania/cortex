@@ -1,5 +1,14 @@
 import type { RefreshSession } from '../types/auth.types.js';
 
+/**
+ * Admin-only, and NOT user-scoped. Every refresh writes a session row, so the newest
+ * `updated_at` is the last time the user's browser was active - a sign-in is not needed.
+ */
+export type UserSessionActivity = {
+  user_id: string;
+  last_active_at: Date;
+};
+
 export interface RefreshTokenRepository {
   createSession(input: {
     user_id: string;
@@ -22,4 +31,7 @@ export interface RefreshTokenRepository {
   revokeAllForUser(user_id: string): Promise<number>;
 
   pruneExpired(limit?: number): Promise<number>;
+
+  /** Admin users view only - see UserSessionActivity. Users with no session rows are omitted. */
+  latestActivityByUser(user_ids: string[]): Promise<UserSessionActivity[]>;
 }

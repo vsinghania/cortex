@@ -10,6 +10,12 @@ export type ListConversationsForUserParams = {
   context_ref?: ContextRef;
 };
 
+/** Admin-only, and NOT user-scoped: counts for a page of users in the admin users view. */
+export type ConversationUserCount = {
+  user_id: string;
+  count: number;
+};
+
 export interface ConversationRepositoryInterface {
   createConversation(params: {
     conversation_id: string;
@@ -38,4 +44,7 @@ export interface ConversationRepositoryInterface {
 
   /** Snapshots the conversation and its messages to trash, then deletes them. */
   deleteConversation(conversation_id: string): Promise<{ message_count: number }>;
+
+  /** Admin users view only - see ConversationUserCount. Users with none are omitted. */
+  countConversationsByUser(user_ids: string[]): Promise<ConversationUserCount[]>;
 }

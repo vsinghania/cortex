@@ -6,7 +6,8 @@ import { OneNoteConnectionModelFactory } from '../models/onenote_connection_mode
 import {
   OneNoteConnectionStatus,
   type CreateOneNoteConnectionInput,
-  type OneNoteConnection
+  type OneNoteConnection,
+  type OneNoteConnectionSummary
 } from '../types/onenote_connection.types.js';
 import type { OneNoteConnectionRepository } from './onenote_connection_repository_interface.js';
 
@@ -44,6 +45,15 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
   async findByUserId(user_id: string): Promise<OneNoteConnection | null> {
     const found = await this.model.findOne({ user_id }).lean();
     return found ? MongooseOneNoteConnectionRepository.toConnection(found) : null;
+  }
+
+  /** Projected at the query, so the sealed grant never leaves the database on this path. */
+  async listSummariesByUserIds(user_ids: string[]): Promise<OneNoteConnectionSummary[]> {
+    if (user_ids.length === 0) return [];
+    return this.model
+      .find({ user_id: { $in: user_ids } })
+      .select({ _id: 0, user_id: 1, status: 1, last_synced_at: 1 })
+      .lean<OneNoteConnectionSummary[]>();
   }
 
   async upsert(input: CreateOneNoteConnectionInput): Promise<OneNoteConnection> {

@@ -6,6 +6,9 @@ import { Icon } from './icon';
 import type { IconName } from './icon';
 import { AppRoutes } from '../lib/app_routes';
 import { AppNav } from '../lib/app_nav';
+import type { AppNavItem } from '../lib/app_nav';
+import { AdminNav } from '../lib/admin_nav';
+import { UserRoles } from '../lib/user_roles';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
 import { useHotkey } from '../lib/use_hotkey';
 import { UserInitials } from '../lib/user_initials';
@@ -30,6 +33,7 @@ type Props = {
 };
 
 export function AppRail({ action, variant = 'rail', onClose, children }: Props) {
+  const { user } = useAuth();
   const is_drawer = variant === 'drawer';
   const [persisted_collapsed, set_collapsed] = usePersistedFlag('cortex.railCollapsed', false);
   useHotkey({ code: 'Backslash', mod: true }, () => set_collapsed((c) => !c), !is_drawer);
@@ -76,22 +80,29 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
         <nav className="rail-section" aria-label="Primary">
           {!collapsed && <div className="rail-heading">Navigate</div>}
           {AppNav.ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              title={item.label}
-              className={({ isActive }) => `rail-item${isActive ? ' rail-item-active' : ''}`}
-            >
-              <Icon name={item.icon} size={15} className="rail-item-icon" />
-              {collapsed ? <span className="sr-only">{item.label}</span> : <span className="rail-item-label">{item.label}</span>}
-            </NavLink>
+            <RailNavLink key={item.to} item={item} collapsed={collapsed} />
           ))}
+          {UserRoles.isAdmin(user) && <RailNavLink item={AdminNav.ENTRY} collapsed={collapsed} />}
         </nav>
         {children?.(collapsed)}
       </div>
 
       <AccountFooter collapsed={collapsed} />
     </aside>
+  );
+}
+
+/** Exported so a page's own rail section (e.g. the admin views) renders the same row. */
+export function RailNavLink({ item, collapsed }: { item: AppNavItem; collapsed: boolean }) {
+  return (
+    <NavLink
+      to={item.to}
+      title={item.label}
+      className={({ isActive }) => `rail-item${isActive ? ' rail-item-active' : ''}`}
+    >
+      <Icon name={item.icon} size={15} className="rail-item-icon" />
+      {collapsed ? <span className="sr-only">{item.label}</span> : <span className="rail-item-label">{item.label}</span>}
+    </NavLink>
   );
 }
 
