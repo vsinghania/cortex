@@ -6,8 +6,6 @@ import { Icon } from './icon';
 import type { IconName } from './icon';
 import { AppRoutes } from '../lib/app_routes';
 import { AppNav } from '../lib/app_nav';
-import { ThemeStore } from '../lib/theme_store';
-import { useTheme } from '../lib/use_theme';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
 import { useHotkey } from '../lib/use_hotkey';
 import { UserInitials } from '../lib/user_initials';
@@ -17,7 +15,8 @@ import { PopoverMenu } from './popover_menu';
 export type RailAction = {
   label: string;
   icon: IconName;
-  shortcut_label: string;
+  /** Omitted on screens that do not register the hotkey, so no badge promises one. */
+  shortcut_label?: string;
   onClick: () => void;
 };
 
@@ -44,7 +43,7 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
       <div className="rail-header">
         <BrandWordmark mark_only={collapsed} />
         <div className="rail-header-actions">
-          {!collapsed && <SettingsMenu />}
+          {!collapsed && <SettingsLink />}
           <button
             type="button"
             className="icon-btn"
@@ -58,12 +57,17 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
       </div>
 
       <div className="rail-action-wrap">
-        <button type="button" className="rail-action" onClick={action.onClick} title={`${action.label} (${action.shortcut_label})`}>
+        <button
+          type="button"
+          className="rail-action"
+          onClick={action.onClick}
+          title={action.shortcut_label ? `${action.label} (${action.shortcut_label})` : action.label}
+        >
           <span className="rail-action-label">
             <Icon name={action.icon} size={15} />
             {!collapsed && action.label}
           </span>
-          {!collapsed && <kbd className="kbd kbd-accent">{action.shortcut_label}</kbd>}
+          {!collapsed && action.shortcut_label && <kbd className="kbd kbd-accent">{action.shortcut_label}</kbd>}
           {collapsed && <span className="sr-only">{action.label}</span>}
         </button>
       </div>
@@ -91,32 +95,17 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
   );
 }
 
-function SettingsMenu() {
-  const theme = useTheme();
-
+/** The one way into settings; theme and connections both live on that page. */
+function SettingsLink() {
   return (
-    <PopoverMenu label="Settings" trigger={<Icon name="settings" size={15} />} align="start">
-      {() => (
-        <>
-          <div className="menu-heading">Appearance</div>
-          <div className="segmented segmented-full" role="radiogroup" aria-label="Theme">
-            {(['dark', 'light'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={theme === value}
-                className={`segmented-item${theme === value ? ' segmented-item-active' : ''}`}
-                onClick={() => ThemeStore.set(value)}
-              >
-                <Icon name={value === 'dark' ? 'moon' : 'sun'} size={13} />
-                {value === 'dark' ? 'Dark' : 'Light'}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </PopoverMenu>
+    <NavLink
+      to={AppRoutes.settings()}
+      className={({ isActive }) => `icon-btn${isActive ? ' icon-btn-accent' : ''}`}
+      aria-label="Settings"
+      title="Settings"
+    >
+      <Icon name="settings" size={15} />
+    </NavLink>
   );
 }
 

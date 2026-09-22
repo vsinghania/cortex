@@ -6,4 +6,5 @@ export interface AuthSvcInterface {
   refresh(refresh_token: string, ctx?: AuthContext): Promise<RefreshResult>;
   logout(refresh_token: string): Promise<LogoutResult>;
   getMe(user_id: string): Promise<MeResult>;
+  sessionUserId(refresh_token: string | undefined): Promise<string | null>;
 }

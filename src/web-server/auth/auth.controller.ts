@@ -10,7 +10,8 @@ import { GoogleAuthSvc } from '../../auth_svc/google_auth_svc.js';
 import { AppLinks } from '../../auth_svc/app_links.js';
 import type { GoogleOAuthState } from '../../auth_svc/types/google_auth.types.js';
 import { logger } from '../../common/logger.js';
-import { REFRESH_COOKIE_NAME, TokenUtils } from '../../auth_svc/utils/token_utils.js';
+import { REFRESH_COOKIE_NAME } from '../../auth_svc/utils/token_utils.js';
+import { CookieOptions } from '../cookie_options.js';
 import { Time } from '../../lib/time.js';
 
 const EmailSchema = z.string().email();
@@ -31,24 +32,11 @@ const GoogleOAuthStateSchema = z.object({
 export class AuthController {
 
   private static refreshCookieOptions() {
-    const secure = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
-    const domain = process.env.COOKIE_DOMAIN || undefined;
-    const sameSite = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' | 'none' | undefined) ?? 'lax';
-    return {
-      httpOnly: true,
-      secure,
-      sameSite,
-      domain,
-      path: '/',
-      maxAge: Time.secondsToMs(TokenUtils.refreshTokenTtlSec())
-    } as const;
+    return CookieOptions.refresh();
   }
 
   private static googleStateCookieOptions() {
-    const { maxAge: _max_age, ...base } = AuthController.refreshCookieOptions();
-    // The callback is a cross-site navigation from Google, which a strict cookie would
-    // not ride along on, whatever COOKIE_SAMESITE says for the refresh cookie.
-    return { ...base, sameSite: 'lax', path: GOOGLE_STATE_COOKIE_PATH, maxAge: GOOGLE_STATE_TTL_MS } as const;
+    return CookieOptions.oauthState({ path: GOOGLE_STATE_COOKIE_PATH, max_age_ms: GOOGLE_STATE_TTL_MS });
   }
 
   private static readGoogleState(req: express.Request): GoogleOAuthState | null {

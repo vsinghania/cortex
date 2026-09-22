@@ -1,4 +1,4 @@
-export type ServiceKey = 'auth' | 'user' | 'notes' | 'agent' | 'jobs';
+export type ServiceKey = 'auth' | 'user' | 'notes' | 'agent' | 'jobs' | 'onenote';
 
 /**
  * DbNameResolver centralizes database name resolution per service.

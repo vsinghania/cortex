@@ -1,0 +1,173 @@
+import { MicrosoftOAuthAdapter } from './adapters/microsoft_oauth_adapter.js';
+import type { MicrosoftOAuthAdapterInterface } from './adapters/microsoft_oauth_adapter_interface.js';
+import { OneNoteConfigLoader } from './config/onenote_config.js';
+import { OneNoteReauthRequiredError } from './onenote_errors.js';
+import { MongooseOneNoteConnectionRepository } from './repositories/onenote_connection_repository.js';
+import type { OneNoteConnectionRepository } from './repositories/onenote_connection_repository_interface.js';
+import {
+  OneNoteConnectionStatus,
+  type OneNoteAuthorization,
+  type OneNoteConnection,
+  type OneNoteOAuthState,
+  type PublicOneNoteConnection
+} from './types/onenote_connection.types.js';
+import { TokenUtils } from '../auth_svc/utils/token_utils.js';
+import { NotFoundError, ServiceUnavailableError, UnauthorizedError } from '../common/errors.js';
+import { logger } from '../common/logger.js';
+import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
+import { SecretBox } from '../lib/crypto/secret_box.js';
+import { Time } from '../lib/time.js';
+
+/** The AAD field name; changing it would orphan every stored cache. */
+const TOKEN_CACHE_FIELD = 'onenote_token_cache';
+
+type OneNoteConnectionSvcDeps = {
+  connection_repo: OneNoteConnectionRepository;
+  microsoft: MicrosoftOAuthAdapterInterface;
+  secret_box: SecretBox;
+};
+
+export type CompleteOneNoteAuthorizationInput = {
+  /** Who started the flow, from the sealed state cookie. */
+  user_id: string;
+  /** Who this browser is signed in as right now, from its own session; null if nobody. */
+  session_user_id: string | null;
+  code: string;
+  state: string;
+  pending: OneNoteOAuthState;
+};
+
+export class OneNoteConnectionSvc {
+  private constructor(private readonly deps: OneNoteConnectionSvcDeps) {}
+
+  /** Both halves are required: without encryption keys there is nowhere safe to put the grant. */
+  static isConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+    return OneNoteConfigLoader.fromEnv(env) !== null && SecretBox.isConfigured(env);
+  }
+
+  static async create(overrides?: Partial<OneNoteConnectionSvcDeps>): Promise<OneNoteConnectionSvc> {
+    return new OneNoteConnectionSvc({
+      connection_repo:
+        overrides?.connection_repo ??
+        (await MongooseOneNoteConnectionRepository.create({ db: DbNameResolver.resolve('onenote') })),
+      microsoft: overrides?.microsoft ?? OneNoteConnectionSvc.createAdapter(),
+      secret_box: overrides?.secret_box ?? SecretBox.fromEnv()
+    });
+  }
+
+  static toPublic(connection: OneNoteConnection): PublicOneNoteConnection {
+    const { token_cache_sealed, microsoft_home_account_id, ...rest } = connection;
+    return rest;
+  }
+
+  private static createAdapter(): MicrosoftOAuthAdapterInterface {
+    const config = OneNoteConfigLoader.fromEnv();
+    if (!config) {
+      throw new ServiceUnavailableError('OneNote is not configured');
+    }
+    return MicrosoftOAuthAdapter.create(config);
+  }
+
+  async startAuthorization(): Promise<OneNoteAuthorization> {
+    const state = TokenUtils.generateOpaqueToken(32);
+    const { url, code_verifier } = await this.deps.microsoft.buildAuthorizationUrl({ state });
+    return { url, pending: { state, code_verifier } };
+  }
+
+  async completeAuthorization(input: CompleteOneNoteAuthorizationInput): Promise<PublicOneNoteConnection> {
+    const start_ms = performance.now();
+
+    if (!TokenUtils.constantTimeEquals(input.state, input.pending.state)) {
+      logger.warn({ reason: 'state_mismatch' }, 'onenote connect rejected');
+      throw new UnauthorizedError('OneNote authorization state mismatch');
+    }
+    // The state cookie can be genuine and still not be this browser's: someone can start
+    // a flow as themselves and plant their cookie here, so that whoever consents next has
+    // their OneNote routed into the planter's account. The browser's own session is what
+    // says who is actually at the keyboard.
+    if (input.session_user_id !== input.user_id) {
+      logger.warn(
+        { reason: input.session_user_id ? 'session_user_mismatch' : 'no_session', user_id: input.user_id },
+        'onenote connect rejected'
+      );
+      throw new UnauthorizedError('OneNote authorization does not belong to the signed-in user');
+    }
+
+    const session = await this.deps.microsoft.exchangeCode({
+      code: input.code,
+      code_verifier: input.pending.code_verifier
+    });
+
+    const connection = await this.deps.connection_repo.upsert({
+      user_id: input.user_id,
+      identity: session.identity,
+      token_cache_sealed: this.seal(session.token_cache, input.user_id),
+      scopes: session.scopes
+    });
+
+    logger.info(
+      { user_id: input.user_id, scope_count: session.scopes.length, duration_ms: Time.elapsedMs(start_ms) },
+      'onenote connected'
+    );
+    return OneNoteConnectionSvc.toPublic(connection);
+  }
+
+  async getConnection(user_id: string): Promise<PublicOneNoteConnection | null> {
+    const connection = await this.deps.connection_repo.findByUserId(user_id);
+    return connection ? OneNoteConnectionSvc.toPublic(connection) : null;
+  }
+
+  /**
+   * The only place a stored cache is opened. MSAL decides whether the access token
+   * still holds; a rotation is written back, and a dead grant parks the connection
+   * so the UI can ask for a reconnect instead of retrying forever.
+   */
+  async getAccessToken(user_id: string): Promise<string> {
+    const connection = await this.deps.connection_repo.findByUserId(user_id);
+    if (!connection) {
+      throw new NotFoundError('OneNote is not connected');
+    }
+
+    try {
+      const result = await this.deps.microsoft.acquireAccessToken({
+        token_cache: this.open(connection.token_cache_sealed, user_id),
+        home_account_id: connection.microsoft_home_account_id
+      });
+
+      if (result.token_cache) {
+        await this.deps.connection_repo.updateTokenCache({
+          user_id,
+          token_cache_sealed: this.seal(result.token_cache, user_id)
+        });
+      }
+      return result.access_token;
+    } catch (err) {
+      if (err instanceof OneNoteReauthRequiredError) {
+        await this.deps.connection_repo.updateStatus({
+          user_id,
+          status: OneNoteConnectionStatus.NeedsReauth,
+          last_error: err.message
+        });
+        logger.warn({ user_id, reason: 'reauth_required' }, 'onenote token refresh failed');
+      }
+      throw err;
+    }
+  }
+
+  /** Leaves imported notes alone: they are the user's, and losing them would surprise. */
+  async disconnect(user_id: string): Promise<boolean> {
+    const deleted = await this.deps.connection_repo.deleteByUserId(user_id);
+    if (deleted) {
+      logger.info({ user_id }, 'onenote disconnected');
+    }
+    return deleted;
+  }
+
+  private seal(token_cache: string, user_id: string): string {
+    return this.deps.secret_box.seal(token_cache, { user_id, field: TOKEN_CACHE_FIELD });
+  }
+
+  private open(token_cache_sealed: string, user_id: string): string {
+    return this.deps.secret_box.open(token_cache_sealed, { user_id, field: TOKEN_CACHE_FIELD });
+  }
+}

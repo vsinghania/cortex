@@ -12,6 +12,7 @@ import { AgentController } from './agent/agent.controller.js';
 import { NotesController } from './notes/notes.controller.js';
 import { VoiceController } from './voice/voice.controller.js';
 import { AdminController } from './admin/admin.controller.js';
+import { OneNoteController } from './integrations/onenote.controller.js';
 import { McpProxyRouter } from './mcp/mcp_proxy_router.js';
 
 export class App {
@@ -100,6 +101,9 @@ export class App {
 
     const voice_controller = new VoiceController();
     v1_router.use('/voice', voice_controller.getRouter());
+
+    const onenote_controller = new OneNoteController();
+    v1_router.use('/integrations/onenote', onenote_controller.getRouter());
 
     const health_controller = new HealthController();
     v1_router.use('/health', health_controller.getRouter());
