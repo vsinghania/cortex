@@ -28,6 +28,7 @@ import type {
   OneNoteSyncJob,
   OneNoteSyncStart,
 } from './onenote.types';
+import type { AdminUserPage } from './admin.types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
 
@@ -219,6 +220,11 @@ export class ApiClient {
 
   static async getOneNoteSyncJob(job_id: string): Promise<{ job: OneNoteSyncJob }> {
     return ApiClient.request<{ job: OneNoteSyncJob }>(`/integrations/onenote/sync/${encodeURIComponent(job_id)}`);
+  }
+
+  static async listAdminUsers(params: { limit: number; offset: number }): Promise<AdminUserPage> {
+    const query = new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) });
+    return ApiClient.request<AdminUserPage>(`/admin/users?${query.toString()}`);
   }
 
   static googleSignInUrl(return_to?: string): string {

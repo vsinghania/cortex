@@ -15,6 +15,7 @@ import { useTheme } from './lib/use_theme';
 import { useIsMobile } from './lib/use_is_mobile';
 import { ToastProvider } from './components/toast';
 import { RequireAuth } from './components/require_auth';
+import { RequireAdmin } from './components/require_admin';
 import { LoginPage } from './pages/login_page';
 import { RegisterPage } from './pages/register_page';
 import { ForgotPasswordPage } from './pages/forgot_password_page';
@@ -24,6 +25,7 @@ import { PrivacyPage } from './pages/privacy_page';
 import { NotesPage } from './pages/notes_page';
 import { AssistantPage } from './pages/assistant_page';
 import { SettingsPage } from './pages/settings_page';
+import { AdminUsersPage } from './pages/admin_users_page';
 
 export function App() {
   const theme = useTheme();
@@ -45,6 +47,10 @@ export function App() {
             <Route path="/chat/:conversation_id?" element={<AssistantPage />} />
             <Route path={AppRoutes.settings()} element={<SettingsPage />} />
             <Route path="/voice" element={<Navigate to={AppRoutes.chat({ mode: 'voice' })} replace />} />
+            <Route element={<RequireAdmin />}>
+              <Route path={AppRoutes.admin()} element={<Navigate to={AppRoutes.adminUsers()} replace />} />
+              <Route path={AppRoutes.adminUsers()} element={<AdminUsersPage />} />
+            </Route>
           </Route>
           <Route path="*" element={<Navigate to={AppRoutes.notes()} replace />} />
         </Routes>

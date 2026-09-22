@@ -51,6 +51,15 @@ export class AppRoutes {
     return '/settings';
   }
 
+  /** The admin area; lands on its first view. */
+  static admin(): string {
+    return '/admin';
+  }
+
+  static adminUsers(): string {
+    return '/admin/users';
+  }
+
   static notes(search = ''): string {
     return `/notes${AppRoutes.withQuestionMark(search)}`;
   }
