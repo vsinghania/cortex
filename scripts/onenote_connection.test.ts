@@ -46,6 +46,10 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
       microsoft_name: input.identity.name,
       token_cache_sealed: input.token_cache_sealed,
       scopes: input.scopes,
+      // Reconnecting keeps whatever was already chosen, as the Mongo upsert does.
+      selected_notebook_ids: existing?.selected_notebook_ids ?? [],
+      notebooks: existing?.notebooks ?? [],
+      notebooks_cached_at: existing?.notebooks_cached_at,
       status: OneNoteConnectionStatus.Connected,
       created_at: existing?.created_at ?? new Date(),
       updated_at: new Date()
@@ -58,6 +62,68 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
   async updateTokenCache(params: { user_id: string; token_cache_sealed: string }) {
     const row = await this.findByUserId(params.user_id);
     if (row) row.token_cache_sealed = params.token_cache_sealed;
+  }
+
+  async cacheNotebooks(params: {
+    user_id: string;
+    notebooks: Array<{ id: string; display_name: string }>;
+    cached_at: Date;
+  }) {
+    const row = await this.findByUserId(params.user_id);
+    if (!row) return null;
+    const state_by_id = new Map(row.notebooks.map((n) => [n.id, n]));
+    row.notebooks = params.notebooks.map((n) => ({
+      ...n,
+      sync_watermark: state_by_id.get(n.id)?.sync_watermark,
+      last_synced_at: state_by_id.get(n.id)?.last_synced_at
+    }));
+    row.notebooks_cached_at = params.cached_at;
+    return row;
+  }
+
+  async updateNotebookSyncState(params: {
+    user_id: string;
+    notebook_id: string;
+    sync_watermark?: Date;
+    last_synced_at: Date;
+  }) {
+    const row = await this.findByUserId(params.user_id);
+    const notebook = row?.notebooks.find((n) => n.id === params.notebook_id);
+    if (notebook) {
+      notebook.last_synced_at = params.last_synced_at;
+      if (params.sync_watermark) notebook.sync_watermark = params.sync_watermark;
+      notebook.last_error = undefined;
+      notebook.last_error_at = undefined;
+      notebook.consecutive_failures = 0;
+    }
+    return row;
+  }
+
+  async recordNotebookFailure(params: { user_id: string; notebook_id: string; reason: string; at: Date }) {
+    const row = await this.findByUserId(params.user_id);
+    const notebook = row?.notebooks.find((n) => n.id === params.notebook_id);
+    if (notebook) {
+      notebook.last_error = params.reason;
+      notebook.last_error_at = params.at;
+      notebook.consecutive_failures = (notebook.consecutive_failures ?? 0) + 1;
+    }
+    return row;
+  }
+
+  async updateSyncState(params: { user_id: string; last_synced_at?: Date }) {
+    const row = await this.findByUserId(params.user_id);
+    if (row && params.last_synced_at) row.last_synced_at = params.last_synced_at;
+    return row;
+  }
+
+  async listSyncable() {
+    return this.rows.filter((r) => r.selected_notebook_ids.length > 0);
+  }
+
+  async updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }) {
+    const row = await this.findByUserId(params.user_id);
+    if (row) row.selected_notebook_ids = params.notebook_ids;
+    return row;
   }
 
   async updateStatus(params: { user_id: string; status: OneNoteConnectionStatus; last_error?: string }) {
@@ -107,10 +173,36 @@ class FakeMicrosoft implements MicrosoftOAuthAdapterInterface {
   }
 }
 
-async function connect(overrides: { microsoft?: FakeMicrosoft; repo?: InMemoryConnectionRepo } = {}) {
+class FakeGraph {
+  calls = 0;
+  constructor(public notebooks = [{ id: 'nb-1', display_name: 'Personal' }, { id: 'nb-2', display_name: 'Work' }]) {}
+  async listNotebooks() {
+    this.calls += 1;
+    return this.notebooks;
+  }
+  async listSections() {
+    return [];
+  }
+  async listPages() {
+    return { pages: [] };
+  }
+  async getPageContent() {
+    return '';
+  }
+}
+
+async function connect(
+  overrides: { microsoft?: FakeMicrosoft; repo?: InMemoryConnectionRepo; graph?: FakeGraph } = {}
+) {
   const connection_repo = overrides.repo ?? new InMemoryConnectionRepo();
   const microsoft = overrides.microsoft ?? new FakeMicrosoft();
-  const svc = await OneNoteConnectionSvc.create({ connection_repo, microsoft, secret_box });
+  const graph = overrides.graph ?? new FakeGraph();
+  const svc = await OneNoteConnectionSvc.create({
+    connection_repo,
+    microsoft,
+    secret_box,
+    createGraph: () => graph
+  });
 
   const { pending } = await svc.startAuthorization();
   const connection = await svc.completeAuthorization({
@@ -230,6 +322,125 @@ test('connecting a second time replaces the account rather than adding one', asy
   await svc.completeAuthorization({ user_id: USER_ID, session_user_id: USER_ID, code: 'code-2', state: pending.state, pending });
 
   assert.equal(connection_repo.rows.length, 1);
+});
+
+test('nothing is selected on a fresh connection, so nothing syncs by surprise', async () => {
+  const { svc, connection_repo } = await connect();
+
+  assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, []);
+  const notebooks = await svc.listNotebooks(USER_ID);
+  assert.deepEqual(
+    notebooks.map((n) => n.selected),
+    [false, false]
+  );
+});
+
+test('choosing notebooks marks them, and re-choosing replaces rather than appends', async () => {
+  const { svc, connection_repo } = await connect();
+
+  await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-2', 'nb-2'] });
+  assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, ['nb-2'], 'duplicates collapse');
+
+  const listed = await svc.listNotebooks(USER_ID);
+  assert.deepEqual(listed.find((n) => n.id === 'nb-2')?.selected, true);
+  assert.deepEqual(listed.find((n) => n.id === 'nb-1')?.selected, false);
+
+  await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] });
+  assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, ['nb-1']);
+});
+
+test('reconnecting the same account keeps the notebooks already chosen', async () => {
+  const { svc, connection_repo } = await connect();
+  await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] });
+
+  const { pending } = await svc.startAuthorization();
+  await svc.completeAuthorization({ user_id: USER_ID, session_user_id: USER_ID, code: 'c', state: pending.state, pending });
+
+  assert.deepEqual(connection_repo.rows[0].selected_notebook_ids, ['nb-1']);
+});
+
+test('the notebook list is cached, so opening settings does not call Microsoft again', async () => {
+  const graph = new FakeGraph();
+  const { svc } = await connect({ graph });
+
+  await svc.listNotebooks(USER_ID);
+  await svc.listNotebooks(USER_ID);
+  await svc.listNotebooks(USER_ID);
+
+  assert.equal(graph.calls, 1, 'one fetch to fill the cache, then none');
+});
+
+test('a refresh goes past the cache and picks up a rename', async () => {
+  const graph = new FakeGraph();
+  const { svc } = await connect({ graph });
+  await svc.listNotebooks(USER_ID);
+
+  graph.notebooks = [{ id: 'nb-1', display_name: 'Personal (renamed)' }, { id: 'nb-2', display_name: 'Work' }];
+  const cached = await svc.listNotebooks(USER_ID);
+  assert.equal(cached[0].display_name, 'Personal', 'a rename is invisible until refreshed');
+
+  const refreshed = await svc.listNotebooks(USER_ID, { refresh: true });
+  assert.equal(graph.calls, 2);
+  assert.equal(refreshed[0].display_name, 'Personal (renamed)');
+});
+
+test('refreshing the list keeps each notebook where its sync had got to', async () => {
+  const graph = new FakeGraph();
+  const { svc, connection_repo } = await connect({ graph });
+  await svc.listNotebooks(USER_ID);
+
+  const watermark = new Date('2026-09-10T12:00:00Z');
+  await svc.recordNotebookSynced({ user_id: USER_ID, notebook_id: 'nb-1', sync_watermark: watermark, last_synced_at: new Date() });
+
+  await svc.listNotebooks(USER_ID, { refresh: true });
+
+  const nb1 = connection_repo.rows[0].notebooks.find((n) => n.id === 'nb-1');
+  assert.equal(nb1?.sync_watermark?.toISOString(), watermark.toISOString(), 'losing it would re-read the whole notebook');
+  assert.ok(nb1?.last_synced_at);
+});
+
+test('a notebook deleted in OneNote drops out of the list on refresh', async () => {
+  const graph = new FakeGraph();
+  const { svc, connection_repo } = await connect({ graph });
+  await svc.listNotebooks(USER_ID);
+
+  graph.notebooks = [{ id: 'nb-2', display_name: 'Work' }];
+  const refreshed = await svc.listNotebooks(USER_ID, { refresh: true });
+
+  assert.deepEqual(refreshed.map((n) => n.id), ['nb-2']);
+  assert.equal(connection_repo.rows[0].notebooks.length, 1);
+});
+
+test('a failure is recorded against the notebook, and a later success clears it', async () => {
+  const { svc, connection_repo } = await connect();
+  await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] });
+  await svc.listNotebooks(USER_ID);
+
+  await svc.recordNotebookFailed({ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' });
+  await svc.recordNotebookFailed({ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' });
+
+  let nb1 = connection_repo.rows[0].notebooks.find((n) => n.id === 'nb-1');
+  assert.equal(nb1?.last_error, 'reauth_required');
+  assert.equal(nb1?.consecutive_failures, 2, 'a streak is what tells a new problem from an old one');
+  assert.ok(nb1?.last_error_at);
+
+  await svc.recordNotebookSynced({ user_id: USER_ID, notebook_id: 'nb-1', last_synced_at: new Date() });
+
+  nb1 = connection_repo.rows[0].notebooks.find((n) => n.id === 'nb-1');
+  assert.equal(nb1?.last_error, undefined, 'a success clears the error');
+  assert.equal(nb1?.consecutive_failures, 0);
+});
+
+test('notebooks cannot be listed or chosen without a connection', async () => {
+  const svc = await OneNoteConnectionSvc.create({
+    connection_repo: new InMemoryConnectionRepo(),
+    microsoft: new FakeMicrosoft(),
+    secret_box,
+    createGraph: () => new FakeGraph()
+  });
+
+  await assert.rejects(svc.listNotebooks(USER_ID), /not connected/);
+  await assert.rejects(svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] }), /not connected/);
 });
 
 test('disconnecting removes the connection and reports whether there was one', async () => {

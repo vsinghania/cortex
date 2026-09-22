@@ -3,6 +3,7 @@ import type { NoteFolder } from '../types/note_folder.types.js';
 import type {
   NoteFolderKey,
   NoteFolderPlacement,
+  NoteFolderProviderKey,
   NoteFolderRepository
 } from './note_folder_repository_interface.js';
 import { NoteFolderModelFactory } from '../models/note_folder_model.js';
@@ -40,6 +41,13 @@ export class MongooseNoteFolderRepository implements NoteFolderRepository {
     const found = await this.model
       .findOne({ user_id: params.user_id, parent_id: params.parent_id, name: params.name })
       .collation(NoteModelFactory.CASE_INSENSITIVE_COLLATION)
+      .lean();
+    return found ? MongooseUtils.toDomain<NoteFolder>(found) : null;
+  }
+
+  async findByProviderKey(params: NoteFolderProviderKey): Promise<NoteFolder | null> {
+    const found = await this.model
+      .findOne({ user_id: params.user_id, source: params.source, external_id: params.external_id })
       .lean();
     return found ? MongooseUtils.toDomain<NoteFolder>(found) : null;
   }

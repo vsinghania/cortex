@@ -27,7 +27,8 @@ type Rule = { module: string; forbidden: string[] };
 const RULES: Rule[] = [
   { module: 'agent_svc', forbidden: ['notes_svc', 'retrieval_svc'] },
   { module: 'citation_svc', forbidden: ['agent_svc'] },
-  { module: 'notes_svc', forbidden: ['agent_svc', 'citation_svc'] },
+  // onenote_svc writes notes; notes must never learn about a provider to write them.
+  { module: 'notes_svc', forbidden: ['agent_svc', 'citation_svc', 'onenote_svc'] },
   {
     module: 'jobs_svc',
     forbidden: [

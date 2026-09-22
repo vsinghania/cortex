@@ -14,7 +14,12 @@ export class NoteFolderModelFactory extends BaseModelFactory<NoteFolder> {
         name: { type: String, required: true },
         // Stored as an explicit null (not absent) so top-level siblings share one unique-index key.
         parent_id: { type: String, default: null },
-        ancestor_ids: { type: [String], default: [] }
+        ancestor_ids: { type: [String], default: [] },
+
+        // Provider identity; absent on folders the user made.
+        source: { type: String, default: undefined },
+        external_id: { type: String, default: undefined },
+        container_type: { type: String, default: undefined }
       },
       {
         collection: 'note_folders',
@@ -32,6 +37,18 @@ export class NoteFolderModelFactory extends BaseModelFactory<NoteFolder> {
       }
     );
     schema.index({ user_id: 1, ancestor_ids: 1 }, { name: 'by_user_ancestor' });
+
+    // One folder per provider container. Partial, so the many folders with no
+    // external_id do not all collide on a single null key - the same shape as
+    // uniq_user_source_external on notes.
+    schema.index(
+      { user_id: 1, source: 1, external_id: 1 },
+      {
+        unique: true,
+        name: 'uniq_user_source_external_folder',
+        partialFilterExpression: { external_id: { $exists: true, $type: 'string' } }
+      }
+    );
 
     schema.set('toJSON', {
       transform(_doc, ret) {

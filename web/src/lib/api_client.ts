@@ -21,7 +21,13 @@ import type {
 } from './note_folder.types';
 import type { AgentRunRequest, AgentRunResponse, ContextRef, Conversation, ConversationWithMessages } from './agent.types';
 import type { MintTokenResponse } from './voice.types';
-import type { OneNoteStatus } from './onenote.types';
+import type {
+  OneNoteConnection,
+  OneNoteNotebook,
+  OneNoteStatus,
+  OneNoteSyncJob,
+  OneNoteSyncStart,
+} from './onenote.types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
 
@@ -178,6 +184,33 @@ export class ApiClient {
 
   static async disconnectOneNote(): Promise<{ disconnected: boolean }> {
     return ApiClient.request<{ disconnected: boolean }>('/integrations/onenote', { method: 'DELETE' });
+  }
+
+  /** Served from the server's cache unless `refresh` asks it to call Microsoft again. */
+  static async getOneNoteNotebooks(refresh = false): Promise<{ notebooks: OneNoteNotebook[] }> {
+    return ApiClient.request<{ notebooks: OneNoteNotebook[] }>(
+      `/integrations/onenote/notebooks${refresh ? '?refresh=1' : ''}`,
+    );
+  }
+
+  static async selectOneNoteNotebooks(notebook_ids: string[]): Promise<{ connection: OneNoteConnection }> {
+    return ApiClient.request<{ connection: OneNoteConnection }>('/integrations/onenote/notebooks', {
+      method: 'PUT',
+      body: JSON.stringify({ notebook_ids }),
+    });
+  }
+
+  static async startOneNoteSync(
+    params: { mode?: 'incremental' | 'full'; notebook_ids?: string[] } = {},
+  ): Promise<OneNoteSyncStart> {
+    return ApiClient.request<OneNoteSyncStart>('/integrations/onenote/sync', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  static async getOneNoteSyncJob(job_id: string): Promise<{ job: OneNoteSyncJob }> {
+    return ApiClient.request<{ job: OneNoteSyncJob }>(`/integrations/onenote/sync/${encodeURIComponent(job_id)}`);
   }
 
   static googleSignInUrl(return_to?: string): string {

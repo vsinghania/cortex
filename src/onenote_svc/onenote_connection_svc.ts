@@ -1,3 +1,5 @@
+import { GraphOneNoteAdapter } from './adapters/graph_onenote_adapter.js';
+import type { GraphOneNoteAdapterInterface } from './adapters/graph_onenote_adapter_interface.js';
 import { MicrosoftOAuthAdapter } from './adapters/microsoft_oauth_adapter.js';
 import type { MicrosoftOAuthAdapterInterface } from './adapters/microsoft_oauth_adapter_interface.js';
 import { OneNoteConfigLoader } from './config/onenote_config.js';
@@ -8,6 +10,7 @@ import {
   OneNoteConnectionStatus,
   type OneNoteAuthorization,
   type OneNoteConnection,
+  type OneNoteNotebookChoice,
   type OneNoteOAuthState,
   type PublicOneNoteConnection
 } from './types/onenote_connection.types.js';
@@ -20,11 +23,15 @@ import { Time } from '../lib/time.js';
 
 /** The AAD field name; changing it would orphan every stored cache. */
 const TOKEN_CACHE_FIELD = 'onenote_token_cache';
+/** Notebooks are created rarely, so a day-old list is nearly always right. */
+const NOTEBOOK_CACHE_TTL_MS = Time.hoursToMs(24);
 
 type OneNoteConnectionSvcDeps = {
   connection_repo: OneNoteConnectionRepository;
   microsoft: MicrosoftOAuthAdapterInterface;
   secret_box: SecretBox;
+  /** Built per call, around a token getter, so one user's token never outlives its use. */
+  createGraph: (accessToken: () => Promise<string>) => GraphOneNoteAdapterInterface;
 };
 
 export type CompleteOneNoteAuthorizationInput = {
@@ -51,8 +58,14 @@ export class OneNoteConnectionSvc {
         overrides?.connection_repo ??
         (await MongooseOneNoteConnectionRepository.create({ db: DbNameResolver.resolve('onenote') })),
       microsoft: overrides?.microsoft ?? OneNoteConnectionSvc.createAdapter(),
-      secret_box: overrides?.secret_box ?? SecretBox.fromEnv()
+      secret_box: overrides?.secret_box ?? SecretBox.fromEnv(),
+      createGraph: overrides?.createGraph ?? ((accessToken) => GraphOneNoteAdapter.create({ accessToken }))
     });
+  }
+
+  /** The Graph reader for one user, authorized by that user's stored grant. */
+  graphFor(user_id: string): GraphOneNoteAdapterInterface {
+    return this.deps.createGraph(() => this.getAccessToken(user_id));
   }
 
   static toPublic(connection: OneNoteConnection): PublicOneNoteConnection {
@@ -118,6 +131,19 @@ export class OneNoteConnectionSvc {
   }
 
   /**
+   * The unredacted row, for callers inside the service boundary that need the watermark
+   * and the notebook selection. Never hand this to a controller — use getConnection.
+   */
+  async getStoredConnection(user_id: string): Promise<OneNoteConnection | null> {
+    return this.deps.connection_repo.findByUserId(user_id);
+  }
+
+  /** Called only by a sync pass that reached the end; see OneNoteSyncSvc.run. */
+  async recordSyncCompleted(params: { user_id: string; sync_watermark?: Date; last_synced_at: Date }): Promise<void> {
+    await this.deps.connection_repo.updateSyncState(params);
+  }
+
+  /**
    * The only place a stored cache is opened. MSAL decides whether the access token
    * still holds; a rotation is written back, and a dead grant parks the connection
    * so the UI can ask for a reconnect instead of retrying forever.
@@ -152,6 +178,76 @@ export class OneNoteConnectionSvc {
       }
       throw err;
     }
+  }
+
+  /**
+   * Served from the cached list unless it is stale or a refresh is asked for, so opening
+   * settings does not call Microsoft every time. The cost is that a notebook renamed in
+   * OneNote keeps its old name here until the cache turns over or the user refreshes.
+   */
+  async listNotebooks(user_id: string, opts: { refresh?: boolean } = {}): Promise<OneNoteNotebookChoice[]> {
+    let connection = await this.requireConnection(user_id);
+
+    if (opts.refresh || OneNoteConnectionSvc.cacheIsStale(connection)) {
+      const fetched = await this.graphFor(user_id).listNotebooks();
+      connection =
+        (await this.deps.connection_repo.cacheNotebooks({
+          user_id,
+          notebooks: fetched.map((n) => ({ id: n.id, display_name: n.display_name })),
+          cached_at: new Date()
+        })) ?? connection;
+      logger.info({ user_id, notebook_count: fetched.length }, 'onenote notebook list refreshed');
+    }
+
+    const selected = new Set(connection.selected_notebook_ids);
+    return connection.notebooks.map((n) => ({ ...n, selected: selected.has(n.id) }));
+  }
+
+  /**
+   * Called when a pass gave up on one notebook. Durable on purpose: the job record it
+   * could be derived from is reaped on a TTL, and a notification needs to tell "just
+   * started failing" from "has been failing for days".
+   */
+  async recordNotebookFailed(params: { user_id: string; notebook_id: string; reason: string }): Promise<void> {
+    await this.deps.connection_repo.recordNotebookFailure({ ...params, at: new Date() });
+  }
+
+  /** Called by a sync pass that finished one notebook; see OneNoteSyncSvc. */
+  async recordNotebookSynced(params: {
+    user_id: string;
+    notebook_id: string;
+    sync_watermark?: Date;
+    last_synced_at: Date;
+  }): Promise<void> {
+    await this.deps.connection_repo.updateNotebookSyncState(params);
+  }
+
+  private static cacheIsStale(connection: OneNoteConnection): boolean {
+    if (!connection.notebooks_cached_at || connection.notebooks.length === 0) return true;
+    return Date.now() - connection.notebooks_cached_at.getTime() > NOTEBOOK_CACHE_TTL_MS;
+  }
+
+  /**
+   * Deselecting stops future syncs; it deliberately leaves already-imported notes in
+   * place, because deleting someone's notes on a checkbox would be a poor trade.
+   */
+  async selectNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<PublicOneNoteConnection> {
+    await this.requireConnection(params.user_id);
+    const unique = [...new Set(params.notebook_ids)];
+    const updated = await this.deps.connection_repo.updateSelectedNotebooks({
+      user_id: params.user_id,
+      notebook_ids: unique
+    });
+    if (!updated) throw new NotFoundError('OneNote is not connected');
+
+    logger.info({ user_id: params.user_id, notebook_count: unique.length }, 'onenote notebooks selected');
+    return OneNoteConnectionSvc.toPublic(updated);
+  }
+
+  private async requireConnection(user_id: string): Promise<OneNoteConnection> {
+    const connection = await this.deps.connection_repo.findByUserId(user_id);
+    if (!connection) throw new NotFoundError('OneNote is not connected');
+    return connection;
   }
 
   /** Leaves imported notes alone: they are the user's, and losing them would surprise. */

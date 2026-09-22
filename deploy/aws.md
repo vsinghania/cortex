@@ -458,6 +458,45 @@ Things that bite when editing these rows by hand later:
 - **`auth_token_env` names an env var, not the token.** web-server reads
   `MCP_NOTES_AUTH_TOKEN` from its environment; the secret never goes in Mongo.
 
+### Fresh database — create the OneNote sync schedule
+
+Schedules are data too, and for the same reason: nothing seeds them at boot, so a
+deploy can never resurrect a schedule an operator deleted. Until this row exists,
+**OneNote sync only runs when someone presses "Sync now"** — no recurring sync, and
+no error anywhere to say so.
+
+Run once after the first deploy that includes OneNote sync, as a user with the
+`admin` role (the route is behind `authorizeRoles('admin')`):
+
+```sh
+curl -sS -X PUT https://api.cortexapp.me/api/v1/admin/jobs/schedules \
+  -H "authorization: Bearer <ADMIN_ACCESS_TOKEN>" \
+  -H 'content-type: application/json' \
+  -d '{
+    "id": "onenote-sync-sweep",
+    "name": "onenote_sync_sweep",
+    "label": "OneNote sync fan-out",
+    "payload": {},
+    "schedule": { "kind": "interval", "every_ms": 900000 },
+    "dedup_key": "onenote-sync-sweep",
+    "max_delay_ms": 600000
+  }'
+```
+
+`PUT` is an upsert on the caller-supplied `id`, so re-running is safe. Creation
+validates the job name against the handler registry and runs the payload through the
+handler's own `parsePayload`, so a typo fails here rather than quietly at 03:00.
+
+Check it took, and that it fires:
+
+```sh
+curl -sS https://api.cortexapp.me/api/v1/admin/jobs/schedules \
+  -H "authorization: Bearer <ADMIN_ACCESS_TOKEN>" | jq '.response[] | {id, next_run_at, enabled}'
+```
+
+`enabled` is insert-only — disabling is `PATCH /schedules/onenote-sync-sweep`, and
+re-running this `PUT` will not silently re-enable something an operator turned off.
+
 ## 10. Route 53 / DNS
 
 Hosted zone for `cortexapp.me` is managed by Route 53 (created at registration).

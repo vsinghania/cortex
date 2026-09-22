@@ -70,6 +70,9 @@ export type NoteCreateInput = {
 
   provider_created_at?: Date;
   provider_updated_at?: Date;
+  /** Provider syncs stamp these as they write, rather than paying a second update per page. */
+  last_synced_at?: Date;
+  sync_status?: SyncStatus;
 
   is_archived?: boolean;
   is_pinned?: boolean;
@@ -152,9 +155,12 @@ export class NotesSvc {
     const start_ms = performance.now();
     const indexing = opts.indexing ?? 'inline';
     if (input.folder_id) await this.requireFolder(input.user_id, input.folder_id);
-    const note = NotesSvc.isSourceKeyedInput(input)
-      ? await this.upsertSourceKeyed(input)
-      : await this.createNative(NotesSvc.withPendingVectorization(input, indexing));
+    // Both branches, not just the native one: a deferred source-keyed write enqueues a
+    // vectorize job too, so without this a synced note reads as un-indexed until it runs.
+    const pending = NotesSvc.withPendingVectorization(input, indexing);
+    const note = NotesSvc.isSourceKeyedInput(pending)
+      ? await this.upsertSourceKeyed(pending)
+      : await this.createNative(pending);
     await this.indexSafely(note, indexing);
     logger.info(
       {
@@ -548,6 +554,8 @@ export class NotesSvc {
 
         provider_created_at: input.provider_created_at ?? existing.provider_created_at,
         provider_updated_at: input.provider_updated_at ?? now,
+        last_synced_at: input.last_synced_at ?? existing.last_synced_at,
+        sync_status: input.sync_status ?? existing.sync_status,
 
         is_archived: input.is_archived ?? existing.is_archived,
         is_pinned: input.is_pinned ?? existing.is_pinned,
@@ -582,8 +590,8 @@ export class NotesSvc {
 
       provider_created_at: input.provider_created_at,
       provider_updated_at: input.provider_updated_at,
-      last_synced_at: undefined,
-      sync_status: SyncStatus.Idle,
+      last_synced_at: input.last_synced_at,
+      sync_status: input.sync_status ?? SyncStatus.Idle,
 
       is_archived: input.is_archived ?? false,
       is_pinned: input.is_pinned ?? false,

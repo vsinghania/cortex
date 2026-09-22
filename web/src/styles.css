@@ -384,6 +384,20 @@ body {
   color: var(--accent);
 }
 
+/* The same affordance on a <button>, for actions that are not navigation. */
+.cx-app button.text-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cx-app button.text-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .cx-app .text-link:hover {
   color: var(--accent-hover);
 }
@@ -4414,4 +4428,174 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 16px;
+}
+
+.notebook-picker {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.notebook-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notebook-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.notebook-status-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notebook-status-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.notebook-status-row:hover {
+  background: var(--surface-2);
+}
+
+.notebook-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notebook-status {
+  flex: none;
+  color: var(--subtext);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.notebook-muted {
+  opacity: 0.7;
+}
+
+.notebook-syncing {
+  color: var(--accent);
+}
+
+/* --- the chooser dialog --- */
+
+.notebook-chooser {
+  display: grid;
+  gap: 10px;
+  min-width: min(360px, 70vw);
+}
+
+.notebook-chooser-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.notebook-choices {
+  display: grid;
+  gap: 1px;
+  max-height: 46vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.notebook-choice {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 5px 6px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.notebook-choice:hover {
+  background: var(--surface-2);
+}
+
+.notebook-choice input {
+  accent-color: var(--accent);
+}
+
+.notebook-choice-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-sync {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.connection-sync .connection-actions {
+  margin-top: 0;
+}
+
+.sync-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.sync-progress-track {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+/* Indeterminate: the page count is not known until the walk ends, so there is no
+   honest percentage to fill. */
+.sync-progress-bar {
+  width: 32%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: sync-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes sync-slide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(420%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-progress-bar {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.notebook-failed {
+  color: var(--danger);
 }
