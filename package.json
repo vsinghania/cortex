@@ -76,7 +76,8 @@
     "mcp:notes:start": "node --enable-source-maps dist/mcp/server/notes/server.js",
     "qdrant:up": "docker compose up -d qdrant",
     "mailpit:up": "docker compose up -d mailpit",
-    "qdrant:down": "docker compose down"
+    "qdrant:down": "docker compose down",
+    "notes:backfill-edited-at": "tsx scripts/backfill_note_edited_at.ts"
   },
   "engines": {
     "node": ">=22 <23"

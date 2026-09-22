@@ -73,6 +73,8 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
         provider_created_at: { type: Date, default: undefined },
         provider_updated_at: { type: Date, default: undefined },
         last_synced_at: { type: Date, default: undefined },
+        // When the note last changed where it is authored; see Note.edited_at.
+        edited_at: { type: Date, required: true, default: () => new Date() },
 
         sync_status: { type: String, enum: Object.values(SyncStatus), default: SyncStatus.Idle },
 
@@ -105,6 +107,8 @@ export class NoteModelFactory extends BaseModelFactory<Note> {
       { name: 'by_user_provider_updated' }
     );
     NoteSchemaMongoose.index({ user_id: 1, last_synced_at: -1 }, { name: 'by_user_last_synced' });
+    // Serves the default list: pinned first, then most recently edited.
+    NoteSchemaMongoose.index({ user_id: 1, is_pinned: -1, edited_at: -1 }, { name: 'by_user_pinned_edited' });
     // Multikey over `tags`; also covers the tag-facet aggregation, which reads keys only.
     NoteSchemaMongoose.index(
       { user_id: 1, tags: 1, updated_at: -1 },

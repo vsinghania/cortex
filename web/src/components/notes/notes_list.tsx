@@ -276,8 +276,8 @@ function NoteRow({ note, active, selecting, checked, folder_tree, onClick, onOrg
         <span className="list-row-top">
           {note.is_pinned && <Icon name="pin" size={11} className="list-row-pin" />}
           <span className="list-row-title">{note.title || 'Untitled'}</span>
-          <time className="list-row-time" dateTime={note.updated_at} title={DateFormat.full(note.updated_at)}>
-            {DateFormat.relative(note.updated_at)}
+          <time className="list-row-time" dateTime={note.edited_at} title={DateFormat.full(note.edited_at)}>
+            {DateFormat.relative(note.edited_at)}
           </time>
         </span>
         <span className="list-row-preview">{preview || <em>Empty note</em>}</span>

@@ -7,6 +7,7 @@ import { Time } from '../lib/time.js';
 import { NoteFoldersSvc } from '../notes_svc/note_folders_svc.js';
 import { NotesSvc } from '../notes_svc/notes_svc.js';
 import { NoteSource, SyncStatus } from '../notes_svc/types/note.types.js';
+import type { Note } from '../notes_svc/types/note.types.js';
 import type { NoteFolder } from '../notes_svc/types/note_folder.types.js';
 import { OneNoteConnectionSvc } from './onenote_connection_svc.js';
 import {
@@ -34,6 +35,13 @@ const ROOT_EXTERNAL_ID = 'root';
  * unchanged page costs one Graph call and no write.
  */
 const WATERMARK_OVERLAP_MS = Time.minutesToMs(5);
+/**
+ * Stamped into `provider_etag` beside the content hash. The hash answers "did the page
+ * change?", which is the wrong question on its own: when the converter changes, the page
+ * has not moved but the markdown we would now produce has. Bumping this invalidates every
+ * stored etag, so the next ordinary pass re-converts instead of needing a manual resync.
+ */
+const CONVERTER_VERSION = 'v2';
 const DEFAULT_BUDGET_MS = Time.minutesToMs(8);
 
 type OneNoteSyncSvcDeps = {
@@ -229,6 +237,49 @@ export class OneNoteSyncSvc {
     return undefined;
   }
 
+  /**
+   * One page, now. Small enough to answer inline — a Graph read plus an upsert — so it
+   * needs no job, and it lets someone pull a single note they just edited in OneNote
+   * without waiting for the next pass.
+   */
+  async syncNote(params: { user_id: string; note_id: string }): Promise<Note> {
+    const note = await this.deps.notes_svc.getNote(params.user_id, { id: params.note_id });
+    if (!note || note.source !== NoteSource.OneNote || !note.external_id) {
+      throw new NotFoundError('Note not found');
+    }
+
+    const graph = this.deps.connection_svc.graphFor(params.user_id);
+    const section = OneNoteSyncSvc.sectionOf(note);
+    const folder = note.folder_id ? { id: note.folder_id } as NoteFolder : null;
+    if (!folder) throw new BadRequestError('This note is not filed under a synced section');
+
+    const outcome = await this.syncPage({
+      params: { user_id: params.user_id, mode: 'full' },
+      graph,
+      page: { id: note.external_id, title: note.title, web_url: note.metadata?.provider_url },
+      section,
+      folder
+    });
+    if (outcome === 'failed') {
+      // Graph 404s a page deleted in OneNote; say so rather than failing opaquely.
+      throw new NotFoundError('That page is no longer in OneNote');
+    }
+
+    const updated = await this.deps.notes_svc.getNote(params.user_id, { id: params.note_id });
+    if (!updated) throw new NotFoundError('Note not found');
+    return updated;
+  }
+
+  /** The note already records which section it came from; reuse it rather than re-walking. */
+  private static sectionOf(note: Note): GraphSection {
+    return {
+      id: note.container?.container_id ?? '',
+      display_name: note.container?.container_name ?? '',
+      notebook: null,
+      section_group: null
+    };
+  }
+
   private async syncPage(args: {
     params: RunSyncParams;
     graph: GraphOneNoteAdapterInterface;
@@ -245,8 +296,10 @@ export class OneNoteSyncSvc {
         external_id: page.id
       });
 
-      // OneNote exposes no ETag, so metadata.provider_etag holds a hash of the HTML.
-      if (existing && existing.metadata?.provider_etag === content_hash) {
+      // OneNote exposes no ETag, so metadata.provider_etag holds a hash of the HTML plus
+      // the converter version. A full pass rewrites regardless: that is what makes it the
+      // tool for backfilling after a conversion change.
+      if (params.mode !== 'full' && existing && existing.metadata?.provider_etag === content_hash) {
         await this.deps.notes_svc.updateNote(
           params.user_id,
           { source: NoteSource.OneNote, external_id: page.id },
@@ -436,7 +489,7 @@ export class OneNoteSyncSvc {
   private static converter_instance?: HtmlToMarkdown;
 
   private static hash(html: string): string {
-    return createHash('sha256').update(html).digest('base64url');
+    return `${CONVERTER_VERSION}:${createHash('sha256').update(html).digest('base64url')}`;
   }
 
   private static toDate(iso?: string): Date | undefined {

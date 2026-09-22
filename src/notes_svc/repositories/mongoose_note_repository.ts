@@ -436,6 +436,7 @@ export class MongooseNoteRepository implements NoteRepository {
     const allowed: Partial<Note> = {};
 
     if (p.title !== undefined) allowed.title = p.title;
+    if (p.edited_at !== undefined) allowed.edited_at = p.edited_at;
     if (p.body !== undefined) allowed.body = p.body;
     if (p.body_raw !== undefined) allowed.body_raw = p.body_raw;
     if (p.tags !== undefined) allowed.tags = p.tags;

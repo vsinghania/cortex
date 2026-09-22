@@ -185,7 +185,9 @@ export class NotesSvc {
     const indexing = opts.indexing ?? 'inline';
     if (patch.folder_id) await this.requireFolder(user_id, patch.folder_id);
     const touches_body = NotePatchKind.touchesBody(patch);
-    const stored_patch = touches_body ? NotesSvc.withPendingVectorization(patch, indexing) : patch;
+    const stored_patch = NotesSvc.withEditedAt(
+      touches_body ? NotesSvc.withPendingVectorization(patch, indexing) : patch
+    );
     const updated = 'id' in locator
       ? await this.notes_repo.updateNoteById({ user_id, id: locator.id, patch: stored_patch })
       : await this.notes_repo.updateNoteByKey({
@@ -529,6 +531,17 @@ export class NotesSvc {
     }));
   }
 
+  /**
+   * Keeps `edited_at` honest on a patch. A provider's timestamp wins when one is given;
+   * otherwise only a change to the content counts as an edit — stamping `last_synced_at`
+   * must not make a note look freshly written.
+   */
+  private static withEditedAt(patch: NotePatch): NotePatch {
+    if (patch.provider_updated_at) return { ...patch, edited_at: patch.provider_updated_at };
+    if (patch.title === undefined && patch.body === undefined) return patch;
+    return { ...patch, edited_at: new Date() };
+  }
+
   private static isSourceKeyedInput(input: NoteCreateInput): input is NoteCreateInput & { source: NoteSource; external_id: string } {
     return !!input.source && input.source !== NoteSource.Native && !!input.external_id;
   }
@@ -554,6 +567,7 @@ export class NotesSvc {
 
         provider_created_at: input.provider_created_at ?? existing.provider_created_at,
         provider_updated_at: input.provider_updated_at ?? now,
+        edited_at: input.provider_updated_at ?? existing.edited_at ?? now,
         last_synced_at: input.last_synced_at ?? existing.last_synced_at,
         sync_status: input.sync_status ?? existing.sync_status,
 
@@ -592,6 +606,8 @@ export class NotesSvc {
       provider_updated_at: input.provider_updated_at,
       last_synced_at: input.last_synced_at,
       sync_status: input.sync_status ?? SyncStatus.Idle,
+      // The provider owns this note's content, so its clock is the one that matters.
+      edited_at: input.provider_updated_at ?? now,
 
       is_archived: input.is_archived ?? false,
       is_pinned: input.is_pinned ?? false,
@@ -627,6 +643,8 @@ export class NotesSvc {
       provider_updated_at: undefined,
       last_synced_at: undefined,
       sync_status: SyncStatus.Idle,
+      // A note written here is authored here, so the two clocks agree.
+      edited_at: now,
 
       is_archived: input.is_archived ?? false,
       is_pinned: input.is_pinned ?? false,

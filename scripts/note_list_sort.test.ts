@@ -4,7 +4,10 @@ import { NoteListSort } from '../src/notes_svc/note_list_sort.js';
 
 test('defaults to newest-updated first, pinned leading', () => {
   const resolved = NoteListSort.resolve({ has_query: false });
-  assert.deepEqual(resolved.sort, { is_pinned: -1, updated_at: -1, id: -1 });
+  // `updated_at` is the public name of the sort; it is backed by `edited_at`, so an
+  // imported note orders by when it changed in OneNote rather than by when a sync
+  // happened to rewrite the row.
+  assert.deepEqual(resolved.sort, { is_pinned: -1, edited_at: -1, id: -1 });
   assert.equal(resolved.by_relevance, false);
   assert.equal(resolved.needs_case_insensitive_collation, false);
 });

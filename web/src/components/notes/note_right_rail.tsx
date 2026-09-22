@@ -82,7 +82,7 @@ function NoteDetails({ note, folders_by_id, related, onOutline, onOpenNote }: Pr
         <dt>Created</dt>
         <dd className="mono-meta">{DateFormat.full(note.created_at)}</dd>
         <dt>Updated</dt>
-        <dd className="mono-meta">{DateFormat.relative(note.updated_at)}</dd>
+        <dd className="mono-meta">{DateFormat.relative(note.edited_at)}</dd>
         <dt>Words</dt>
         <dd className="mono-meta">{NoteOutline.wordCount(note.body)}</dd>
         <dt>Folder</dt>
@@ -97,7 +97,7 @@ function NoteDetails({ note, folders_by_id, related, onOutline, onOpenNote }: Pr
           related.map((r) => (
             <button key={r.id} type="button" className="related-card" onClick={() => onOpenNote(r.id)}>
               <span className="related-title">{r.title || 'Untitled'}</span>
-              <span className="related-time">{DateFormat.relative(r.updated_at)}</span>
+              <span className="related-time">{DateFormat.relative(r.edited_at)}</span>
             </button>
           ))
         )}

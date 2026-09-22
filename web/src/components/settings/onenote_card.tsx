@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ConfirmDialog } from '../confirm_dialog';
-import { OneNoteLogo } from './onenote_logo';
+import { OneNoteLogo } from '../onenote_logo';
 import { useOneNoteConnection } from '../../lib/use_onenote_connection';
 import { useOneNoteSync } from '../../lib/use_onenote_sync';
 import { DateFormat } from '../../lib/date_format';
