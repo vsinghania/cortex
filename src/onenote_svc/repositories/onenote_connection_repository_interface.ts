@@ -1,7 +1,8 @@
 import type {
   CreateOneNoteConnectionInput,
   OneNoteConnection,
-  OneNoteConnectionStatus
+  OneNoteConnectionStatus,
+  OneNoteConnectionSummary
 } from '../types/onenote_connection.types.js';
 
 export interface OneNoteConnectionRepository {
@@ -57,4 +58,7 @@ export interface OneNoteConnectionRepository {
   }): Promise<void>;
 
   deleteByUserId(user_id: string): Promise<boolean>;
+
+  /** Admin-only and NOT user-scoped: summaries for a page of users in the admin users view. */
+  listSummariesByUserIds(user_ids: string[]): Promise<OneNoteConnectionSummary[]>;
 }

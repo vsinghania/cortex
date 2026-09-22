@@ -109,6 +109,9 @@ export type OneNoteNotebookState = {
   consecutive_failures?: number;
 };
 
+/** What the admin users view shows of a connection: never the grant or the account. */
+export type OneNoteConnectionSummary = Pick<OneNoteConnection, 'user_id' | 'status' | 'last_synced_at'>;
+
 /** A notebook as the picker shows it. */
 export type OneNoteNotebookChoice = OneNoteNotebookState & {
   selected: boolean;

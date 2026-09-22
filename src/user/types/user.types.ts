@@ -16,6 +16,20 @@ export type User = {
   email_verified_at?: Date;
 };
 
+/**
+ * A user as the admin users view reads one: the credentials are reduced to whether they
+ * exist, in the query, so neither the hash nor the Google id is ever loaded on this path.
+ */
+export type AdminUserRecord = Omit<User, 'password_hash' | 'google_sub'> & {
+  has_password: boolean;
+  has_google: boolean;
+};
+
+export type ListUsersParams = {
+  limit: number;
+  offset: number;
+};
+
 // Service boundary identifier alias to avoid leaking storage concerns
 export type user_id = string;
 

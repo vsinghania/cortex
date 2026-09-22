@@ -1,5 +1,5 @@
 import type { Connection } from 'mongoose';
-import type { Note } from '../types/note.types.js';
+import type { Note, NoteSource } from '../types/note.types.js';
 import type {
   NoteRepository,
   NoteListParams,
@@ -14,7 +14,8 @@ import type {
   NotePatchFields,
   NoteBulkUpdate,
   NoteBulkUpdateResult,
-  NoteFolderCount
+  NoteFolderCount,
+  NoteUserCounts
 } from './note_repository_interface.js';
 import { NoteListSort, type ResolvedNoteSort } from '../note_list_sort.js';
 import { NotePatchKind } from '../note_patch_kind.js';
@@ -280,6 +281,38 @@ export class MongooseNoteRepository implements NoteRepository {
     params: Omit<NoteMaintenanceParams, 'after_id' | 'limit'>
   ): Promise<number> {
     return this.model.countDocuments(MongooseNoteRepository.buildMaintenanceFilter(params));
+  }
+
+  /** Unscoped by design - see NoteUserCounts. */
+  async countNotesByUser(params: { user_ids: string[] }): Promise<NoteUserCounts[]> {
+    if (params.user_ids.length === 0) return [];
+    const rows: Array<{ user_id: string; source: NoteSource; total: number; archived: number }> =
+      await this.model.aggregate([
+        { $match: { user_id: { $in: params.user_ids } } },
+        {
+          $group: {
+            _id: { user_id: '$user_id', source: '$source' },
+            total: { $sum: 1 },
+            archived: { $sum: { $cond: [{ $eq: ['$is_archived', true] }, 1, 0] } }
+          }
+        },
+        { $project: { _id: 0, user_id: '$_id.user_id', source: '$_id.source', total: 1, archived: 1 } }
+      ]);
+    return MongooseNoteRepository.foldSourceCounts(rows);
+  }
+
+  private static foldSourceCounts(
+    rows: Array<{ user_id: string; source: NoteSource; total: number; archived: number }>
+  ): NoteUserCounts[] {
+    const by_user = new Map<string, NoteUserCounts>();
+    for (const row of rows) {
+      const counts = by_user.get(row.user_id) ?? { user_id: row.user_id, total: 0, archived: 0, by_source: {} };
+      counts.total += row.total;
+      counts.archived += row.archived;
+      counts.by_source[row.source] = (counts.by_source[row.source] ?? 0) + row.total;
+      by_user.set(row.user_id, counts);
+    }
+    return [...by_user.values()];
   }
 
   /**
