@@ -3275,28 +3275,6 @@ body {
   animation: cx-blink 1s step-end infinite;
 }
 
-.tool-chip {
-  align-self: flex-start;
-  margin-left: 38px;
-  padding: 3px 9px;
-  border: 1px solid var(--border-soft);
-  border-radius: 20px;
-  background: var(--surface-2);
-  color: var(--subtext);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-}
-
-.tool-chip-started {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.tool-chip-failed {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
 .voice-controls {
   display: flex;
   align-items: center;

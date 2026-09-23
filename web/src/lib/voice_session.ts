@@ -3,7 +3,6 @@ import { RealtimeFollowUpTracker } from './realtime_follow_up_tracker';
 import type {
   MintTokenResponse,
   VoiceSessionStatus,
-  VoiceToolEvent,
   VoiceTranscriptEvent,
 } from './voice.types';
 
@@ -12,7 +11,6 @@ const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 export type VoiceSessionCallbacks = {
   onStatus?: (status: VoiceSessionStatus) => void;
   onTranscript?: (event: VoiceTranscriptEvent) => void;
-  onTool?: (event: VoiceToolEvent) => void;
   onError?: (message: string) => void;
 };
 
@@ -180,28 +178,6 @@ export class VoiceSession {
         this.callbacks.onTranscript?.({ role: 'assistant', text, is_final: true });
         return;
       }
-      case 'response.mcp_call_arguments.done':
-      case 'response.output_item.added': {
-        const tool = VoiceSession.extractToolName(event);
-        if (tool) this.callbacks.onTool?.({ tool_name: tool, status: 'started' });
-        return;
-      }
-      case 'response.output_item.done': {
-        const tool_event = VoiceSession.toMcpCallOutcome(event);
-        if (tool_event) this.callbacks.onTool?.(tool_event);
-        return;
-      }
-      case 'response.mcp_call.completed': {
-        const tool = VoiceSession.extractToolName(event);
-        this.callbacks.onTool?.({ tool_name: tool ?? 'mcp', status: 'completed' });
-        return;
-      }
-      case 'response.mcp_call.failed': {
-        const tool = VoiceSession.extractToolName(event);
-        const detail = typeof event.error === 'string' ? event.error : undefined;
-        this.callbacks.onTool?.({ tool_name: tool ?? 'mcp', status: 'failed', detail });
-        return;
-      }
       case 'error': {
         const detail = VoiceSession.extractErrorDetail(event);
         this.callbacks.onError?.(detail);
@@ -210,28 +186,6 @@ export class VoiceSession {
       default:
         return;
     }
-  }
-
-  private static extractToolName(event: RealtimeServerEvent): string | null {
-    const item = event.item;
-    if (item && typeof item === 'object') {
-      const name = (item as Record<string, unknown>).name;
-      if (typeof name === 'string') return name;
-    }
-    if (typeof event.name === 'string') return event.name;
-    return null;
-  }
-
-  private static toMcpCallOutcome(event: RealtimeServerEvent): VoiceToolEvent | null {
-    const item = event.item;
-    if (!item || typeof item !== 'object') return null;
-    const { type, name, error } = item as Record<string, unknown>;
-    if (type !== 'mcp_call') return null;
-    const tool_name = typeof name === 'string' ? name : 'mcp';
-    if (error) {
-      return { tool_name, status: 'failed', detail: typeof error === 'string' ? error : undefined };
-    }
-    return { tool_name, status: 'completed' };
   }
 
   private static extractErrorDetail(event: RealtimeServerEvent): string {

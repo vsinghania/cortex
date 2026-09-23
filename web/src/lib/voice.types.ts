@@ -20,9 +20,3 @@ export type VoiceTranscriptEvent = {
   text: string;
   is_final: boolean;
 };
-
-export type VoiceToolEvent = {
-  tool_name: string;
-  status: 'started' | 'completed' | 'failed';
-  detail?: string;
-};

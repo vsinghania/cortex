@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { VoiceSession } from '../../lib/voice_session';
-import type { VoiceSessionStatus, VoiceToolEvent, VoiceTranscriptEvent } from '../../lib/voice.types';
+import type { VoiceSessionStatus, VoiceTranscriptEvent } from '../../lib/voice.types';
 import { Icon } from '../icon';
 import type { VoiceLine, VoicePhase } from '../../lib/assistant.types';
 import { AudioLevelMeter } from '../../lib/audio_level_meter';
@@ -27,7 +27,6 @@ export function VoiceView() {
   const [muted, set_muted] = useState(false);
   const [error, set_error] = useState<string | null>(null);
   const [lines, set_lines] = useState<VoiceLine[]>([]);
-  const [tool, set_tool] = useState<VoiceToolEvent | null>(null);
   const [elapsed_sec, set_elapsed_sec] = useState(0);
   const session_ref = useRef<VoiceSession | null>(null);
   const start_generation_ref = useRef(0);
@@ -77,7 +76,6 @@ export function VoiceView() {
     const generation = start_generation_ref.current;
     set_error(null);
     set_lines([]);
-    set_tool(null);
     set_muted(false);
     set_elapsed_sec(0);
     streaming_line_ref.current = null;
@@ -85,7 +83,6 @@ export function VoiceView() {
       const session = await VoiceSession.start({
         onStatus: set_status,
         onTranscript: handleTranscript,
-        onTool: set_tool,
         onError: set_error,
       });
       // Ended (or restarted) while still connecting: don't keep a session nobody wants.
@@ -214,13 +211,6 @@ export function VoiceView() {
                   </p>
                 </div>
               ))
-            )}
-            {tool && (
-              <div className={`tool-chip tool-chip-${tool.status}`}>
-                {tool.status === 'started' && `Using ${tool.tool_name}…`}
-                {tool.status === 'completed' && `${tool.tool_name} done`}
-                {tool.status === 'failed' && `${tool.tool_name} failed${tool.detail ? `: ${tool.detail}` : ''}`}
-              </div>
             )}
           </div>
 
