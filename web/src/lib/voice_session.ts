@@ -1,4 +1,5 @@
 import { ApiClient } from './api_client';
+import { RealtimeFollowUpTracker } from './realtime_follow_up_tracker';
 import type {
   MintTokenResponse,
   VoiceSessionStatus,
@@ -30,6 +31,7 @@ export class VoiceSession {
   private remote_stream: MediaStream | null = null;
   private status: VoiceSessionStatus = 'idle';
   private assistant_transcript_buffer = '';
+  private readonly follow_up_tracker = new RealtimeFollowUpTracker();
 
   private constructor(callbacks: VoiceSessionCallbacks) {
     this.callbacks = callbacks;
@@ -144,6 +146,14 @@ export class VoiceSession {
       return;
     }
     this.routeEvent(event);
+    if (this.follow_up_tracker.observe(event)) {
+      this.sendEvent({ type: 'response.create' });
+    }
+  }
+
+  private sendEvent(event: RealtimeServerEvent): void {
+    if (this.data_channel?.readyState !== 'open') return;
+    this.data_channel.send(JSON.stringify(event));
   }
 
   private routeEvent(event: RealtimeServerEvent): void {
@@ -176,6 +186,11 @@ export class VoiceSession {
         if (tool) this.callbacks.onTool?.({ tool_name: tool, status: 'started' });
         return;
       }
+      case 'response.output_item.done': {
+        const tool_event = VoiceSession.toMcpCallOutcome(event);
+        if (tool_event) this.callbacks.onTool?.(tool_event);
+        return;
+      }
       case 'response.mcp_call.completed': {
         const tool = VoiceSession.extractToolName(event);
         this.callbacks.onTool?.({ tool_name: tool ?? 'mcp', status: 'completed' });
@@ -205,6 +220,18 @@ export class VoiceSession {
     }
     if (typeof event.name === 'string') return event.name;
     return null;
+  }
+
+  private static toMcpCallOutcome(event: RealtimeServerEvent): VoiceToolEvent | null {
+    const item = event.item;
+    if (!item || typeof item !== 'object') return null;
+    const { type, name, error } = item as Record<string, unknown>;
+    if (type !== 'mcp_call') return null;
+    const tool_name = typeof name === 'string' ? name : 'mcp';
+    if (error) {
+      return { tool_name, status: 'failed', detail: typeof error === 'string' ? error : undefined };
+    }
+    return { tool_name, status: 'completed' };
   }
 
   private static extractErrorDetail(event: RealtimeServerEvent): string {
