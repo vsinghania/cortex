@@ -484,7 +484,7 @@ export function NotesPage() {
             actions={[
               { key: 'note', label: 'New note', icon: 'file_plus', onSelect: startDraft },
               { key: 'chat', label: 'New chat', icon: 'sparkle', onSelect: () => navigate(AppRoutes.chat({ conversation_id: AppRoutes.NEW_THREAD_SEGMENT })) },
-              { key: 'voice', label: 'Voice chat', icon: 'mic', onSelect: () => navigate(AppRoutes.chat({ conversation_id: AppRoutes.NEW_THREAD_SEGMENT, mode: 'voice' })) },
+              { key: 'voice', label: 'Voice chat', icon: 'mic', onSelect: () => navigate(AppRoutes.voice()) },
             ]}
           />
         }

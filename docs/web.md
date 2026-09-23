@@ -48,7 +48,7 @@ React 18 + React Router, Vite, no state library. `/login`, `/register`, `/forgot
 
 Assistant turns render through react-markdown + `remark-gfm` (the model writes markdown whether or not the prompt asks for it); user turns stay literal `pre-wrap` text, so a typed `**` is not eaten. See [citation_svc.md](citation_svc.md) for how citation chips survive the markdown pass.
 
-Voice is the one exception to "talks only to the API" — the browser opens WebRTC straight to OpenAI. See [voice.md](voice.md).
+Voice is the one exception to "talks only to the API" — the browser opens WebRTC straight to OpenAI. See [voice.md](voice.md). Voice has its own page rather than being a mode of a thread, because nothing said in a session is saved to one; the mic button beside the rail's compose action opens it from every screen, and old `/chat?mode=voice` links redirect there.
 
 ## 5. Gotchas
 

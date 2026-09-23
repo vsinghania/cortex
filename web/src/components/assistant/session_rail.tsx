@@ -4,16 +4,14 @@ import type { Citation, Conversation } from '../../lib/agent.types';
 import { Icon } from '../icon';
 import type { ChatTurn } from '../../lib/assistant.types';
 import { AppRoutes } from '../../lib/app_routes';
-import type { AssistantMode } from '../../lib/app_routes';
 import { CitationLink, CitationLinks } from './chat_message';
 
 type Props = {
   turns: ChatTurn[];
-  mode: AssistantMode;
   conversation: Conversation | null;
 };
 
-export function SessionRail({ turns, mode, conversation }: Props) {
+export function SessionRail({ turns, conversation }: Props) {
   // One entry per note, keeping the first passage cited from it as the jump target.
   const sources = useMemo(() => {
     const by_document = new Map<string, Citation>();
@@ -71,8 +69,6 @@ export function SessionRail({ turns, mode, conversation }: Props) {
 
       <div className="side-heading">This session</div>
       <dl className="details">
-        <dt>Mode</dt>
-        <dd>{mode === 'voice' ? 'Voice' : 'Chat'}</dd>
         <dt>Turns</dt>
         <dd className="mono-meta">{user_turns}</dd>
         <dt>Notes cited</dt>

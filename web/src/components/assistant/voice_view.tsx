@@ -6,6 +6,7 @@ import type { VoiceLine, VoicePhase } from '../../lib/assistant.types';
 import { AudioLevelMeter } from '../../lib/audio_level_meter';
 import { useHotkey } from '../../lib/use_hotkey';
 import { useIsMobile } from '../../lib/use_is_mobile';
+import { VoiceLaunch } from '../../lib/voice_launch';
 
 const BAR_COUNT = 44;
 /** Fewer bars on a phone: 44 of them read as noise at that width. */
@@ -21,7 +22,12 @@ const PHASE_LABEL: Record<VoicePhase, string> = {
   error: 'Voice stopped',
 };
 
-export function VoiceView() {
+type Props = {
+  /** Start listening on mount instead of waiting for a tap. */
+  autostart?: boolean;
+};
+
+export function VoiceView({ autostart = false }: Props) {
   const [status, set_status] = useState<VoiceSessionStatus>('idle');
   const [speaking, set_speaking] = useState(false);
   const [muted, set_muted] = useState(false);
@@ -37,7 +43,8 @@ export function VoiceView() {
   const muted_ref = useRef(muted);
   muted_ref.current = muted;
   const bar_refs = useRef<(HTMLSpanElement | null)[]>([]);
-  const bar_count = useIsMobile() ? MOBILE_BAR_COUNT : BAR_COUNT;
+  const is_mobile = useIsMobile();
+  const bar_count = is_mobile ? MOBILE_BAR_COUNT : BAR_COUNT;
   const orb_ref = useRef<HTMLButtonElement>(null);
   const captions_ref = useRef<HTMLDivElement>(null);
 
@@ -107,6 +114,13 @@ export function VoiceView() {
 
   useEffect(() => stop, [stop]);
   useHotkey({ key: 'Escape' }, stop, is_active);
+  useHotkey(VoiceLaunch.HOTKEY, () => (is_active ? stop() : void start()));
+
+  useEffect(() => {
+    if (autostart) void start();
+    // Only the arrival matters; start() is recreated every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autostart]);
 
   useEffect(() => {
     if (status !== 'listening') return;
@@ -232,7 +246,7 @@ export function VoiceView() {
             </button>
           </div>
           <p className="voice-hint">
-            {is_active ? 'esc to end · ' : ''}Voice turns aren't saved to this thread.
+            {VoiceHint.shortcuts({ is_active, is_mobile })}The conversation isn't kept; notes you save are.
           </p>
         </div>
       </div>
@@ -255,6 +269,13 @@ class Waveform {
       const height = Waveform.MIN_HEIGHT_PX + value * (Waveform.MAX_HEIGHT_PX - Waveform.MIN_HEIGHT_PX);
       bar.style.height = `${height.toFixed(1)}px`;
     });
+  }
+}
+
+class VoiceHint {
+  static shortcuts(params: { is_active: boolean; is_mobile: boolean }): string {
+    if (params.is_mobile) return '';
+    return params.is_active ? 'esc to end · ' : `${VoiceLaunch.hotkeyLabel()} to start · `;
   }
 }
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useMatch, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import { useAuth } from '../lib/use_auth';
 import { Icon } from './icon';
@@ -12,6 +12,7 @@ import { UserRoles } from '../lib/user_roles';
 import { usePersistedFlag } from '../lib/use_persisted_flag';
 import { useHotkey } from '../lib/use_hotkey';
 import { UserInitials } from '../lib/user_initials';
+import { VoiceLaunch } from '../lib/voice_launch';
 import { BrandWordmark } from './brand_wordmark';
 import { PopoverMenu } from './popover_menu';
 
@@ -37,6 +38,7 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
   const is_drawer = variant === 'drawer';
   const [persisted_collapsed, set_collapsed] = usePersistedFlag('cortex.railCollapsed', false);
   useHotkey({ code: 'Backslash', mod: true }, () => set_collapsed((c) => !c), !is_drawer);
+  useVoiceHotkey(!is_drawer);
   // Collapsing is a desktop affordance; the drawer reads the flag but never applies it, so
   // switching to a phone and back leaves the desktop preference intact.
   const collapsed = !is_drawer && persisted_collapsed;
@@ -74,6 +76,7 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
           {!collapsed && action.shortcut_label && <kbd className="kbd kbd-accent">{action.shortcut_label}</kbd>}
           {collapsed && <span className="sr-only">{action.label}</span>}
         </button>
+        <VoiceLink />
       </div>
 
       <div className="rail-scroll">
@@ -102,6 +105,28 @@ export function RailNavLink({ item, collapsed }: { item: AppNavItem; collapsed: 
     >
       <Icon name={item.icon} size={15} className="rail-item-icon" />
       {collapsed ? <span className="sr-only">{item.label}</span> : <span className="rail-item-label">{item.label}</span>}
+    </NavLink>
+  );
+}
+
+/** Opens voice already listening. The voice page handles the key itself, as start/stop. */
+function useVoiceHotkey(enabled: boolean) {
+  const navigate = useNavigate();
+  const on_voice_page = useMatch(AppRoutes.voice()) !== null;
+  useHotkey(VoiceLaunch.HOTKEY, () => navigate(AppRoutes.voice(), { state: VoiceLaunch.AUTOSTART_STATE }), enabled && !on_voice_page);
+}
+
+/** Voice has no thread to live in, so it sits beside the compose action on every screen. */
+function VoiceLink() {
+  const title = `Voice: talk to your notes (${VoiceLaunch.hotkeyLabel()})`;
+  return (
+    <NavLink
+      to={AppRoutes.voice()}
+      className={({ isActive }) => `rail-voice${isActive ? ' rail-voice-active' : ''}`}
+      aria-label={title}
+      title={title}
+    >
+      <Icon name="mic" size={15} />
     </NavLink>
   );
 }

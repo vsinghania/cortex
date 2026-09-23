@@ -1,5 +1,3 @@
-export type AssistantMode = 'chat' | 'voice';
-
 /**
  * Every path in the app. Nothing outside this class spells a route out by hand, so the
  * shape of the URL space stays changeable from one place.
@@ -72,9 +70,12 @@ export class AppRoutes {
     return AppRoutes.note(AppRoutes.NEW_NOTE_SEGMENT, search);
   }
 
-  static chat(params: { conversation_id?: string | null; mode?: AssistantMode } = {}): string {
-    const base = params.conversation_id ? `/chat/${encodeURIComponent(params.conversation_id)}` : '/chat';
-    return params.mode === 'voice' ? `${base}?mode=voice` : base;
+  static chat(params: { conversation_id?: string | null } = {}): string {
+    return params.conversation_id ? `/chat/${encodeURIComponent(params.conversation_id)}` : '/chat';
+  }
+
+  static voice(): string {
+    return '/voice';
   }
 
   /** Maps an app-relative note link (as written into saved notes) to its page. */

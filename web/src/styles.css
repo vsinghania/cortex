@@ -1394,10 +1394,13 @@ body {
 }
 
 .rail-action-wrap {
+  display: flex;
+  gap: 6px;
   padding: 14px 12px 8px;
 }
 
 .rail-collapsed .rail-action-wrap {
+  flex-direction: column;
   padding: 12px 10px 8px;
 }
 
@@ -1406,6 +1409,7 @@ body {
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid var(--accent);
   border-radius: var(--radius);
@@ -1423,6 +1427,30 @@ body {
 
 .rail-collapsed .rail-action {
   justify-content: center;
+  padding: 9px 0;
+}
+
+.rail-voice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--subtext);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.rail-voice:hover,
+.rail-voice-active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.rail-collapsed .rail-voice {
+  width: 100%;
   padding: 9px 0;
 }
 
@@ -3520,6 +3548,11 @@ body {
 }
 
 @media (max-width: 1000px) {
+  /* The voice button shares the row; the shortcut stays in the action's tooltip. */
+  .rail-action .kbd {
+    display: none;
+  }
+
   .cx-app {
     --rail-w: 180px;
     --list-w: 240px;
@@ -3810,6 +3843,11 @@ body {
   padding: 11px 12px;
   border-radius: 9px;
   font-size: 14px;
+}
+
+.cx-app[data-layout='mobile'] .rail-drawer .rail-voice {
+  width: var(--touch-min);
+  border-radius: 9px;
 }
 
 .cx-app[data-layout='mobile'] .rail-drawer .icon-btn {

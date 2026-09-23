@@ -1,16 +1,13 @@
 import { Icon } from '../icon';
-import type { AssistantMode } from '../../lib/app_routes';
 
 type Props = {
   title: string;
   thinking: boolean;
-  mode: AssistantMode;
   list_collapsed: boolean;
   onToggleList: () => void;
-  onModeChange: (mode: AssistantMode) => void;
 };
 
-export function AssistantHeader({ title, thinking, mode, list_collapsed, onToggleList, onModeChange }: Props) {
+export function AssistantHeader({ title, thinking, list_collapsed, onToggleList }: Props) {
   return (
     <header className="toolbar">
       <div className="toolbar-crumbs">
@@ -32,21 +29,6 @@ export function AssistantHeader({ title, thinking, mode, list_collapsed, onToggl
             thinking
           </span>
         )}
-      </div>
-      <div className="segmented segmented-lg" role="radiogroup" aria-label="Assistant mode">
-        {(['chat', 'voice'] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={mode === value}
-            className={`segmented-item${mode === value ? ' segmented-item-active' : ''}`}
-            onClick={() => onModeChange(value)}
-          >
-            <Icon name={value === 'chat' ? 'chat' : 'mic'} size={13} className="segmented-icon" />
-            {value === 'chat' ? 'Chat' : 'Voice'}
-          </button>
-        ))}
       </div>
     </header>
   );

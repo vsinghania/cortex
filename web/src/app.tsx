@@ -24,6 +24,7 @@ import { VerifyEmailPage } from './pages/verify_email_page';
 import { PrivacyPage } from './pages/privacy_page';
 import { NotesPage } from './pages/notes_page';
 import { AssistantPage } from './pages/assistant_page';
+import { VoicePage } from './pages/voice_page';
 import { SettingsPage } from './pages/settings_page';
 import { AdminUsersPage } from './pages/admin_users_page';
 
@@ -46,7 +47,7 @@ export function App() {
             <Route path="/notes/:note_id?" element={<NotesPage />} />
             <Route path="/chat/:conversation_id?" element={<AssistantPage />} />
             <Route path={AppRoutes.settings()} element={<SettingsPage />} />
-            <Route path="/voice" element={<Navigate to={AppRoutes.chat({ mode: 'voice' })} replace />} />
+            <Route path={AppRoutes.voice()} element={<VoicePage />} />
             <Route element={<RequireAdmin />}>
               <Route path={AppRoutes.admin()} element={<Navigate to={AppRoutes.adminUsers()} replace />} />
               <Route path={AppRoutes.adminUsers()} element={<AdminUsersPage />} />
