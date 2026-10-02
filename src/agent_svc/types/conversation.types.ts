@@ -23,6 +23,12 @@ export type Conversation = {
   updated_at: Date;
 };
 
+/** The fields a user may change on their own conversation. */
+export type ConversationPatch = {
+  is_pinned?: boolean;
+  title?: string;
+};
+
 export type ConversationMessageMeta = {
   conversation_id: string;
   turn: number;

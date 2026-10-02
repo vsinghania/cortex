@@ -48,6 +48,14 @@ export type Conversation = {
   updated_at: string;
 };
 
+export type ConversationPatch = {
+  is_pinned?: boolean;
+  title?: string;
+};
+
+/** Matches the server's limit on a user-chosen title. */
+export const CONVERSATION_TITLE_MAX_CHARS = 120;
+
 type ContentPart =
   | { type: 'text'; text: string }
   | { type: 'json'; data: unknown }

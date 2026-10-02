@@ -19,7 +19,7 @@ import type {
   NoteFolderNode,
   NoteFolderPatchBody,
 } from './note_folder.types';
-import type { AgentRunRequest, AgentRunResponse, ContextRef, Conversation, ConversationWithMessages } from './agent.types';
+import type { AgentRunRequest, AgentRunResponse, ContextRef, Conversation, ConversationPatch, ConversationWithMessages } from './agent.types';
 import type { MintTokenResponse } from './voice.types';
 import type {
   OneNoteConnection,
@@ -403,10 +403,10 @@ export class ApiClient {
     return ApiClient.request<ConversationWithMessages>(`/agent/conversations/${encodeURIComponent(conversation_id)}`);
   }
 
-  static async setConversationPinned(conversation_id: string, is_pinned: boolean): Promise<{ conversation: Conversation }> {
+  static async updateConversation(conversation_id: string, patch: ConversationPatch): Promise<{ conversation: Conversation }> {
     return ApiClient.request<{ conversation: Conversation }>(
       `/agent/conversations/${encodeURIComponent(conversation_id)}`,
-      { method: 'PATCH', body: JSON.stringify({ is_pinned }) },
+      { method: 'PATCH', body: JSON.stringify(patch) },
     );
   }
 

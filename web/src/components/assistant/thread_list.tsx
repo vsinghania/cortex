@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Conversation } from '../../lib/agent.types';
 import { DateFormat } from '../../lib/date_format';
 import { Icon } from '../icon';
+import { ThreadTitleInput } from './thread_title_input';
 
 type Props = {
   conversations: Conversation[];
@@ -10,11 +11,20 @@ type Props = {
   busy_id: string | null;
   onSelect: (conversation_id: string) => void;
   onTogglePin: (conversation: Conversation) => void;
+  /** Resolves false when the rename failed, so the row stays in edit mode. */
+  onRename: (conversation: Conversation, title: string) => Promise<boolean>;
   onDelete: (conversation: Conversation) => void;
 };
 
-export function ThreadList({ conversations, loading, selected_id, busy_id, onSelect, onTogglePin, onDelete }: Props) {
+export function ThreadList({ conversations, loading, selected_id, busy_id, onSelect, onTogglePin, onRename, onDelete }: Props) {
   const [query, set_query] = useState('');
+  const [renaming_id, set_renaming_id] = useState<string | null>(null);
+
+  async function commitRename(c: Conversation, title: string): Promise<boolean> {
+    const ok = await onRename(c, title);
+    if (ok) set_renaming_id(null);
+    return ok;
+  }
 
   const { pinned, others } = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -29,6 +39,18 @@ export function ThreadList({ conversations, loading, selected_id, busy_id, onSel
   function renderRow(c: Conversation) {
     const active = c.conversation_id === selected_id;
     const title = c.title ?? 'Untitled';
+    if (c.conversation_id === renaming_id) {
+      return (
+        <div key={c.conversation_id} className={`thread-row thread-row-renaming${active ? ' list-row-active' : ''}`}>
+          <ThreadTitleInput
+            initial={c.title ?? ''}
+            className="tree-input thread-title-input"
+            onCommit={(next) => commitRename(c, next)}
+            onCancel={() => set_renaming_id(null)}
+          />
+        </div>
+      );
+    }
     return (
       <div key={c.conversation_id} className={`thread-row${active ? ' list-row-active' : ''}`}>
         <button type="button" className="thread-select" aria-current={active ? 'true' : undefined} onClick={() => onSelect(c.conversation_id)}>
@@ -47,6 +69,16 @@ export function ThreadList({ conversations, loading, selected_id, busy_id, onSel
           </span>
         </button>
         <span className="thread-actions">
+          <button
+            type="button"
+            className="icon-btn icon-btn-sm"
+            aria-label={`Rename ${title}`}
+            title="Rename"
+            disabled={busy_id === c.conversation_id}
+            onClick={() => set_renaming_id(c.conversation_id)}
+          >
+            <Icon name="edit" size={13} />
+          </button>
           <button
             type="button"
             className={`icon-btn icon-btn-sm${c.is_pinned ? ' icon-btn-accent' : ''}`}

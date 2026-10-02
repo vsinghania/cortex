@@ -15,11 +15,11 @@ import type {
   DeleteConversationInput,
   GetAgentInput,
   GetConversationInput,
-  SetConversationPinnedInput,
   ListConversationsInput,
   RunAdHocInput,
   RunByAgentIdInput,
   UpdateAgentInput,
+  UpdateConversationInput,
 } from './agent_svc_interface.js';
 import type { Conversation, ConversationMessage, ConversationMessageView } from './types/conversation.types.js';
 import type { AgentView } from './types/agent_view.types.js';
@@ -300,15 +300,15 @@ export class AgentSvc implements AgentSvcInterface {
     );
   }
 
-  async setConversationPinned(input: SetConversationPinnedInput): Promise<Conversation> {
+  async updateConversation(input: UpdateConversationInput): Promise<Conversation> {
     const conversation_store = await ConversationStore.getInstance();
-    const conversation = await conversation_store.setPinnedForUser(input);
+    const conversation = await conversation_store.updateForUser(input);
     if (!conversation) {
       throw new NotFoundError(`Conversation not found: ${input.conversation_id}`);
     }
     logger.info(
-      { conversation_id: input.conversation_id, is_pinned: input.is_pinned },
-      'conversation pin updated'
+      { conversation_id: input.conversation_id, fields: Object.keys(input.patch) },
+      'conversation updated'
     );
     return conversation;
   }
@@ -322,7 +322,11 @@ export class AgentSvc implements AgentSvcInterface {
       if (!query) return;
       const title = await ConversationTitleGenerator.generate(query);
       const conversation_store = await ConversationStore.getInstance();
-      await conversation_store.setTitle(conversation_id, title);
+      const applied = await conversation_store.setTitleIfUnset(conversation_id, title);
+      if (!applied) {
+        logger.debug({ conversation_id }, 'generated title skipped, conversation already titled');
+        return;
+      }
       logger.info({ conversation_id, title }, 'conversation title generated');
     } catch (err) {
       logger.warn({ err, conversation_id }, 'conversation title generation failed');
