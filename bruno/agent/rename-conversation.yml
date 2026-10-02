@@ -1,0 +1,24 @@
+info:
+  name: rename-conversation
+  type: http
+  seq: 14
+
+http:
+  method: PATCH
+  url: "{{base_url}}/agent/conversations/{{conversation_id}}"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "title": "Quarterly planning notes"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

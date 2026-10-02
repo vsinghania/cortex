@@ -1981,6 +1981,27 @@ body {
   display: none;
 }
 
+.thread-row-renaming {
+  padding: 7px 10px;
+}
+
+.cx-app .thread-title-input {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* iOS Safari zooms the page into any focused input under 16px. */
+.cx-app[data-layout='mobile'] .thread-title-input {
+  font-size: 16px;
+}
+
+.m-sheet-body .thread-title-input {
+  padding: 11px 12px;
+}
+
 /* Notes list rows carry a hover menu, so the row is a container around the select button. */
 .note-row {
   position: relative;

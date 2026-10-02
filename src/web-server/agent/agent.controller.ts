@@ -54,9 +54,15 @@ const ListConversationsQuerySchema = z.object({
   { message: 'context_corpus and context_document_id must be given together' }
 );
 
+const CONVERSATION_TITLE_MAX_CHARS = 120;
+
 const ConversationPatchBodySchema = z.object({
-  is_pinned: z.boolean(),
-}).strict();
+  is_pinned: z.boolean().optional(),
+  title: z.string().trim().min(1).max(CONVERSATION_TITLE_MAX_CHARS).optional(),
+}).strict().refine(
+  (body) => body.is_pinned !== undefined || body.title !== undefined,
+  { message: 'Provide is_pinned or title' }
+);
 
 const ConversationParamsSchema = z.object({
   conversation_id: z.string().min(1),
@@ -242,10 +248,10 @@ export class AgentController {
   ) {
     try {
       const { conversation_id } = req.params as { conversation_id: string };
-      const { is_pinned } = ConversationPatchBodySchema.parse(req.body);
+      const patch = ConversationPatchBodySchema.parse(req.body);
       const user_id = req.auth!.user_id;
       const agent_svc = await AgentSvc.create();
-      const conversation = await agent_svc.setConversationPinned({ conversation_id, user_id, is_pinned });
+      const conversation = await agent_svc.updateConversation({ conversation_id, user_id, patch });
       res.status(200).json({ response: { conversation } });
     } catch (e) {
       next(e);

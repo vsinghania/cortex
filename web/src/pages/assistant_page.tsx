@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
-import type { Conversation } from '../lib/agent.types';
+import type { Conversation, ConversationPatch } from '../lib/agent.types';
 import { AppRail } from '../components/app_rail';
 import { MobileShell } from '../components/mobile/mobile_shell';
 import { MobileBar, MobileBarButton, MobileBarTitle } from '../components/mobile/mobile_bar';
@@ -107,16 +107,27 @@ export function AssistantPage() {
     void loadConversations();
   }
 
-  async function togglePin(target: Conversation) {
+  async function updateThread(target: Conversation, patch: ConversationPatch): Promise<boolean> {
     set_busy_id(target.conversation_id);
     try {
-      const { conversation } = await ApiClient.setConversationPinned(target.conversation_id, !target.is_pinned);
-      set_conversations((list) => list.map((c) => (c.conversation_id === conversation.conversation_id ? { ...c, is_pinned: conversation.is_pinned } : c)));
+      const { conversation } = await ApiClient.updateConversation(target.conversation_id, patch);
+      const saved = { is_pinned: conversation.is_pinned, title: conversation.title };
+      set_conversations((list) => list.map((c) => (c.conversation_id === conversation.conversation_id ? { ...c, ...saved } : c)));
+      return true;
     } catch (err) {
       toast.show({ message: err instanceof Error ? err.message : "Couldn't update the thread.", tone: 'error' });
+      return false;
     } finally {
       set_busy_id(null);
     }
+  }
+
+  function togglePin(target: Conversation) {
+    void updateThread(target, { is_pinned: !target.is_pinned });
+  }
+
+  function renameThread(target: Conversation, title: string): Promise<boolean> {
+    return updateThread(target, { title });
   }
 
   async function confirmDeleteThread() {
@@ -156,7 +167,8 @@ export function AssistantPage() {
       selected_id={conversation_id}
       busy_id={busy_id}
       onSelect={selectConversation}
-      onTogglePin={(c) => void togglePin(c)}
+      onTogglePin={togglePin}
+      onRename={renameThread}
       onDelete={set_thread_to_delete}
     />
   );
@@ -213,9 +225,13 @@ export function AssistantPage() {
               <>
                 <MobileThreadBar
                   title={current_title}
+                  conversation={current_conversation}
                   thinking={thread.pending}
                   onBack={() => navigate(AppRoutes.chat())}
                   onOpenInfo={() => set_info_open(true)}
+                  onTogglePin={togglePin}
+                  onRename={renameThread}
+                  onDelete={set_thread_to_delete}
                 />
                 {conversation_view}
                 <BottomSheet open={info_open} title="Session" onClose={() => set_info_open(false)}>

@@ -1,4 +1,9 @@
-import type { ContextRef, Conversation, ConversationMessage } from '../types/conversation.types.js';
+import type {
+  ContextRef,
+  Conversation,
+  ConversationMessage,
+  ConversationPatch,
+} from '../types/conversation.types.js';
 
 export type ListConversationsForUserParams = {
   user_id: string;
@@ -31,10 +36,15 @@ export interface ConversationRepositoryInterface {
 
   setLastProviderResponseId(conversation_id: string, last_provider_response_id: string): Promise<void>;
 
-  setTitle(conversation_id: string, title: string): Promise<void>;
+  /** Resolves false when the conversation already has a title, so a user's rename wins. */
+  setTitleIfUnset(conversation_id: string, title: string): Promise<boolean>;
 
   /** Leaves `updated_at` alone, since the conversation list is ordered by it. */
-  setPinned(params: { conversation_id: string; user_id: string; is_pinned: boolean }): Promise<Conversation | null>;
+  updateForUser(params: {
+    conversation_id: string;
+    user_id: string;
+    patch: ConversationPatch;
+  }): Promise<Conversation | null>;
 
   appendMessages(messages: Omit<ConversationMessage, 'created_at'>[]): Promise<void>;
 
