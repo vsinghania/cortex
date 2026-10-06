@@ -5,7 +5,7 @@
 #
 # Contract:
 #   in  — CORTEX_IMAGE, RELEASE_PREFIX, GIT_SHA (all required)
-#   out — exit 0 only if both app services are healthy on the new image
+#   out — exit 0 only if every app service is healthy on the new image
 #
 # This script never runs `docker compose down`, and never `-v` under any
 # circumstance. A bad deploy is fixed by dispatching deploy-api with the
@@ -22,7 +22,7 @@ COMPOSE_FILE=compose.yaml
 RELEASE_COMPOSE=docker-compose.prod.yml
 PROJECT=cortex
 REGION=us-east-1
-APP_SERVICES=(web-server mcp-notes)
+APP_SERVICES=(web-server mcp-notes worker)
 
 : "${CORTEX_IMAGE:?CORTEX_IMAGE is required}"
 : "${RELEASE_PREFIX:?RELEASE_PREFIX is required}"
@@ -74,7 +74,7 @@ log "compose config valid"
 
 # Scoped on purpose: never a bare `pull`. The datastores are digest-pinned, so a
 # bare pull is safe in principle, but the intent of an app deploy is to update
-# the app — keeping that explicit is worth the two service names.
+# the app — keeping that explicit is worth naming the app services.
 compose pull "${APP_SERVICES[@]}"
 log "pulled ${APP_SERVICES[*]}"
 
@@ -105,11 +105,16 @@ else
 fi
 
 # A container that starts and immediately dies will pass a single curl if the
-# timing is unlucky, so check it is not crash-looping.
+# timing is unlucky, so check it is not crash-looping. For the worker, which has
+# no listener to probe, this - plus being up at all - is the whole health check.
 for svc in "${APP_SERVICES[@]}"; do
   cid=$(compose ps -q "$svc" || true)
+  running=$(docker inspect --format '{{.State.Running}}' "$cid" 2>/dev/null || echo false)
   restarts=$(docker inspect --format '{{.RestartCount}}' "$cid" 2>/dev/null || echo 99)
-  if [ "${restarts:-99}" -gt 2 ]; then
+  if [ "$running" != true ]; then
+    ok=0
+    log "$svc is not running"
+  elif [ "${restarts:-99}" -gt 2 ]; then
     ok=0
     log "$svc is crash-looping (RestartCount=$restarts)"
   fi

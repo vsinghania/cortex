@@ -1,6 +1,6 @@
 # jobs_svc — durable background work
 
-A Mongo-backed job queue with an in-process worker. Work is enqueued from a request, survives the deploy that interrupts it, and resumes where it stopped.
+A Mongo-backed job queue, worked by a dedicated `worker` service ([src/worker/worker.ts](../src/worker/worker.ts)); recurring schedules are ticked by web-server. Work is enqueued from a request, survives the deploy that interrupts it, and resumes where it stopped.
 
 Source: [src/jobs_svc/](../src/jobs_svc/). First workload: the admin notes re-index ([src/notes_svc/jobs/](../src/notes_svc/jobs/)), exposed at `/api/v1/admin/notes/*` ([web.md](web.md)).
 
@@ -108,7 +108,9 @@ One stops duplicate creation, the other stops overrun. `enqueue` reports which c
 
 Everything is an env var — there are no constructor overrides, so `JobWorker.create()` takes no arguments and topology is configuration rather than code. See [.env.example](../.env.example) for `JOBS_*` and `MONGO_DB_JOBS`.
 
-`stop_grace_period: 30s` is set on `web-server` in all three compose files. Compose SIGKILLs 10s after SIGTERM by default, which would cut the drain off mid-flush on **every deploy** — the graceful shutdown would look implemented and never once work. Three numbers move together: that 30s, `JOBS_DRAIN_DEADLINE_MS` (25s), and the forced exit in `server.ts` (28s).
+`web-server` and the MCP server only enqueue. Jobs run in the `worker` service, which registers every handler and works the queue — nothing else — so scaling it out needs nothing beyond more replicas (§2). web-server registers the same handlers purely as a catalogue, so the admin API and the scheduler can refuse a name or payload no worker could run, and it runs the schedule ticker: kept out of the worker so worker replicas never multiply tickers. Extra tickers would be safe — a window materializes once (§8) — just wasted work.
+
+`stop_grace_period: 30s` is set on `worker` in all three compose files. Compose SIGKILLs 10s after SIGTERM by default, which would cut the drain off mid-flush on **every deploy** — the graceful shutdown would look implemented and never once work. Three numbers move together: that 30s, `JOBS_DRAIN_DEADLINE_MS` (25s), and the forced exit in `worker.ts` (28s).
 
 Terminal jobs are reaped by a per-document TTL (`expires_at` with `expireAfterSeconds: 0`), so succeeded (3d) and failed (14d) share one index. Non-terminal jobs carry no `expires_at` and are never touched.
 
@@ -156,7 +158,7 @@ Both surfaces run the same admission check: an unregistered job name is refused,
 
 - **`TraceContext.enter()` is unusable here.** It wraps `enterWith`, which mutates ambient context and cannot be unwound, so two jobs starting in one tick silently swap each other's `user_id` on every log line. Each job runs inside `TraceContext.run()` with a fresh `trace_id` per *attempt* and `upstream_trace_id` linking back to the request that enqueued it.
 - **A job whose handler is not registered is released, not failed** — handed back unrun and unpenalised, so a job name can ship before the code that runs it. The cost is that a permanently unregistered name loops quietly; queue-depth sampling should watch for names with queued rows and no handler.
-- **An empty registry throws at startup.** Such a worker would claim every job and release every one unrun — a hot loop that looks healthy. `JOBS_WORKER_ENABLED=false` is the explicit way to run an enqueue-only process.
+- **An empty registry throws at startup.** Such a worker would claim every job and release every one unrun — a hot loop that looks healthy. The worker fails its boot instead, so the restart policy and the deploy health gate both see it.
 - **Handler registration rethrows** at bootstrap, unlike most startup steps which warn and continue. A handler that silently fails to register means its jobs stop being claimed with no error anywhere.
 - **An empty payload needs `minimize: false` on the schema.** Mongoose strips empty objects on save, *after* validation, so `payload: {}` vanished from a `required: true` field and the handler's schema then rejected `undefined`. At the time it only bit the `create()` path, because the dedup route was then an upsert and `$setOnInsert` is a raw update operator that bypasses minimize. `enqueue` is now a plain `create()` in every case, so the flag is what keeps an empty payload alive at all. Both job models disable minimize; `jobs:smoke` pins the round trip.
 - **A cancel is not immediate.** `requestCancel` flags a running job; its worker notices on the next heartbeat, so the route returns 202 before the job has stopped. A *queued* job cancels outright.

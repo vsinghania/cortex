@@ -93,9 +93,9 @@ docker buildx build --platform linux/amd64 -t "$ECR_IMAGE:$(git rev-parse HEAD)"
    │  docker compose  (compose.yaml, shipped by deploy-api)                   │
    │                                                                          │
    │   web-server :3000 ──┬── mcp-notes :3010 (127.0.0.1 host bind only)      │
-   │        │             │        │                                          │
-   │        ▼             ▼        ▼                                          │
-   │   mongodb :27017   qdrant :6333   (Docker-network only, unpublished)     │
+   │        │             │        │          worker (no ports; runs jobs)    │
+   │        ▼             ▼        ▼            │                             │
+   │   mongodb :27017   qdrant :6333  ◄─────────┘  (Docker-network only)     │
    └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -252,8 +252,8 @@ SSH key; GitHub reaches the instance the same way you do.
 
 ## 8. Build and deploy
 
-Private ECR repository **`cortex-app`**. `web-server` and `mcp-notes` run the
-**same image** with different commands (see
+Private ECR repository **`cortex-app`**. `web-server`, `worker` and `mcp-notes`
+run the **same image** with different commands (see
 [docker-compose.prod.yml](docker-compose.prod.yml)).
 
 ### Build — automatic
@@ -282,8 +282,9 @@ default `main`). The workflow:
 5. polls the command and streams the box's stdout/stderr into the Actions log
 
 On the instance the script fetches the artifacts, writes `deploy.env`,
-authenticates to ECR, validates the config, pulls **only** `web-server` and
-`mcp-notes`, applies, and health-checks both services. A failing gate fails the
+authenticates to ECR, validates the config, pulls **only** the app services
+(`web-server`, `mcp-notes`, `worker`), applies, and health-checks them; the
+worker has no listener, so its check is that it is running and not crash-looping. A failing gate fails the
 workflow; recovery is dispatching the previous SHA (§11).
 
 Two things that look optional and are not:
@@ -338,6 +339,7 @@ If the instance is replaced, these do not come back on their own:
 | --- | --- | --- |
 | `web-server` | `0.0.0.0:3000` (ALB target) | — |
 | `mcp-notes` | `127.0.0.1:3010` (loopback only) | `mcp-notes:3010` |
+| `worker` | none | — (calls out only) |
 | `mongodb` | `127.0.0.1:27017` (loopback only) | `mongodb:27017` |
 | `qdrant` | none | `qdrant:6333` |
 

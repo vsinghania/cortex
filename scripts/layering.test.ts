@@ -8,8 +8,9 @@
  * time, so they are asserted rather than documented.
  *
  * jobs_svc is the strictest of them: it is a generic queue, so it must not name a
- * domain concept at all. Handlers are registered into it from the composition root
- * (web-server), which is why the dependency runs notes_svc -> jobs_svc and never back.
+ * domain concept at all. Handlers are registered into it from src/bootstrap, which the
+ * composition roots (web-server, worker) call - which is why the dependency runs
+ * notes_svc -> jobs_svc and never back.
  *
  * mailer_svc is generic in the same way: domains own their templates and send jobs,
  * and hand it a finished message. It must not reach back into any of them.

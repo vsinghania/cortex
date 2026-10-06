@@ -56,6 +56,8 @@
     "dev": "tsx watch src/web-server/server",
     "build": "tsc -p tsconfig.json",
     "start": "node --enable-source-maps dist/web-server/server.js",
+    "worker:dev": "tsx watch src/worker/worker.ts",
+    "worker:start": "node --enable-source-maps dist/worker/worker.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test scripts/*.test.ts",
     "mcp:smoke": "tsx scripts/mcp_http_smoke.ts",

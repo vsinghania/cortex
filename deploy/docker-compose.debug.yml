@@ -15,7 +15,7 @@
 # port DNATs to the container's eth0, which a loopback bind would miss). Public
 # exposure is prevented on the host side: each publish is 127.0.0.1-only, so the
 # port lives on the EC2 loopback and is reached with an SSM port-forward.
-# Do NOT add 9229/9230 to the EC2 security group.
+# Do NOT add 9229-9231 to the EC2 security group.
 services:
   web-server:
     environment:
@@ -28,3 +28,9 @@ services:
       NODE_OPTIONS: --inspect=0.0.0.0:9229
     ports:
       - "127.0.0.1:9230:9229"
+
+  worker:
+    environment:
+      NODE_OPTIONS: --inspect=0.0.0.0:9229
+    ports:
+      - "127.0.0.1:9231:9229"

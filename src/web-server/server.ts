@@ -1,25 +1,21 @@
 import 'dotenv/config';
 import { App } from './app.js';
-import { MongooseConnectionManager } from '../db/mongo/mongoose_connection_manager.js';
-import { QdrantCollectionBootstrap } from '../db/qdrant/qdrant_collection_bootstrap.js';
 import { AgentSvc } from '../agent_svc/agent_svc.js';
 import { AiSvc } from '../ai_svc/ai_svc.js';
-import { EmbeddingsSvc } from '../embeddings_svc/embeddings_svc.js';
 import { RetrievalSvc } from '../retrieval_svc/retrieval_svc.js';
-import { JobWorker } from '../jobs_svc/worker/job_worker.js';
-import { JobWorkerConfigLoader } from '../jobs_svc/worker/job_worker_config.js';
-import { JobHandlerBootstrap } from './bootstrap/job_handler_bootstrap.js';
+import { DatastoreBootstrap } from '../bootstrap/datastore_bootstrap.js';
+import { JobHandlerBootstrap } from '../bootstrap/job_handler_bootstrap.js';
 import { ContextDocumentResolverBootstrap } from './bootstrap/context_document_resolver_bootstrap.js';
 import { JobScheduler } from '../jobs_svc/job_scheduler.js';
+import { JobWorkerConfigLoader } from '../jobs_svc/worker/job_worker_config.js';
 import { logger } from '../common/logger.js';
 import { Time } from '../lib/time.js';
 
-// Must stay inside the compose stop_grace_period (30s) with room for the worker's
-// own 25s drain, so a wedged handler cannot hold the container past SIGKILL.
+// Must stay inside the compose stop_grace_period (30s), so in-flight requests -
+// streamed agent replies especially - get a chance to finish before SIGKILL.
 const FORCE_EXIT_MS = Time.secondsToMs(28);
 
 class Server {
-  private static job_worker: JobWorker | null = null;
   private static job_scheduler: JobScheduler | null = null;
 
   private constructor() {}
@@ -49,15 +45,9 @@ class Server {
       force_exit.unref?.();
 
       try {
-        // Order matters: stop accepting, then drain in-flight work, and only then
-        // close Mongo - the worker's drain needs the database alive to flush
-        // checkpoints and release leases.
         await new Promise<void>((resolve) => http_server.close(() => resolve()));
         Server.job_scheduler?.stop();
-        if (Server.job_worker) await Server.job_worker.stop();
-
-        const mgr = MongooseConnectionManager.getExistingInstance();
-        if (mgr) await mgr.disconnectAll();
+        await DatastoreBootstrap.disconnectMongo();
 
         logger.info('Shutdown complete');
         process.exit(0);
@@ -72,22 +62,25 @@ class Server {
   }
 
   private static async initDependencies(): Promise<void> {
-    await Server.connectMongo();
-    await Server.bootstrapQdrant();
+    await DatastoreBootstrap.connectMongo();
+    await DatastoreBootstrap.ensureQdrantCollection();
     await Server.bootstrapRetrievalSvc();
     ContextDocumentResolverBootstrap.registerAll();
     await Server.loadAgentSvc();
     await Server.loadAiSvc();
+    // Jobs run in the worker service; registered here so the admin API and the
+    // scheduler can validate job names and payloads before enqueueing them.
     await JobHandlerBootstrap.registerAll();
-    await Server.startJobWorker();
     await Server.startJobScheduler();
   }
 
   /**
-   * Starts the ticker only. Schedules themselves are data, created and removed
-   * through /api/v1/admin/jobs/schedules - deliberately NOT seeded here, because
-   * a boot-time upsert would recreate anything an operator had deleted, so the
-   * API could add a schedule but never durably remove one.
+   * Starts the ticker only - it enqueues, the worker service runs. It lives here
+   * rather than in the worker so scaling workers out never multiplies tickers.
+   * Schedules themselves are data, created and removed through
+   * /api/v1/admin/jobs/schedules - deliberately NOT seeded here, because a
+   * boot-time upsert would recreate anything an operator had deleted, so the API
+   * could add a schedule but never durably remove one.
    */
   private static async startJobScheduler(): Promise<void> {
     if (!JobWorkerConfigLoader.fromEnv().scheduler_enabled) {
@@ -103,19 +96,6 @@ class Server {
     }
   }
 
-  private static async startJobWorker(): Promise<void> {
-    if (!JobWorkerConfigLoader.fromEnv().enabled) {
-      logger.info('Job worker disabled; this process will enqueue only');
-      return;
-    }
-    try {
-      Server.job_worker = await JobWorker.create();
-      Server.job_worker.start();
-    } catch (err) {
-      logger.error({ err }, 'Job worker failed to start; queued jobs will not run');
-    }
-  }
-
   private static async loadAiSvc(): Promise<void> {
     await AiSvc.getInstance();
     logger.info('AiSvc loaded');
@@ -126,30 +106,6 @@ class Server {
       await RetrievalSvc.create();
     } catch (err) {
       logger.warn({ err }, 'RetrievalSvc bootstrap failed; semantic search will error until resolved');
-    }
-  }
-
-  private static async connectMongo(): Promise<void> {
-    const host = process.env.MONGO_HOST ?? 'localhost';
-    const mongo_port = Number(process.env.MONGO_PORT ?? 27017);
-    try {
-      await MongooseConnectionManager.getInstance({ host, port: mongo_port });
-      logger.info({ host, port: mongo_port }, 'Mongo connected');
-    } catch (e) {
-      logger.error({ err: e, host, port: mongo_port }, 'Mongo bootstrap failed');
-      throw e;
-    }
-  }
-
-  private static async bootstrapQdrant(): Promise<void> {
-    try {
-      const dim = EmbeddingsSvc.getInstance().dimensions;
-      await QdrantCollectionBootstrap.ensureCollection({ name: 'note_chunks_vec', dim });
-    } catch (err) {
-      logger.warn(
-        { err: (err as Error)?.message },
-        'Qdrant collection bootstrap failed; vectorization will be marked errored until Qdrant is reachable'
-      );
     }
   }
 

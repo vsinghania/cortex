@@ -54,12 +54,8 @@ services:
     restart: unless-stopped
     logging: *default_logging
 
-    # The job worker runs in this process and drains on SIGTERM: it stops
-    # claiming, flushes each in-flight job's checkpoint, and releases its lease so
-    # the next container resumes immediately instead of waiting out the lease.
-    # Compose's default grace period is 10s, which would SIGKILL that drain
-    # halfway through on every deploy. 30s leaves room for the worker's own 25s
-    # deadline (JOBS_DRAIN_DEADLINE_MS) and the 28s forced exit behind it.
+    # In-flight requests - streamed agent replies especially - get until the 28s
+    # forced exit in server.ts to finish, rather than Compose's 10s default.
     stop_grace_period: 30s
 
     depends_on:
@@ -138,6 +134,60 @@ services:
 
     ports:
     - "3000:3000"
+
+  # Runs queued jobs; web-server enqueues them and ticks recurring schedules.
+  # Same image, different entrypoint. Publishes no ports: nothing calls into it.
+  # Safe to scale out - the claim is atomic per job (docs/jobs_svc.md §2).
+  worker:
+    image: ${CORTEX_IMAGE:?CORTEX_IMAGE is required}
+    command: ["node", "--enable-source-maps", "dist/worker/worker.js"]
+    restart: unless-stopped
+    logging: *default_logging
+
+    # The worker drains on SIGTERM: it stops claiming, flushes each in-flight
+    # job's checkpoint, and releases its lease so the next container resumes
+    # immediately instead of waiting out the lease. Compose's default grace
+    # period is 10s, which would SIGKILL that drain halfway through on every
+    # deploy. 30s leaves room for the worker's own 25s deadline
+    # (JOBS_DRAIN_DEADLINE_MS) and the 28s forced exit behind it.
+    stop_grace_period: 30s
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+    environment:
+      LOG_LEVEL: info
+
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_DB_APP: cortex
+
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+
+      QDRANT_URL: http://qdrant:6333
+      CHUNK_TARGET_TOKENS: "512"
+      CHUNK_OVERLAP_TOKENS: "64"
+
+      # Every email is sent from here, by a job. See the note on web-server.
+      MAIL_TRANSPORT: smtp
+      MAIL_FROM: "Cortex <no-reply@mail.cortexapp.me>"
+      SMTP_HOST: smtp.resend.com
+      SMTP_PORT: "465"
+      SMTP_SECURE: "true"
+      SMTP_USER: resend
+      SMTP_PASS: ${SMTP_PASS:?SMTP_PASS is required}
+      APP_PUBLIC_URL: https://cortexapp.me
+
+      # OneNote sync decrypts stored tokens and refreshes them with Microsoft.
+      SECRET_ENCRYPTION_KEYS: ${SECRET_ENCRYPTION_KEYS:-}
+      SECRET_ENCRYPTION_ACTIVE_KEY_ID: ${SECRET_ENCRYPTION_ACTIVE_KEY_ID:-}
+      MS_OAUTH_CLIENT_ID: ${MS_OAUTH_CLIENT_ID:-}
+      MS_OAUTH_CLIENT_SECRET: ${MS_OAUTH_CLIENT_SECRET:-}
+      MS_OAUTH_REDIRECT_URI: https://api.cortexapp.me/api/v1/integrations/onenote/callback
 
   mcp-notes:
     image: ${CORTEX_IMAGE:?CORTEX_IMAGE is required}
