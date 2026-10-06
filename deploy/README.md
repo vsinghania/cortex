@@ -3,7 +3,7 @@
 Compose stacks for running Cortex outside local dev.
 
 - [aws.md](aws.md) — the current Phase 1 AWS deployment: architecture, access, and the CI/CD flow.
-- [docker-compose.prod.yml](docker-compose.prod.yml) — the production stack (web-server, mcp-notes, mongodb, qdrant). Shipped to the instance by `deploy-api`, where it lands as `compose.yaml`.
+- [docker-compose.prod.yml](docker-compose.prod.yml) — the production stack (web-server, worker, mcp-notes, mongodb, qdrant). Shipped to the instance by `deploy-api`, where it lands as `compose.yaml`.
 - [remote-deploy.sh](remote-deploy.sh) — runs on the instance under SSM to apply a release; not intended to be run by hand.
 - [docker-compose.debug.yml](docker-compose.debug.yml) — overlay that adds a Node inspector; never run on its own.
 
@@ -23,7 +23,7 @@ State-changing commands need the app directory, and both env files:
 
 ```sh
 cd /home/ssm-user/cortex
-docker compose --env-file .env --env-file deploy.env pull web-server mcp-notes
+docker compose --env-file .env --env-file deploy.env pull web-server mcp-notes worker
 docker compose --env-file .env --env-file deploy.env up -d
 ```
 

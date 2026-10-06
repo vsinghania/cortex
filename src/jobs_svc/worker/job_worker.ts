@@ -45,15 +45,12 @@ export class JobWorker {
   /**
    * Throws when the registry is empty. Such a worker would claim jobs and release
    * every one of them unrun - a hot loop that looks healthy. That is always a
-   * misconfiguration: JOBS_WORKER_ENABLED=false is the explicit way to run a
-   * process that does not work jobs.
+   * misconfiguration.
    */
   static async create(): Promise<JobWorker> {
     const registry = JobHandlerRegistry.getInstance();
     if (registry.registeredNames().length === 0) {
-      throw new Error(
-        'JobWorker.create: no job handlers registered. Register handlers at bootstrap, or set JOBS_WORKER_ENABLED=false.'
-      );
+      throw new Error('JobWorker.create: no job handlers registered. Register handlers at bootstrap.');
     }
 
     return new JobWorker(
@@ -80,7 +77,8 @@ export class JobWorker {
       }
     }, this.config.poll_interval_ms);
 
-    this.poll_timer.unref?.();
+    // Deliberately ref'd: in the worker process this loop is the only thing that
+    // should keep the event loop alive. stop() clears it.
     logger.info(
       {
         worker_id: this.config.worker_id,

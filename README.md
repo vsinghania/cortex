@@ -14,6 +14,7 @@ A personal "second brain": capture notes by hand, by voice, or by agent; they ar
 docker compose up -d mongodb qdrant   # datastores
 npm run dev                           # API on :3000
 npm run mcp:notes:dev                 # notes MCP server on :3010
+npm run worker:dev                    # background jobs and recurring schedules
 npm --prefix web run dev              # SPA on :5173
 ```
 
