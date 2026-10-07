@@ -8,9 +8,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
     "@azure/msal-node": "^6.0.1",
     "@modelcontextprotocol/sdk": "^1.20.0",
-    "@openai/agents": "^0.1.11",
+    "@openai/agents": "^0.18.0",
     "@qdrant/js-client-rest": "^1.17.0",
     "ajv": "^8.20.0",
     "bcryptjs": "^3.0.2",
@@ -28,7 +29,7 @@
     "mongoose": "^8.19.0",
     "nanoid": "^5.1.5",
     "nodemailer": "^10.0.3",
-    "openai": "^5.16.0",
+    "openai": "^7.15.0",
     "pino": "^9.9.0",
     "pino-http": "^10.5.0",
     "pino-pretty": "^13.1.1",
@@ -37,8 +38,7 @@
     "turndown-plugin-gfm": "^1.0.2",
     "typedi": "^0.10.0",
     "uuid": "^13.0.0",
-    "zod": "^3.25.76",
-    "zod-to-json-schema": "^3.24.6"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

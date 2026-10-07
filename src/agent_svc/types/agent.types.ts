@@ -1,4 +1,4 @@
-import type { AnyZodObject } from 'zod';
+import type { z } from 'zod';
 import type { Logger } from 'pino';
 import type { JsonSchemaDefinition } from '@openai/agents';
 import type { Message } from './message.types.js';
@@ -61,7 +61,7 @@ export type ToolContext = {
 export interface Tool<TArgs = unknown> {
   name: string;
   description: string;
-  input_schema: AnyZodObject;
+  input_schema: z.ZodObject;
   execute(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
 }
 

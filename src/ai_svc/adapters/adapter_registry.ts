@@ -1,4 +1,6 @@
+import { logger } from '../../common/logger.js';
 import { GenAiProvider } from '../types/ai_prompt.types.js';
+import { AnthropicAdapter } from './anthropic_adapter.js';
 import { GenAiAdapter } from './genai_adapter.js';
 import { OpenAiAdapter } from './openai_adapter.js';
 
@@ -33,8 +35,14 @@ export class AdapterRegistry {
   }
 
   private static buildAdapters(): Map<GenAiProvider, GenAiAdapter> {
-    return new Map<GenAiProvider, GenAiAdapter>([
+    const adapters = new Map<GenAiProvider, GenAiAdapter>([
       ['openai', OpenAiAdapter.create()],
     ]);
+    if (process.env.ANTHROPIC_API_KEY) {
+      adapters.set('anthropic', AnthropicAdapter.create());
+    } else {
+      logger.debug('Anthropic adapter skipped, ANTHROPIC_API_KEY is not set');
+    }
+    return adapters;
   }
 }

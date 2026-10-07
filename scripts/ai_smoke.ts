@@ -1,11 +1,15 @@
 import 'dotenv/config';
 import { z } from 'zod';
 import { AiSvc } from '../src/ai_svc/ai_svc.js';
-import { Role } from '../src/ai_svc/types/ai_prompt.types.js';
+import { GenAiProvider, GenAiProviderSchema, Role } from '../src/ai_svc/types/ai_prompt.types.js';
 
 class AiSmoke {
+  private static readonly provider: GenAiProvider | undefined = process.env.AI_SMOKE_PROVIDER
+    ? GenAiProviderSchema.parse(process.env.AI_SMOKE_PROVIDER)
+    : undefined;
+
   static async main(): Promise<void> {
-    const ai_svc = await AiSvc.create();
+    const ai_svc = await AiSvc.getInstance();
     await AiSmoke.runGenerateText(ai_svc);
     await AiSmoke.runRegisteredSchema(ai_svc);
     await AiSmoke.runInlineZodSchema(ai_svc);
@@ -16,6 +20,7 @@ class AiSmoke {
   private static async runGenerateText(ai_svc: AiSvc): Promise<void> {
     console.log('\n▶ generateText');
     const resp = await ai_svc.generateText({
+      provider: AiSmoke.provider,
       messages: [
         { role: Role.SYSTEM, content: 'You answer in one short sentence.' },
         { role: Role.USER, content: 'What is the capital of Japan?' },
@@ -27,6 +32,7 @@ class AiSmoke {
   private static async runRegisteredSchema(ai_svc: AiSvc): Promise<void> {
     console.log('\n▶ generateStructured (registered: recipe_v1)');
     const resp = await ai_svc.generateStructured({
+      provider: AiSmoke.provider,
       messages: [
         { role: Role.USER, content: 'Give me a 2-serving recipe for scrambled eggs.' },
       ],
@@ -43,6 +49,7 @@ class AiSmoke {
     });
     type Joke = z.infer<typeof JokeSchema>;
     const resp = await ai_svc.generateStructured<Joke>({
+      provider: AiSmoke.provider,
       messages: [
         { role: Role.USER, content: 'Tell me one short clean joke.' },
       ],
@@ -65,6 +72,7 @@ class AiSmoke {
     };
     type CityFact = { city: string; country: string; population_millions: number };
     const resp = await ai_svc.generateStructured<CityFact>({
+      provider: AiSmoke.provider,
       messages: [
         { role: Role.USER, content: 'Give a single fact about Tokyo.' },
       ],

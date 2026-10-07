@@ -6,7 +6,7 @@ export enum Role {
   ASSISTANT = 'assistant',
 }
 
-export const GenAiProviderSchema = z.enum(['openai']);
+export const GenAiProviderSchema = z.enum(['openai', 'anthropic']);
 export type GenAiProvider = z.infer<typeof GenAiProviderSchema>;
 
 export const MessageSchema = z.object({

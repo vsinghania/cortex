@@ -32,7 +32,7 @@ const JobStatsQuerySchema = z.object({ name: z.string().min(1).optional() });
 const EnqueueBodySchema = z
   .object({
     name: z.string().min(1),
-    payload: z.record(z.unknown()).default({}),
+    payload: z.record(z.string(), z.unknown()).default({}),
     user_id: z.string().min(1).optional(),
     dedup_key: z.string().min(1).optional(),
     delay_ms: z.number().int().nonnegative().optional(),
@@ -60,7 +60,7 @@ const ScheduleBodySchema = z
   .object({
     id: z.string().min(1).max(120),
     name: z.string().min(1),
-    payload: z.record(z.unknown()).default({}),
+    payload: z.record(z.string(), z.unknown()).default({}),
     schedule: ScheduleSchema,
     label: z.string().min(1).max(200).optional(),
     dedup_key: z.string().min(1).optional(),
