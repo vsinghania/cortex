@@ -19,6 +19,10 @@ export class Time {
     return n * 60;
   }
 
+  static hoursToSec(n: number): number {
+    return n * 60 * 60;
+  }
+
   static daysToSec(n: number): number {
     return n * 24 * 60 * 60;
   }

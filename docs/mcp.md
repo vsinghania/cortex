@@ -57,7 +57,19 @@ Every handler is the same three steps — the caller's user id, parse args with 
 
 `/api/v1/mcp/notes` forwards to `MCP_NOTES_INTERNAL_URL` so OpenAI Realtime — which hosts the MCP client for voice — can reach a server that otherwise listens internally. It is mounted before `express.json()`; see [architecture.md §1](architecture.md#1-processes-and-topology). It **does not authenticate**: headers pass through and the notes server's bearer check is the only gate. In production this route is internet-facing, because [voice](voice.md) requires it to be, so that bearer token is the entire perimeter around every user's notes. Unset `MCP_NOTES_INTERNAL_URL` means the route is not mounted at all.
 
-## 6. Extending
+## 6. The public gateway
+
+`/mcp` on web-server ([public_mcp_gateway.ts](../src/web-server/mcp/public_mcp_gateway.ts)) is the MCP **resource server**: the way ChatGPT, Claude and other MCP clients reach the notes server with a per-user access token.
+- It serves its own RFC 9728 metadata at `/.well-known/oauth-protected-resource/mcp`, naming `OAUTH_ISSUER_URL` as the authorization server.
+- A request without a valid token gets a 401 whose `WWW-Authenticate` names that metadata and the scopes to ask for.
+- It verifies tokens only through [`McpTokenVerifier`](../src/mcp/resource/mcp_token_verifier.ts) — token in, `{ user, client, grant, scopes, resource, kind }` or `null` out — so it never touches token storage, and it refuses a token issued for any other resource (RFC 8707).
+- It rate-limits per grant (120 requests a minute), strips every identity header and the caller's `Authorization`, and forwards a freshly signed caller assertion (§2).
+
+It is mounted **before `express.json()`** so the body stays a raw stream, and before the app-wide CORS policy because its metadata is read from any origin. If `OAUTH_ISSUER_URL`/`MCP_PUBLIC_URL`, `MCP_NOTES_INTERNAL_URL` or `MCP_GATEWAY_ASSERTION_SECRET` is unset, it is not mounted.
+
+**Tokens.** `oauth_svc` stores grants (the lasting consent between a user and a client) and the tokens issued under them, in families, as SHA-256 hashes; [OAuthAccessTokenVerifier](../src/oauth_svc/oauth_access_token_verifier.ts) is the verifier: a token is valid while it is live and its grant exists, with the scopes both allow. Until the OAuth authorization server lands, mint a test token with `npx tsx scripts/mint_mcp_dev_token.ts <user_id> [read|read_write]`.
+
+## 7. Extending
 
 - **New tool** → a zod object schema and a `registerXTool(server, caller)` method in the module, registered via the inherited wrapper with its `required_scope` and annotations.
 - **New MCP server** → subclass `McpModule` and `BaseMcpHttpServer`, add an entry point, npm scripts and a compose service; then insert an `McpServerManifest` row to let agents use it.

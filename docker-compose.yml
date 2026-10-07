@@ -90,6 +90,9 @@ services:
       MCP_NOTES_PATH: /mcp
       MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:-dev_mcp_notes_token_change_me}
       MCP_NOTES_INTERNAL_URL: http://mcp-notes:3010/mcp
+      OAUTH_ISSUER_URL: ${OAUTH_ISSUER_URL:-http://localhost:3000}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:3000/mcp}
+      MCP_GATEWAY_ASSERTION_SECRET: ${MCP_GATEWAY_ASSERTION_SECRET:-dev_mcp_gateway_assertion_change_me}
       VOICE_PROVIDER: ${VOICE_PROVIDER:-openai}
       OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime}
       OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-alloy}

@@ -48,6 +48,14 @@ const RULES: Rule[] = [
     module: 'onenote_svc',
     forbidden: ['agent_svc', 'ai_svc', 'citation_svc', 'retrieval_svc', 'voice_svc']
   },
+  // The authorization server knows users and grants, never what the granted resource holds.
+  {
+    module: 'oauth_svc',
+    forbidden: ['agent_svc', 'ai_svc', 'citation_svc', 'jobs_svc', 'notes_svc', 'onenote_svc', 'retrieval_svc', 'voice_svc', 'web-server']
+  },
+  // The resource-server contract is the only thing the /mcp gateway and the authorization
+  // server share; it must not lean on either side of it.
+  { module: 'mcp/resource', forbidden: ['oauth_svc', 'web-server'] },
   {
     module: 'mailer_svc',
     forbidden: [

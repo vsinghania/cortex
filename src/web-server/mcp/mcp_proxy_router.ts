@@ -1,11 +1,13 @@
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ClientRequest, IncomingMessage, ServerResponse } from 'node:http';
 import { logger } from '../../common/logger.js';
 
 export interface McpProxyOptions {
   name: string;
   target_url: string;
+  /** Runs on every forwarded request, after the inbound headers have been copied. */
+  rewriteRequestHeaders?: (proxy_req: ClientRequest, res: ServerResponse) => void;
 }
 
 export class McpProxyRouter {
@@ -24,7 +26,8 @@ export class McpProxyRouter {
       xfwd: true,
       pathRewrite: (incoming_path) => McpProxyRouter.rewritePath(target_pathname, incoming_path),
       on: {
-        proxyReq: (_proxy_req, req) => {
+        proxyReq: (proxy_req, req, res) => {
+          opts.rewriteRequestHeaders?.(proxy_req, res);
           logger.debug(
             { mcp_name: opts.name, method: req.method, url: req.url },
             'MCP proxy request forwarded'
