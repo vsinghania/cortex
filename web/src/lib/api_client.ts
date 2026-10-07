@@ -29,6 +29,7 @@ import type {
   OneNoteSyncStart,
 } from './onenote.types';
 import type { AdminUserPage } from './admin.types';
+import type { McpAccess, OAuthConsentRequest } from './connected_apps.types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
 
@@ -220,6 +221,24 @@ export class ApiClient {
 
   static async getOneNoteSyncJob(job_id: string): Promise<{ job: OneNoteSyncJob }> {
     return ApiClient.request<{ job: OneNoteSyncJob }>(`/integrations/onenote/sync/${encodeURIComponent(job_id)}`);
+  }
+
+  static async getOAuthRequest(request_id: string): Promise<{ request: OAuthConsentRequest }> {
+    return ApiClient.request<{ request: OAuthConsentRequest }>(`/oauth/requests/${encodeURIComponent(request_id)}`);
+  }
+
+  /** Answers with where to send the browser: the app's redirect, carrying the code. */
+  static async approveOAuthRequest(request_id: string, access: McpAccess): Promise<{ redirect_url: string }> {
+    return ApiClient.request<{ redirect_url: string }>(`/oauth/requests/${encodeURIComponent(request_id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ access }),
+    });
+  }
+
+  static async denyOAuthRequest(request_id: string): Promise<{ redirect_url: string }> {
+    return ApiClient.request<{ redirect_url: string }>(`/oauth/requests/${encodeURIComponent(request_id)}/deny`, {
+      method: 'POST',
+    });
   }
 
   static async listAdminUsers(params: { limit: number; offset: number }): Promise<AdminUserPage> {

@@ -1,0 +1,22 @@
+info:
+  name: oauth-describe-request
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{base_url}}/oauth/requests/{{oauth_request_id}}"
+  auth: inherit
+
+docs: |-
+  What the consent page shows for a parked authorization request: the app's self-declared
+  name and its verifiable host, where it will redirect to, which MCP server it wants
+  (`resource`), the scopes it asked for, and the access options worded for that server. Get a request id by
+  starting a connection from an MCP client (or MCP Inspector) against `$MCP_PUBLIC_BASE_URL/notes` and copying
+  `request` from the `/connect?request=…` URL it opens. 404 once expired (15 min) or used.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

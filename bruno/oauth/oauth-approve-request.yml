@@ -1,0 +1,29 @@
+info:
+  name: oauth-approve-request
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{base_url}}/oauth/requests/{{oauth_request_id}}/approve"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "access": "read"
+      }
+  auth: inherit
+
+docs: |-
+  The consent page's Allow. `access` is `read` or `read_write`, clamped to what the app
+  asked for. Answers with `redirect_url`: the app's redirect_uri carrying a one-minute,
+  single-use code and the app's state. The request is consumed either way.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

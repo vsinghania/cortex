@@ -625,6 +625,13 @@ What is and isn't exposed, in one place:
   `MCP_NOTES_AUTH_TOKEN` with the tenant chosen by an `X-User-Id` header. Treat that
   token as the entire perimeter around every user's notes — see
   [../docs/mcp.md](../docs/mcp.md) §2 and [../docs/voice.md](../docs/voice.md) §4.
+- **Public by design, for MCP clients:** `mcp.cortexapp.me/notes` (and any later MCP
+  server beside it) is proxied to the notes MCP for ChatGPT, Claude and other assistants. Every request needs a per-user OAuth access
+  token, which alone decides whose notes it reaches; the gateway strips any identity
+  header a caller sends and signs its own assertion to `mcp-notes`. The OAuth endpoints
+  (`/.well-known/*`, `/authorize`, `/token`, `/revoke`) are public too, and the
+  authorization server fetches client metadata documents from the internet through an
+  SSRF-guarded fetcher — see [../docs/oauth.md](../docs/oauth.md).
 - **Private:** `mcp-notes` and MongoDB are published on the instance **loopback
   only** (`127.0.0.1`, reached via SSM port-forward, never in the SG); Qdrant is
   unpublished (Docker-network only). None has its own auth — a defense-in-depth gap

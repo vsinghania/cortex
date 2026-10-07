@@ -30,6 +30,14 @@ export class AppRoutes {
     return '/forgot-password';
   }
 
+  /**
+   * Where ChatGPT, Claude and other MCP clients send the browser to ask for access. The
+   * request id rides in the query, not the fragment, so it survives the login bounce.
+   */
+  static connect(): string {
+    return '/connect';
+  }
+
   /** Linked from the password-reset email; the token rides in the fragment. */
   static resetPassword(): string {
     return '/reset-password';

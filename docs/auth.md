@@ -29,6 +29,8 @@ Enforcement lives in middleware, not in this service: `requireAuth` verifies the
 
 Verification is stateless, which has one important consequence: **revoking a refresh session does not invalidate an outstanding access token** — it simply stops working within 15 minutes.
 
+Third-party access (ChatGPT, Claude) does not use these tokens at all: it gets its own opaque, revocable, resource-bound tokens from the OAuth authorization server in [oauth.md](oauth.md). The SPA's JWT is what proves who is consenting.
+
 ## 3. Password reset
 
 ```

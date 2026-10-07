@@ -19,6 +19,10 @@ import { HostGate } from './mcp/host_gate.js';
 import { OAuthAccessTokenVerifier } from '../oauth_svc/oauth_access_token_verifier.js';
 import { McpResourceCatalog } from '../mcp/resource/mcp_resource_catalog.js';
 import { McpPublicConfigLoader } from '../mcp/resource/config/mcp_public_config.js';
+import { OAuthAuthorizationServer } from '../oauth_svc/oauth_authorization_server.js';
+import { OAuthServerController } from './oauth/oauth_server.controller.js';
+import { OAuthConfigLoader } from '../oauth_svc/config/oauth_config.js';
+import { OAuthController } from './oauth/oauth.controller.js';
 
 export class App {
 
@@ -34,8 +38,9 @@ export class App {
 
     this.app.get('/healthz', (_req, res) => res.send('ok'));
 
-    // Ahead of the app-wide CORS policy: MCP clients read the resource metadata from any
-    // origin, and those routes set their own permissive CORS.
+    // Ahead of the app-wide CORS policy: MCP clients discover metadata and exchange
+    // tokens from any origin, so those routes set their own permissive CORS.
+    this.registerOAuthAuthorizationServer();
     this.registerPublicMcpGateways();
 
     // Enable CORS with credentials for refresh cookies
@@ -82,6 +87,28 @@ export class App {
 
     this.app.use('/api/v1/mcp/notes', McpProxyRouter.build({ name: 'notes', target_url: notes_target }));
     logger.info({ mounts: ['/api/v1/mcp/notes'], notes_target }, 'MCP proxy routes mounted');
+  }
+
+  /**
+   * The OAuth authorization server (metadata, /authorize, /token, /revoke) on the issuer
+   * host, mounted at its root because clients look for `/.well-known` there. It issues
+   * tokens for the public MCP resources and meets their gateways only through the token
+   * verifier.
+   */
+  private registerOAuthAuthorizationServer() {
+    const config = OAuthConfigLoader.fromEnv();
+    if (!config) {
+      logger.warn('OAUTH_ISSUER_URL not set; the OAuth authorization server is disabled');
+      return;
+    }
+
+    const resources = McpResourceCatalog.fromEnv();
+    if (resources.all().length === 0) {
+      logger.warn('No public MCP resource is configured; the OAuth authorization server has nothing to issue tokens for');
+    }
+    const authorization_server = OAuthAuthorizationServer.fromConfig(config, resources);
+    this.app.use(HostGate.for(config.issuer_url, new OAuthServerController(authorization_server, config).getRouter()));
+    logger.info({ issuer: OAuthAuthorizationServer.issuerOf(config) }, 'OAuth authorization server mounted');
   }
 
   /**
@@ -155,8 +182,11 @@ export class App {
     const admin_controller = new AdminController();
     v1_router.use('/admin', admin_controller.getRouter());
 
+    const oauth_controller = new OAuthController();
+    v1_router.use('/oauth', oauth_controller.getRouter());
+
     logger.info(
-      { mounts: ['auth', 'ai', 'agent', 'notes', 'voice', 'health', 'admin'] },
+      { mounts: ['auth', 'ai', 'agent', 'notes', 'voice', 'health', 'admin', 'oauth'] },
       'v1 routes mounted'
     );
   }

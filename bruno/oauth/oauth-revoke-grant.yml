@@ -1,0 +1,19 @@
+info:
+  name: oauth-revoke-grant
+  type: http
+  seq: 5
+
+http:
+  method: DELETE
+  url: "{{base_url}}/oauth/grants/{{grant_id}}"
+  auth: inherit
+
+docs: |-
+  Disconnect. 204, and the app's next MCP call gets a 401 - tokens are looked up per
+  request, so revocation is immediate. 404 for another user's grant.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -6,7 +6,7 @@ The Express 5 API in [src/web-server/](../src/web-server/) and the React client 
 
 ## 1. Mounts
 
-All under `/api/v1`. Per-endpoint request and response shapes live in the [bruno/](../bruno/) collections, which are executable.
+Under `/api/v1`, except the public-MCP endpoints at the root. web-server answers for two hosts: `api.cortexapp.me` (this API and the OAuth authorization server) and `mcp.cortexapp.me` (the MCP resource servers); host gates keep each surface on its host. Per-endpoint request and response shapes live in the [bruno/](../bruno/) collections, which are executable.
 
 | Mount | Auth | Backed by |
 | --- | --- | --- |
@@ -17,7 +17,10 @@ All under `/api/v1`. Per-endpoint request and response shapes live in the [bruno
 | `/voice` | bearer | [voice.md](voice.md) |
 | `/admin` | bearer + `admin`, applied once by the parent router | notes reindex, [jobs_svc](jobs_svc.md), users overview (`admin_svc`) |
 | `/health/db`, `/healthz` | none | Mongo connection state (503 when down) |
-| `/mcp/notes` | upstream bearer only | proxy → [mcp.md](mcp.md) |
+| `/oauth` | bearer | consent requests and connected apps, [oauth.md](oauth.md) |
+| `/mcp/notes` | upstream bearer only | proxy → [mcp.md](mcp.md) (voice) |
+| `/notes` (and later `/articles`, …) on **mcp.cortexapp.me** | OAuth access token | resource servers → MCP servers, [mcp.md](mcp.md) §6 |
+| `/.well-known/oauth-authorization-server`, `/authorize`, `/token`, `/revoke` (root) | none (public clients, PKCE) | the OAuth authorization server, [oauth.md](oauth.md) |
 
 Responses are wrapped as `{ response: <payload> }` — except `/ai/*`, which returns the service result directly, and errors, which are RFC 7807 problem details.
 
@@ -26,7 +29,10 @@ Responses are wrapped as `{ response: <payload> }` — except `/ai/*`, which ret
 Order is load-bearing:
 
 ```
-cors(credentials) → TraceContext → pino-http
+TraceContext → pino-http
+  → OAuth AS (API host) + MCP resource servers (MCP host)   ← BEFORE cors(): any-origin CORS of their own
+                                 ← BEFORE express.json(): the MCP body must stay a raw stream
+  → cors(credentials)
   → /api/v1/mcp/notes proxy      ← BEFORE express.json(): body must stay a raw stream
   → express.json() → cookieParser() → /api/v1 routers
   → notFoundHandler → errorHandler
@@ -42,7 +48,7 @@ Each controller builds its own `express.Router`, exposes `getRouter()`, and bind
 
 ## 4. The SPA
 
-React 18 + React Router, Vite, no state library. `/login`, `/register`, `/forgot-password`, `/reset-password` and `/privacy` are public (login and register also offer "Continue with Google", a plain link to the API's `/auth/google/start`); `/notes`, `/notes/:id`, `/chat`, `/voice` sit behind a `RequireAuth` route guard. `/admin/*` (today just `/admin/users`) is nested one level further, behind `RequireAdmin`; the rail shows its entry only to admins, and admin views are listed in `AdminNav`. The guard only hides the page: the API's role gate is the real check.
+React 18 + React Router, Vite, no state library. `/login`, `/register`, `/forgot-password`, `/reset-password` and `/privacy` are public (login and register also offer "Continue with Google", a plain link to the API's `/auth/google/start`); `/notes`, `/notes/:id`, `/chat`, `/voice` and `/connect` (the consent page MCP clients send users to, [oauth.md](oauth.md)) sit behind a `RequireAuth` route guard. The guard keeps the query string through the login bounce, and login and register pass the destination along, so a user who signs up mid-way through connecting an assistant still lands on its consent page. `/admin/*` (today just `/admin/users`) is nested one level further, behind `RequireAdmin`; the rail shows its entry only to admins, and admin views are listed in `AdminNav`. The guard only hides the page: the API's role gate is the real check.
 
 [api_client.ts](../web/src/lib/api_client.ts) is the only place `fetch` hits the API, and it owns the whole token dance: bearer from an in-memory `AuthStore`, `credentials: 'include'` for the refresh cookie, and **on a 401 it refreshes once and replays the request**, sharing one in-flight refresh across concurrent failures. Calls that work without a session — login, register, refresh, forgot and reset password — are excluded from that path. It unwraps the envelope and throws a typed `ApiError` whose message is the problem's `detail`.
 

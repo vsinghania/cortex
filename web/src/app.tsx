@@ -27,6 +27,7 @@ import { AssistantPage } from './pages/assistant_page';
 import { VoicePage } from './pages/voice_page';
 import { SettingsPage } from './pages/settings_page';
 import { AdminUsersPage } from './pages/admin_users_page';
+import { ConnectPage } from './pages/connect_page';
 
 export function App() {
   const theme = useTheme();
@@ -48,6 +49,7 @@ export function App() {
             <Route path="/chat/:conversation_id?" element={<AssistantPage />} />
             <Route path={AppRoutes.settings()} element={<SettingsPage />} />
             <Route path={AppRoutes.voice()} element={<VoicePage />} />
+            <Route path={AppRoutes.connect()} element={<ConnectPage />} />
             <Route element={<RequireAdmin />}>
               <Route path={AppRoutes.admin()} element={<Navigate to={AppRoutes.adminUsers()} replace />} />
               <Route path={AppRoutes.adminUsers()} element={<AdminUsersPage />} />

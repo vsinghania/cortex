@@ -94,7 +94,9 @@ export function LoginPage() {
         <SubmitButton busy={submitting} label="Sign in" />
         <GoogleButton return_to={redirect_to} />
         <p className="auth-alt">
-          Don't have an account? <Link to={AppRoutes.register()} className="text-link text-link-strong">Join now</Link>
+          Don't have an account?{' '}
+          {/* Carries the destination, so signing up mid-way through connecting an assistant still lands on its consent page. */}
+          <Link to={AppRoutes.register()} state={{ from: redirect_to }} className="text-link text-link-strong">Join now</Link>
         </p>
       </form>
     </AuthLayout>

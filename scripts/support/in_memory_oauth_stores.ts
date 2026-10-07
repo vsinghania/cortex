@@ -1,13 +1,53 @@
 /* In-memory stand-ins for the OAuth repositories, shared by the OAuth tests. */
 import type { OAuthStores } from '../../src/oauth_svc/oauth_stores.js';
+import type { OAuthAuthorizationRequestRepository } from '../../src/oauth_svc/repositories/oauth_authorization_request_repository_interface.js';
+import type { OAuthAuthorizationCodeRepository, OAuthCodeLookup } from '../../src/oauth_svc/repositories/oauth_authorization_code_repository_interface.js';
 import type { OAuthGrantRepository } from '../../src/oauth_svc/repositories/oauth_grant_repository_interface.js';
 import type { OAuthTokenRepository } from '../../src/oauth_svc/repositories/oauth_token_repository_interface.js';
 import type {
+  CreateOAuthAuthorizationCodeInput,
+  CreateOAuthAuthorizationRequestInput,
   CreateOAuthTokenInput,
+  OAuthAuthorizationCode,
+  OAuthAuthorizationRequest,
   OAuthGrant,
   OAuthTokenRecord,
   UpsertOAuthGrantInput
 } from '../../src/oauth_svc/types/oauth.types.js';
+
+export class InMemoryRequests implements OAuthAuthorizationRequestRepository {
+  rows: OAuthAuthorizationRequest[] = [];
+  async create(input: CreateOAuthAuthorizationRequestInput) {
+    this.rows.push({ ...input, created_at: new Date() });
+  }
+  async findActive(input: { request_id: string; now: Date }) {
+    return this.rows.find((r) => r.request_id === input.request_id && r.expires_at > input.now) ?? null;
+  }
+  async consume(input: { request_id: string; now: Date }) {
+    const found = await this.findActive(input);
+    if (found) this.rows = this.rows.filter((r) => r !== found);
+    return found;
+  }
+}
+
+export class InMemoryCodes implements OAuthAuthorizationCodeRepository {
+  rows: OAuthAuthorizationCode[] = [];
+  async create(input: CreateOAuthAuthorizationCodeInput) {
+    this.rows.push({ ...input, created_at: new Date() });
+  }
+  async consume(input: OAuthCodeLookup & { family_id: string }) {
+    const found = this.rows.find(
+      (r) => r.code_hash === input.code_hash && r.client_id === input.client_id && !r.consumed_at && r.expires_at > input.now
+    );
+    if (!found) return null;
+    found.consumed_at = input.now;
+    found.family_id = input.family_id;
+    return found;
+  }
+  async findByHash(code_hash: string) {
+    return this.rows.find((r) => r.code_hash === code_hash) ?? null;
+  }
+}
 
 export class InMemoryGrants implements OAuthGrantRepository {
   rows: OAuthGrant[] = [];
@@ -82,7 +122,7 @@ export class InMemoryTokens implements OAuthTokenRepository {
 export class InMemoryOAuthStores {
   private constructor() {}
 
-  static create(): OAuthStores & { grants: InMemoryGrants; tokens: InMemoryTokens } {
-    return { grants: new InMemoryGrants(), tokens: new InMemoryTokens() };
+  static create(): OAuthStores & { requests: InMemoryRequests; codes: InMemoryCodes; grants: InMemoryGrants; tokens: InMemoryTokens } {
+    return { requests: new InMemoryRequests(), codes: new InMemoryCodes(), grants: new InMemoryGrants(), tokens: new InMemoryTokens() };
   }
 }
