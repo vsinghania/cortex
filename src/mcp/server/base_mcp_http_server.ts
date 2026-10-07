@@ -9,6 +9,7 @@ import { TraceContext } from '../../common/trace_context.js';
 import { TokenUtils } from '../../auth_svc/utils/token_utils.js';
 import { Id } from '../../lib/id.js';
 import { McpCallers } from './mcp_caller.js';
+import { McpCallerAssertion } from './mcp_caller_assertion.js';
 import type { McpModule } from './mcp_module.js';
 import type { McpCaller, McpHttpConfig, McpHttpServerHandle, McpServerInfo } from './types/mcp_server.types.js';
 
@@ -93,15 +94,25 @@ export abstract class BaseMcpHttpServer {
 
   protected async cleanup(): Promise<void> {}
 
+  /** Sent to the client at initialize; a subclass can tailor it to who is asking. */
+  protected getInstructions(_caller: McpCaller): string | undefined {
+    return undefined;
+  }
+
   /**
-   * Who is calling, decided from this request's credentials alone: exactly the service
-   * bearer, acting for the user named in `X-User-Id`. Anything else is refused.
+   * Who is calling, decided from this request's credentials alone. Exactly the service
+   * bearer is an internal caller; a valid gateway assertion is an external or first-party
+   * one; anything else is refused. No header's absence ever widens access.
    */
   private authenticate(req: Request): McpCaller | null {
     const cfg = this.requireHttpConfig();
     const token = BaseMcpHttpServer.bearerToken(req);
-    if (!token || !TokenUtils.constantTimeEquals(token, cfg.auth_token)) return null;
-    return { kind: 'internal', user_id: BaseMcpHttpServer.singleHeader(req, 'x-user-id') };
+    if (!token) return null;
+    if (TokenUtils.constantTimeEquals(token, cfg.auth_token)) {
+      return { kind: 'internal', user_id: BaseMcpHttpServer.singleHeader(req, 'x-user-id') };
+    }
+    if (!cfg.assertion_secret || !cfg.assertion_audience) return null;
+    return McpCallerAssertion.verify({ secret: cfg.assertion_secret, audience: cfg.assertion_audience, token });
   }
 
   /**
@@ -193,7 +204,11 @@ export abstract class BaseMcpHttpServer {
     const caller = McpCallers.fromAuthInfo(ctx.authInfo);
     if (!caller) throw new Error('MCP request reached the server factory without an authenticated caller.');
     const server_info = this.requireServerInfo();
-    const server = new McpServer({ name: server_info.name, version: server_info.version }, server_info.options);
+    const instructions = this.getInstructions(caller);
+    const server = new McpServer(
+      { name: server_info.name, version: server_info.version },
+      instructions ? { ...server_info.options, instructions } : server_info.options
+    );
 
     for (const mcp_module of this.mcp_modules) {
       await mcp_module.register(server, caller);
