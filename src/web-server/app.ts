@@ -14,6 +14,11 @@ import { VoiceController } from './voice/voice.controller.js';
 import { AdminController } from './admin/admin.controller.js';
 import { OneNoteController } from './integrations/onenote.controller.js';
 import { McpProxyRouter } from './mcp/mcp_proxy_router.js';
+import { PublicMcpGateway } from './mcp/public_mcp_gateway.js';
+import { HostGate } from './mcp/host_gate.js';
+import { OAuthAccessTokenVerifier } from '../oauth_svc/oauth_access_token_verifier.js';
+import { McpResourceCatalog } from '../mcp/resource/mcp_resource_catalog.js';
+import { McpPublicConfigLoader } from '../mcp/resource/config/mcp_public_config.js';
 
 export class App {
 
@@ -24,6 +29,15 @@ export class App {
   initApp() {
     const trusted_proxy_hops = this.configureProxyTrust();
 
+    this.app.use(TraceContextMiddleware.establish);
+    this.app.use(HttpLoggerMiddleware.build(logger));
+
+    this.app.get('/healthz', (_req, res) => res.send('ok'));
+
+    // Ahead of the app-wide CORS policy: MCP clients read the resource metadata from any
+    // origin, and those routes set their own permissive CORS.
+    this.registerPublicMcpGateways();
+
     // Enable CORS with credentials for refresh cookies
     const origins = process.env.CORS_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean);
     this.app.use(cors({
@@ -31,11 +45,6 @@ export class App {
       credentials: true,
       exposedHeaders: [TraceContextMiddleware.trace_id_header],
     }));
-
-    this.app.use(TraceContextMiddleware.establish);
-    this.app.use(HttpLoggerMiddleware.build(logger));
-
-    this.app.get('/healthz', (_req, res) => res.send('ok'));
 
     // MCP proxy routes are registered BEFORE express.json() so the request
     // body remains a raw stream that can be piped to upstream MCP servers.
@@ -73,6 +82,41 @@ export class App {
 
     this.app.use('/api/v1/mcp/notes', McpProxyRouter.build({ name: 'notes', target_url: notes_target }));
     logger.info({ mounts: ['/api/v1/mcp/notes'], notes_target }, 'MCP proxy routes mounted');
+  }
+
+  /**
+   * The MCP resource servers: one gateway per enabled resource (`/notes`, later
+   * `/articles`, …) on the MCP host, each with its protected-resource metadata. They meet
+   * the authorization server only through the token verifier. Mounted before
+   * express.json() so the body stays a raw stream the proxy can pipe on; reordering it
+   * silently breaks MCP.
+   */
+  private registerPublicMcpGateways() {
+    const config = McpPublicConfigLoader.fromEnv();
+    if (!config) {
+      logger.warn('MCP_PUBLIC_BASE_URL not set; the public MCP resource servers are disabled');
+      return;
+    }
+    const assertion_secret = process.env.MCP_GATEWAY_ASSERTION_SECRET;
+    if (!assertion_secret) {
+      logger.warn('MCP_GATEWAY_ASSERTION_SECRET not set; the public MCP resource servers are disabled');
+      return;
+    }
+    const catalog = McpResourceCatalog.create({ base_url: config.base_url });
+    if (catalog.all().length === 0) {
+      logger.warn('No MCP server has its internal URL set; no public MCP resource is served');
+      return;
+    }
+
+    const verifier = new OAuthAccessTokenVerifier();
+    const gateways = express.Router();
+    for (const resource of catalog.all()) {
+      gateways.use(PublicMcpGateway.build({ verifier, resource, authorization_server_url: config.authorization_server_url, assertion_secret }));
+    }
+    // web-server also answers for the API host; keeping the resource servers on the MCP
+    // host means api.cortexapp.me/notes is not a second URL for the same resource.
+    this.app.use(HostGate.for(config.base_url, gateways));
+    logger.info({ resources: catalog.all().map((resource) => resource.url) }, 'Public MCP gateways mounted');
   }
 
   getApp() {

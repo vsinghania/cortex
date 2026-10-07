@@ -142,6 +142,11 @@ Two rules the whole design enforces:
 
 - **Domain:** `https://api.cortexapp.me`, a Route 53 Alias → the public ALB.
 - ALB terminates HTTPS with an ACM cert; **:80 redirects to :443**.
+- **`mcp.cortexapp.me`** (the public MCP servers, `/notes` and later others) is a second
+  Alias to the same ALB. The HTTPS listener's certificate must cover it: add it as a SAN
+  when reissuing, or attach a second ACM cert to the listener (the ALB picks by SNI). No
+  listener rule is needed, because the default action already forwards every host to
+  web-server, which keeps each surface on its own host itself.
 - Target group `cortex-web-tg`: HTTP, port **3000**, health check **`GET /healthz`**,
   target = the EC2 instance.
 - Only `web-server` sits behind the ALB. Everything else on the box is internal.
@@ -532,11 +537,13 @@ Hosted zone for `cortexapp.me` is managed by Route 53 (created at registration).
 | --- | --- |
 | `cortexapp.me` (apex) | Alias → CloudFront |
 | `api.cortexapp.me` | Alias → ALB |
+| `mcp.cortexapp.me` | Alias → ALB (same one: web-server serves both hosts) |
 
 ```sh
 dig NS cortexapp.me +short          # four awsdns nameservers
 dig cortexapp.me +short             # resolves to CloudFront
 dig api.cortexapp.me +short         # resolves to the ALB
+dig mcp.cortexapp.me +short         # resolves to the same ALB
 ```
 
 ### Sending mail

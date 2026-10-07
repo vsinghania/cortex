@@ -38,6 +38,7 @@ Two long-running Node processes, one browser app, two datastores.
 Two structural decisions to internalize:
 
 - **The notes MCP server is a process, not a library.** The chat agent (server-to-server) and OpenAI Realtime (through the proxy) reach the same tool surface over the same protocol, so voice capture and chat recall cannot drift apart.
+- **`mcp.cortexapp.me/<server>` is the public MCP.** External assistants reach each MCP server (`/notes` today) there with a per-user access token; the gateway forwards a signed caller assertion addressed to that server, never the caller's own headers ([mcp.md §6](mcp.md#6-the-public-gateway)). The same web-server answers for `api.cortexapp.me` and `mcp.cortexapp.me`, with a host gate keeping each surface on its own host.
 - **`/api/v1/mcp/notes` exists because OpenAI must reach us.** For voice, OpenAI hosts the MCP *client*, so the server needs a public URL. The proxy is mounted **before `express.json()`** so the body stays a raw stream — reordering it silently breaks MCP.
 
 ## 2. Layering

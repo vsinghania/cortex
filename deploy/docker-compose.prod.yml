@@ -106,6 +106,11 @@ services:
       MCP_NOTES_PATH: /mcp
       MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:?MCP_NOTES_AUTH_TOKEN is required}
       MCP_NOTES_INTERNAL_URL: http://mcp-notes:3010/mcp
+      # The public MCP for ChatGPT, Claude and other MCP clients: resource servers on
+      # mcp.cortexapp.me (/notes, ...), their OAuth authorization server on this API host.
+      OAUTH_ISSUER_URL: https://api.cortexapp.me
+      MCP_PUBLIC_BASE_URL: https://mcp.cortexapp.me
+      MCP_GATEWAY_ASSERTION_SECRET: ${MCP_GATEWAY_ASSERTION_SECRET:?MCP_GATEWAY_ASSERTION_SECRET is required}
 
       VOICE_PROVIDER: openai
       OPENAI_REALTIME_MODEL: gpt-realtime
@@ -215,7 +220,7 @@ services:
       MCP_NOTES_PORT: "3010"
       MCP_NOTES_PATH: /mcp
       MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:?MCP_NOTES_AUTH_TOKEN is required}
-      MCP_GATEWAY_ASSERTION_SECRET: ${MCP_GATEWAY_ASSERTION_SECRET:-}
+      MCP_GATEWAY_ASSERTION_SECRET: ${MCP_GATEWAY_ASSERTION_SECRET:?MCP_GATEWAY_ASSERTION_SECRET is required}
       # Links to notes in what external assistants get back.
       APP_PUBLIC_URL: https://cortexapp.me
 
