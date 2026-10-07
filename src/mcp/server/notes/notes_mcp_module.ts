@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import { McpModule } from '../mcp_module.js';
 import { NotesSvc, type NoteListFilter } from '../../../notes_svc/notes_svc.js';
 import { NoteFoldersSvc } from '../../../notes_svc/note_folders_svc.js';
@@ -13,7 +13,8 @@ import { DbNameResolver } from '../../../db/mongo/db_name_resolver.js';
 import { QdrantCollectionBootstrap } from '../../../db/qdrant/qdrant_collection_bootstrap.js';
 import { EmbeddingsSvc } from '../../../embeddings_svc/embeddings_svc.js';
 import { logger } from '../../../common/logger.js';
-import { TraceContext } from '../../../common/trace_context.js';
+import { McpCallers } from '../mcp_caller.js';
+import type { McpCaller } from '../types/mcp_server.types.js';
 
 const zNoteSource = z.nativeEnum(NoteSource);
 
@@ -157,6 +158,9 @@ const zGetInput = z.object({
 
 const zFoldersInput = z.object({});
 
+const zNoteListOutput = z.object({ total: z.number(), items: z.array(z.any()) });
+const zNoteLookupOutput = z.object({ found: z.boolean(), note: z.any().nullable() });
+
 const zFolderCreateInput = z.object({
   path: z.string().min(1).describe(
     `Slash-separated folder path such as "Work/Clients", at most ${NoteFolderTree.MAX_DEPTH} levels. ` +
@@ -224,25 +228,24 @@ export class NotesMcpModule extends McpModule {
     }
   }
 
-  protected override async registerTools(server: McpServer): Promise<void> {
-    this.registerListTool(server);
-    this.registerTagsTool(server);
-    this.registerGetTool(server);
-    this.registerCreateTool(server);
-    this.registerUpdateTool(server);
-    this.registerDeleteTool(server);
-    this.registerSearchTool(server);
-    this.registerSearchSemanticTool(server);
-    this.registerFoldersTool(server);
-    this.registerFolderCreateTool(server);
-    this.registerBulkUpdateTool(server);
+  protected override async registerTools(server: McpServer, caller: McpCaller): Promise<void> {
+    this.registerListTool(server, caller);
+    this.registerTagsTool(server, caller);
+    this.registerGetTool(server, caller);
+    this.registerCreateTool(server, caller);
+    this.registerUpdateTool(server, caller);
+    this.registerDeleteTool(server, caller);
+    this.registerSearchTool(server, caller);
+    this.registerSearchSemanticTool(server, caller);
+    this.registerFoldersTool(server, caller);
+    this.registerFolderCreateTool(server, caller);
+    this.registerBulkUpdateTool(server, caller);
   }
 
-  private registerSearchSemanticTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_search_semantic',
-      {
+  private registerSearchSemanticTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_search_semantic',
+      config: {
         title: 'Semantic Search Notes',
         description:
           'Search note CONTENT by semantic similarity when the user is trying to recall ' +
@@ -254,13 +257,11 @@ export class NotesMcpModule extends McpModule {
           'Do NOT use this tool for listing notes, counting notes, browsing recent notes, ' +
           'or retrieving an already-known note; use notes_list or notes_get instead. ' +
           'Returned chunks include stable chunk_id values that are safe to reference.',
-        inputSchema: zSearchSemanticInput.shape,
-        outputSchema: {
-          chunks: z.array(z.any())
-        }
+        inputSchema: zSearchSemanticInput,
+        outputSchema: z.object({ chunks: z.array(z.any()) })
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const args = zSearchSemanticInput.parse(raw ?? {});
         const chunks = await this.requireNotesSvc().retrieveChunks({
           user_id,
@@ -271,14 +272,13 @@ export class NotesMcpModule extends McpModule {
         });
         return NotesMcpModule.toStructuredTextResult({ chunks });
       }
-    );
+    });
   }
 
-  private registerListTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_list',
-      {
+  private registerListTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_list',
+      config: {
         title: 'List Notes',
         description: 'List and browse notes for the authenticated user, with optional filtering and pagination. ' +
           'Use this for collection-level questions such as how many notes exist, recent notes, ' +
@@ -292,14 +292,11 @@ export class NotesMcpModule extends McpModule {
           'real tag list rather than guessing a spelling. ' +
           'Do NOT use this to answer questions about the meaning or contents of unknown notes; ' +
           'use notes_search or notes_search_semantic instead.',
-        inputSchema: zListInput.shape,
-        outputSchema: {
-          total: z.number(),
-          items: z.array(z.any())
-        }
+        inputSchema: zListInput,
+        outputSchema: zNoteListOutput
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const args = zListInput.parse(raw ?? {});
         const result = await this.requireNotesSvc().listNotes({
           user_id,
@@ -311,141 +308,125 @@ export class NotesMcpModule extends McpModule {
         });
         return NotesMcpModule.toStructuredTextResult(result);
       }
-    );
+    });
   }
 
-  private registerTagsTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_tags',
-      {
+  private registerTagsTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_tags',
+      config: {
         title: 'List Note Tags',
         description: 'List every tag the authenticated user has, with the number of notes carrying each. ' +
           'Use this to answer questions about which tags exist or how many notes are tagged a ' +
           'certain way, and to resolve a valid tag value before calling notes_list with `tags`. ' +
           'Tags differing only by case are folded into a single row.',
-        inputSchema: zTagsInput.shape,
-        outputSchema: {
-          tags: z.array(z.object({ tag: z.string(), count: z.number() }))
-        }
+        inputSchema: zTagsInput,
+        outputSchema: z.object({ tags: z.array(z.object({ tag: z.string(), count: z.number() })) })
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const args = zTagsInput.parse(raw ?? {});
         const tags = await this.requireNotesSvc().listTags({ ...args, user_id });
         return NotesMcpModule.toStructuredTextResult({ tags });
       }
-    );
+    });
   }
 
-  private registerGetTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_get',
-      {
+  private registerGetTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_get',
+      config: {
         title: 'Get Note',
         description: 'Retrieve one specific note by a known locator: { id } or { source, external_id }. ' +
           'Use this when the target note has already been identified. Do not search again when ' +
           'a valid locator for the intended note is already available.',
-        inputSchema: zGetInput.shape,
-        outputSchema: {
-          found: z.boolean(),
-          note: z.any().nullable()
-        }
+        inputSchema: zGetInput,
+        outputSchema: zNoteLookupOutput
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const { locator } = zGetInput.parse(raw ?? {});
         const note = await this.requireNotesSvc().getNote(user_id, locator);
         return NotesMcpModule.toStructuredTextResult({ found: !!note, note: note ?? null });
       }
-    );
+    });
   }
 
-  private registerCreateTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_create',
-      {
+  private registerCreateTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_create',
+      config: {
         title: 'Create Note',
         description:
           'Create a new note. Use only when the user intends to create or save a note. ' +
           'Omit source and external_id for a native in-app note; pass both for a ' +
           'source-keyed create-or-update operation.',
-        inputSchema: zCreateInputBase.shape,
-        outputSchema: { note: z.any() }
+        inputSchema: zCreateInputBase,
+        outputSchema: z.object({ note: z.any() })
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const input = zCreateInput.parse(raw ?? {});
         const note = await this.requireNotesSvc().createNote({ ...input, user_id });
         return NotesMcpModule.toStructuredTextResult({ note });
       }
-    );
+    });
   }
 
-  private registerUpdateTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_update',
-      {
+  private registerUpdateTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_update',
+      config: {
         title: 'Update Note (partial)',
         description: 'Partially update one existing note identified by locator. Use only when the user ' +
           'intends to modify a note. If the intended note is not yet identified, first resolve ' +
           'it using notes_list, notes_search, or notes_search_semantic as appropriate.',
-        inputSchema: zUpdateInput.shape,
-        outputSchema: {
-          found: z.boolean(),
-          note: z.any().nullable()
-        }
+        inputSchema: zUpdateInput,
+        outputSchema: zNoteLookupOutput
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const { locator, patch } = zUpdateInput.parse(raw ?? {});
         const updated = await this.requireNotesSvc().updateNote(user_id, locator, patch);
         return NotesMcpModule.toStructuredTextResult({ found: !!updated, note: updated ?? null });
       }
-    );
+    });
   }
 
-  private registerDeleteTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_delete',
-      {
+  private registerDeleteTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_delete',
+      config: {
         title: 'Delete Note',
         description: 'Delete one existing note identified by locator. Use only when the user intends to ' +
           'delete a note. If the intended note is ambiguous or its locator is unknown, first ' +
           'resolve the target note.',
-        inputSchema: zDeleteInput.shape,
-        outputSchema: { success: z.boolean() }
+        inputSchema: zDeleteInput,
+        outputSchema: z.object({ success: z.boolean() })
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const { locator } = zDeleteInput.parse(raw ?? {});
         const success = await this.requireNotesSvc().deleteNote(user_id, locator);
         return NotesMcpModule.toStructuredTextResult({ success });
       }
-    );
+    });
   }
 
-  private registerFoldersTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_folders',
-      {
+  private registerFoldersTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_folders',
+      config: {
         title: 'List Note Folders',
         description: 'List every note folder the authenticated user has, as `{ id, path, note_count }` rows ' +
           'ordered so parents precede children. `path` is the folder names from the top level down. ' +
           'Use this to resolve a folder id before notes_list, notes_update or notes_bulk_update, ' +
           'and to answer questions about how notes are organised.',
-        inputSchema: zFoldersInput.shape,
-        outputSchema: {
-          folders: z.array(z.object({ id: z.string(), path: z.string(), note_count: z.number() }))
-        }
+        inputSchema: zFoldersInput,
+        outputSchema: z.object({ folders: z.array(z.object({ id: z.string(), path: z.string(), note_count: z.number() })) })
       },
-      async () => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async () => {
+        const user_id = McpCallers.requireUserId(caller);
         const nodes = await this.requireFoldersSvc().listTree({ user_id });
         const folders = nodes.map((n) => ({
           id: n.id,
@@ -454,27 +435,23 @@ export class NotesMcpModule extends McpModule {
         }));
         return NotesMcpModule.toStructuredTextResult({ folders });
       }
-    );
+    });
   }
 
-  private registerFolderCreateTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_folder_create',
-      {
+  private registerFolderCreateTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_folder_create',
+      config: {
         title: 'Create Note Folder',
         description: 'Create a note folder by path, e.g. "Work/Clients", creating any missing parent folders. ' +
           'Idempotent: an existing folder at that path is returned unchanged. Use only when the user ' +
           'wants a folder created or wants notes filed into a folder that does not exist yet. ' +
           'Folder names ignore case when matching existing folders.',
-        inputSchema: zFolderCreateInput.shape,
-        outputSchema: {
-          folder: z.object({ id: z.string(), path: z.string() }),
-          created_count: z.number()
-        }
+        inputSchema: zFolderCreateInput,
+        outputSchema: z.object({ folder: z.object({ id: z.string(), path: z.string() }), created_count: z.number() })
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const { path } = zFolderCreateInput.parse(raw ?? {});
         const ensured = await this.requireFoldersSvc().ensurePath({ user_id, path });
         return NotesMcpModule.toStructuredTextResult({
@@ -482,29 +459,24 @@ export class NotesMcpModule extends McpModule {
           created_count: ensured.created_count
         });
       }
-    );
+    });
   }
 
-  private registerBulkUpdateTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_bulk_update',
-      {
+  private registerBulkUpdateTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_bulk_update',
+      config: {
         title: 'Bulk Update Notes',
         description: `Apply one organising action to up to ${NoteBulkActionMapper.MAX_IDS} notes by id: ` +
           'move (into folder_id, or null to unfile), archive, unarchive, pin, unpin, add_tags, remove_tags. ' +
           'Use when the user wants several notes filed, archived, pinned or tagged at once; resolve note ' +
           'ids with notes_list or notes_search and folder ids with notes_folders first. ' +
           'This tool cannot delete notes.',
-        inputSchema: zBulkUpdateInput.shape,
-        outputSchema: {
-          action: z.string(),
-          matched: z.number(),
-          modified: z.number()
-        }
+        inputSchema: zBulkUpdateInput,
+        outputSchema: z.object({ action: z.string(), matched: z.number(), modified: z.number() })
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const input = zBulkUpdateInput.parse(raw ?? {});
         const result = await this.requireNotesSvc().bulkUpdate({
           user_id,
@@ -513,33 +485,29 @@ export class NotesMcpModule extends McpModule {
         });
         return NotesMcpModule.toStructuredTextResult(result);
       }
-    );
+    });
   }
 
-  private registerSearchTool(server: McpServer): void {
-    this.registerTool(
-      server,
-      'notes_search',
-      {
+  private registerSearchTool(server: McpServer, caller: McpCaller): void {
+    this.registerTool(server, caller, {
+      name: 'notes_search',
+      config: {
         title: 'Search Notes',
         description: 'Full-text lexical search across note titles and bodies for the authenticated user. ' +
           'Use this when the user provides words, phrases, names, titles, code symbols, or other ' +
           'text expected to appear literally in a note. Prefer this over semantic search when ' +
           'exact wording matters. Use notes_search_semantic instead for conceptual recall where ' +
           'the wording may differ.',
-        inputSchema: zSearchInput.shape,
-        outputSchema: {
-          total: z.number(),
-          items: z.array(z.any())
-        }
+        inputSchema: zSearchInput,
+        outputSchema: zNoteListOutput
       },
-      async (raw: unknown) => {
-        const user_id = NotesMcpModule.requireUserId();
+      handler: async (raw) => {
+        const user_id = McpCallers.requireUserId(caller);
         const args = zSearchInput.parse(raw ?? {});
         const result = await this.requireNotesSvc().searchNotes({ ...args, user_id });
         return NotesMcpModule.toStructuredTextResult(result);
       }
-    );
+    });
   }
 
   private async bootstrapMongo(host: string, port: number): Promise<void> {
@@ -601,23 +569,15 @@ export class NotesMcpModule extends McpModule {
     return this.notes_svc;
   }
 
-  private static requireUserId(): string {
-    const user_id = TraceContext.getUserId();
-    if (!user_id || user_id.length === 0) {
-      throw new Error('Missing X-User-Id on MCP request; tool requires authenticated user.');
-    }
-    return user_id;
-  }
-
   /**
    * Compact on purpose: agent runtimes hand `content` to the model verbatim (the OpenAI
    * agents SDK drops `structuredContent` and re-encodes this text), so indentation is
    * paid for in tokens on every tool call.
    */
-  private static toStructuredTextResult<T>(result: T) {
+  private static toStructuredTextResult<T extends object>(result: T): CallToolResult {
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      structuredContent: result
+      structuredContent: result as Record<string, unknown>
     };
   }
 }

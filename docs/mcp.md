@@ -13,14 +13,16 @@ Two abstract classes separate "how to serve" from "what to serve":
 - **`BaseMcpHttpServer`** — a subclass supplies `getServerInfo()`, `getHttpConfig()` and `createMcpModules()`; it inherits body parsing, host validation, trace context, request logging, bearer auth, the streamable-HTTP transport and signal-driven shutdown.
 - **`McpModule`** — a unit of capability. Override `registerTools`/`registerResources`/`registerPrompts`, and always register through the base's `registerTool(...)` wrapper so every invocation emits a uniform `MCP tool invoked` / `MCP tool failed` line.
 
-**Every POST builds a fresh `McpServer` and transport and closes both afterwards** (no session id — stateless, no resumption). Modules are long-lived and hold the service instances; only the protocol objects are per-request.
+**Built on MCP TypeScript SDK v2** (`@modelcontextprotocol/server` + `@modelcontextprotocol/node`). `createMcpHandler` with an explicit **`legacy: 'stateless'`** policy serves 2026-07-28 clients the modern per-request exchange and 2025-era clients statelessly from the same factory, so neither generation is locked out. GET and DELETE, the 2025 session operations, answer 405. The `@openai/agents` client behind chat negotiates the modern protocol; OpenAI Realtime behind voice and older connectors may not. The v2 *client* only tries the modern protocol when asked (`versionNegotiation: { mode: 'auto' }`).
+
+**Every request gets a fresh `McpServer` from the factory** (no session id, no resumption). Modules are long-lived and hold the service instances; only the protocol objects are per-request. The server authenticates the request first and hands the resulting **`McpCaller`** to the factory as the SDK's `authInfo`; modules register their tools for that caller, and tools take the user from it rather than reading a header themselves.
 
 ## 2. Trust model
 
 This is the part worth reading twice.
 
-- **Authorization is a single shared bearer token** — the `Authorization` header must equal `Bearer ${auth_token}` exactly, or the request gets a JSON-RPC `-32001`.
-- **Identity is a header, not a token.** `X-User-Id` becomes the trace context's `user_id`; tools call `requireUserId()` and throw without it. `X-Trace-Id` becomes `upstream_trace_id`, linking logs across processes.
+- **Authorization is a single shared bearer token** — the `Authorization` header must equal `Bearer ${auth_token}` (compared in constant time), or the request gets a JSON-RPC `-32001`.
+- **Identity is a header, not a token.** `X-User-Id` becomes the caller's `user_id`; tools call `McpCallers.requireUserId(caller)` and throw without it. `X-Trace-Id` becomes `upstream_trace_id`, linking logs across processes.
 - So **the bearer token is a service credential and `X-User-Id` is the tenant selector**: anyone holding the token may act as any user. Treat `MCP_NOTES_AUTH_TOKEN` as a production secret.
 - **Host validation** uses the SDK's allow-list when `MCP_NOTES_ALLOWED_HOSTS` is set and localhost validation when bound to loopback; binding `0.0.0.0` with neither logs a warning and runs without the DNS-rebinding guard.
 
@@ -34,7 +36,7 @@ Archived notes are hidden from `notes_list`, `notes_search` and `notes_search_se
 
 Note what the semantic tool's description deliberately does **not** say: it states that `chunk_id` is stable and safe to reference, but never prescribes the `[c:…]` marker format. That syntax belongs to citation_svc and is taught by the agent's prompt, so a second agent calling the same tool does not silently inherit a citation convention it never asked for. A tool describes its data; the agent decides what referencing means.
 
-Every handler is the same three steps — `requireUserId()`, parse args with Zod, call `NotesSvc` — and returns both `content` (compact JSON text — it reaches the model verbatim, so indentation costs tokens) and `structuredContent`. Tool *descriptions* are the only documentation the model gets: write them for an LLM, saying when to call and what the fields mean.
+Every handler is the same three steps — the caller's user id, parse args with Zod, call `NotesSvc` — and returns both `content` (compact JSON text — it reaches the model verbatim, so indentation costs tokens) and `structuredContent`. Tool *descriptions* are the only documentation the model gets: write them for an LLM, saying when to call and what the fields mean.
 
 **`structuredContent` does not survive the agent path.** `@openai/agents-core`'s `callTool` keeps only `parsed.content` and discards `structuredContent` and `isError`, so for agent runs the text copy is the payload and the duplication in `toStructuredTextResult` is what makes it lossless. Two consequences: the model sees the payload double-encoded as `{"type":"text","text":"{…}"}`, and a tool that throws arrives as ordinary tool output with no error signal. `OpenAiSdkUtils.toToolContent` normalizes the result back into a single `{ type: 'json', data }` content part before it is persisted, so consumers read the payload directly instead of re-parsing a string — keep the text copy in any new tool, or that normalization has nothing to parse.
 
@@ -50,7 +52,7 @@ Every handler is the same three steps — `requireUserId()`, parse args with Zod
 
 ## 6. Extending
 
-- **New tool** → a Zod schema and a `registerXTool(server)` method in the module, registered via the inherited wrapper.
+- **New tool** → a zod object schema and a `registerXTool(server, caller)` method in the module, registered via the inherited wrapper.
 - **New MCP server** → subclass `McpModule` and `BaseMcpHttpServer`, add an entry point, npm scripts and a compose service; then insert an `McpServerManifest` row to let agents use it.
 
 Smoke tests: `npm run mcp:smoke` (client against the server) and `npm run agent:smoke:notes-mcp` (an agent run through the tools).
