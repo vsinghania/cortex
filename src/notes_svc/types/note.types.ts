@@ -60,6 +60,13 @@ export interface Note {
   metadata?: NoteMetadata;
   vectorization?: NoteVectorization;
 
+  /**
+   * When the note last changed where it is authored: the provider's timestamp for an
+   * imported note, Cortex's own for a native one. `updated_at` is when this row was
+   * written, which for a synced note says more about the sync than about the note.
+   */
+  edited_at: Date;
+
   created_at: Date;
   updated_at: Date;
 }

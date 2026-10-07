@@ -3,7 +3,10 @@ import { RefreshTokenModelFactory } from '../models/refresh_token_model.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
 import type { RefreshSession } from '../types/auth.types.js';
-import type { RefreshTokenRepository as IRefreshTokenRepository } from './refresh_token_repository_interface.js';
+import type {
+  RefreshTokenRepository as IRefreshTokenRepository,
+  UserSessionActivity
+} from './refresh_token_repository_interface.js';
 
 
 export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
@@ -81,6 +84,16 @@ export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
       { $set: { revoked_at: new Date() } }
     );
     return res.modifiedCount ?? 0;
+  }
+
+  /** Unscoped by design - see UserSessionActivity. */
+  async latestActivityByUser(user_ids: string[]): Promise<UserSessionActivity[]> {
+    if (user_ids.length === 0) return [];
+    return this.model.aggregate<UserSessionActivity>([
+      { $match: { user_id: { $in: user_ids } } },
+      { $group: { _id: '$user_id', last_active_at: { $max: '$updated_at' } } },
+      { $project: { _id: 0, user_id: '$_id', last_active_at: 1 } }
+    ]);
   }
 
   async pruneExpired(limit = 1000): Promise<number> {

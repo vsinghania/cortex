@@ -8,6 +8,12 @@ export type NoteFolderNode = {
   path: string[];
   /** Non-archived notes filed directly in this folder, not in its subfolders. */
   note_count: number;
+  /**
+   * Set on folders a provider sync owns. Renaming or moving one is undone by the next
+   * pass, which rebuilds the tree from the provider — so the UI says whose folder it is.
+   */
+  source?: string;
+  container_type?: 'notebook' | 'section_group' | 'section';
   created_at: string;
   updated_at: string;
 };

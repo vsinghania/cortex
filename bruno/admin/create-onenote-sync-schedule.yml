@@ -1,0 +1,54 @@
+info:
+  name: create-onenote-sync-schedule
+  type: http
+  seq: 15
+
+http:
+  method: PUT
+  url: "{{base_url}}/admin/jobs/schedules"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "id": "onenote-sync-sweep",
+        "name": "onenote_sync_sweep",
+        "label": "OneNote sync fan-out",
+        "payload": {},
+        "schedule": { "kind": "interval", "every_ms": 900000 },
+        "dedup_key": "onenote-sync-sweep",
+        "max_delay_ms": 600000
+      }
+
+  auth: inherit
+
+docs: |-
+  Creates the one schedule that makes OneNote sync recurring. Schedules are data, not
+  code - nothing seeds this at boot, so until this runs once per environment the sweep
+  never fires and sync is manual-only, with no error to say so.
+
+  The sweep carries no user: each firing enqueues one `onenote_sync` per connected user
+  who has chosen at least one notebook.
+
+  `PUT` upserts on the id above, so re-running is safe. `enabled` is insert-only, so this
+  will not re-enable a schedule an operator deliberately turned off.
+
+  Behind `authorizeRoles('admin')` - the access token has to belong to an admin account.
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        const body = res.getBody();
+        const schedule = body && body.response && body.response.schedule;
+        if (schedule && schedule.id) {
+          bru.setEnvVar('schedule_id', schedule.id);
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

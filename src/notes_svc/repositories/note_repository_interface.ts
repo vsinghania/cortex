@@ -96,6 +96,17 @@ export type NoteMaintenanceParams = {
   limit: number;
 };
 
+/**
+ * Admin-only, and NOT user-scoped: the admin users view reads counts for a page of
+ * users at once. Batched on `user_ids` so a page costs one aggregation, not one per user.
+ */
+export type NoteUserCounts = {
+  user_id: string;
+  total: number;
+  archived: number;
+  by_source: Partial<Record<NoteSource, number>>;
+};
+
 export interface NoteRepository {
   createNote(note: Note): Promise<Note>;
 
@@ -132,4 +143,7 @@ export interface NoteRepository {
   /** Admin maintenance sweeps only - see NoteMaintenanceParams. */
   listNotesForMaintenance(params: NoteMaintenanceParams): Promise<Note[]>;
   countNotesForMaintenance(params: Omit<NoteMaintenanceParams, 'after_id' | 'limit'>): Promise<number>;
+
+  /** Admin users view only - see NoteUserCounts. Users with no notes are omitted. */
+  countNotesByUser(params: { user_ids: string[] }): Promise<NoteUserCounts[]>;
 }

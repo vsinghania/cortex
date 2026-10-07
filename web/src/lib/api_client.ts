@@ -19,8 +19,16 @@ import type {
   NoteFolderNode,
   NoteFolderPatchBody,
 } from './note_folder.types';
-import type { AgentRunRequest, AgentRunResponse, ContextRef, Conversation, ConversationWithMessages } from './agent.types';
+import type { AgentRunRequest, AgentRunResponse, ContextRef, Conversation, ConversationPatch, ConversationWithMessages } from './agent.types';
 import type { MintTokenResponse } from './voice.types';
+import type {
+  OneNoteConnection,
+  OneNoteNotebook,
+  OneNoteStatus,
+  OneNoteSyncJob,
+  OneNoteSyncStart,
+} from './onenote.types';
+import type { AdminUserPage } from './admin.types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
 
@@ -161,6 +169,68 @@ export class ApiClient {
     const user = await ApiClient.me();
     AuthStore.instance().setUser(user);
     return user;
+  }
+
+  static async getOneNoteStatus(): Promise<OneNoteStatus> {
+    return ApiClient.request<OneNoteStatus>('/integrations/onenote/status');
+  }
+
+  /**
+   * Answers with the URL instead of redirecting, so this call can carry the bearer
+   * token; the caller then navigates, which is what the OAuth flow needs.
+   */
+  static async startOneNoteConnect(): Promise<{ url: string }> {
+    return ApiClient.request<{ url: string }>('/integrations/onenote/start', { method: 'POST' });
+  }
+
+  static async disconnectOneNote(): Promise<{ disconnected: boolean }> {
+    return ApiClient.request<{ disconnected: boolean }>('/integrations/onenote', { method: 'DELETE' });
+  }
+
+  /** Served from the server's cache unless `refresh` asks it to call Microsoft again. */
+  static async getOneNoteNotebooks(refresh = false): Promise<{ notebooks: OneNoteNotebook[] }> {
+    return ApiClient.request<{ notebooks: OneNoteNotebook[] }>(
+      `/integrations/onenote/notebooks${refresh ? '?refresh=1' : ''}`,
+    );
+  }
+
+  static async selectOneNoteNotebooks(notebook_ids: string[]): Promise<{ connection: OneNoteConnection }> {
+    return ApiClient.request<{ connection: OneNoteConnection }>('/integrations/onenote/notebooks', {
+      method: 'PUT',
+      body: JSON.stringify({ notebook_ids }),
+    });
+  }
+
+  static async startOneNoteSync(
+    params: { mode?: 'incremental' | 'full'; notebook_ids?: string[] } = {},
+  ): Promise<OneNoteSyncStart> {
+    return ApiClient.request<OneNoteSyncStart>('/integrations/onenote/sync', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  /** Re-reads one page from OneNote now; inline, so it answers with the updated note. */
+  static async syncOneNoteNote(note_id: string): Promise<{ note: Note }> {
+    return ApiClient.request<{ note: Note }>(
+      `/integrations/onenote/notes/${encodeURIComponent(note_id)}/sync`,
+      { method: 'POST' },
+    );
+  }
+
+  static async getOneNoteSyncJob(job_id: string): Promise<{ job: OneNoteSyncJob }> {
+    return ApiClient.request<{ job: OneNoteSyncJob }>(`/integrations/onenote/sync/${encodeURIComponent(job_id)}`);
+  }
+
+  static async listAdminUsers(params: { limit: number; offset: number }): Promise<AdminUserPage> {
+    const query = new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) });
+    return ApiClient.request<AdminUserPage>(`/admin/users?${query.toString()}`);
+  }
+
+  static googleSignInUrl(return_to?: string): string {
+    const url = new URL(`${API_BASE_URL}/auth/google/start`);
+    if (return_to) url.searchParams.set('return_to', return_to);
+    return url.toString();
   }
 
   static async login(email: string, password: string): Promise<AuthResponse> {
@@ -333,10 +403,10 @@ export class ApiClient {
     return ApiClient.request<ConversationWithMessages>(`/agent/conversations/${encodeURIComponent(conversation_id)}`);
   }
 
-  static async setConversationPinned(conversation_id: string, is_pinned: boolean): Promise<{ conversation: Conversation }> {
+  static async updateConversation(conversation_id: string, patch: ConversationPatch): Promise<{ conversation: Conversation }> {
     return ApiClient.request<{ conversation: Conversation }>(
       `/agent/conversations/${encodeURIComponent(conversation_id)}`,
-      { method: 'PATCH', body: JSON.stringify({ is_pinned }) },
+      { method: 'PATCH', body: JSON.stringify(patch) },
     );
   }
 

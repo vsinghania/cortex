@@ -9,7 +9,6 @@ const WORKER_ID_SUFFIX_LEN = 6;
 export type JobWorkerConfig = {
   /** hostname is the container id under Docker, so this is unique per worker. */
   worker_id: string;
-  enabled: boolean;
   scheduler_enabled: boolean;
   concurrency: number;
   poll_interval_ms: number;
@@ -26,7 +25,6 @@ export type JobWorkerConfig = {
 };
 
 const EnvSchema = z.object({
-  JOBS_WORKER_ENABLED: z.string().optional(),
   JOBS_SCHEDULER_ENABLED: z.string().optional(),
   JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(64).optional(),
   JOBS_POLL_INTERVAL_MS: z.coerce.number().int().min(100).optional(),
@@ -44,8 +42,6 @@ export class JobWorkerConfigLoader {
 
     return {
       worker_id: JobWorkerConfigLoader.buildWorkerId(),
-      // Defaults on: the worker runs in-process with web-server today.
-      enabled: JobWorkerConfigLoader.readBool(parsed.JOBS_WORKER_ENABLED, true),
       scheduler_enabled: JobWorkerConfigLoader.readBool(parsed.JOBS_SCHEDULER_ENABLED, true),
 
       // 1 by design: the re-index is serial, and parallel embedding risks rate limits.

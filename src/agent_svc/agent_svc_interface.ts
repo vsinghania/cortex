@@ -13,6 +13,7 @@ import type {
   ContextRef,
   Conversation,
   ConversationMessageView,
+  ConversationPatch,
 } from './types/conversation.types.js';
 
 export type RunByAgentIdInput = {
@@ -63,10 +64,10 @@ export type ListConversationsInput = {
   context_ref?: ContextRef;
 };
 
-export type SetConversationPinnedInput = {
+export type UpdateConversationInput = {
   conversation_id: string;
   user_id: string;
-  is_pinned: boolean;
+  patch: ConversationPatch;
 };
 
 export type GetConversationInput = {
@@ -94,5 +95,5 @@ export interface AgentSvcInterface {
   listConversations(input: ListConversationsInput): Promise<Conversation[]>;
   getConversation(input: GetConversationInput): Promise<ConversationWithMessages>;
   deleteConversation(input: DeleteConversationInput): Promise<void>;
-  setConversationPinned(input: SetConversationPinnedInput): Promise<Conversation>;
+  updateConversation(input: UpdateConversationInput): Promise<Conversation>;
 }

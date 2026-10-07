@@ -46,8 +46,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: cortex:dev
-    # Matches deploy/docker-compose.prod.yml: the in-process job worker needs
-    # longer than Compose's 10s default to flush checkpoints and release leases.
+    # Matches deploy/docker-compose.prod.yml: in-flight requests (streamed agent
+    # replies) get longer than Compose's 10s default to finish.
     stop_grace_period: 30s
     command: ["node", "--enable-source-maps", "dist/web-server/server.js"]
     restart: unless-stopped
@@ -100,8 +100,57 @@ services:
       SMTP_PORT: "1025"
       SMTP_SECURE: "false"
       APP_PUBLIC_URL: http://localhost:5173
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3000/api/v1/auth/google/callback
+      SECRET_ENCRYPTION_KEYS: ${SECRET_ENCRYPTION_KEYS:-}
+      SECRET_ENCRYPTION_ACTIVE_KEY_ID: ${SECRET_ENCRYPTION_ACTIVE_KEY_ID:-}
+      MS_OAUTH_CLIENT_ID: ${MS_OAUTH_CLIENT_ID:-}
+      MS_OAUTH_CLIENT_SECRET: ${MS_OAUTH_CLIENT_SECRET:-}
+      MS_OAUTH_REDIRECT_URI: http://localhost:3000/api/v1/integrations/onenote/callback
     ports:
       - "3000:3000"
+
+  # Runs queued jobs. No ports: it only talks to Mongo, Qdrant, SMTP and the
+  # provider APIs. Recurring schedules are ticked by web-server.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cortex:dev
+    command: ["node", "--enable-source-maps", "dist/worker/worker.js"]
+    restart: unless-stopped
+    # The drain on SIGTERM flushes checkpoints and releases leases; Compose's 10s
+    # default would SIGKILL it halfway. See deploy/docker-compose.prod.yml.
+    stop_grace_period: 30s
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      mailpit:
+        condition: service_started
+    environment:
+      LOG_LEVEL: info
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_DB_APP: cortex
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      QDRANT_URL: http://qdrant:6333
+      CHUNK_TARGET_TOKENS: "512"
+      CHUNK_OVERLAP_TOKENS: "64"
+      MAIL_TRANSPORT: smtp
+      MAIL_FROM: "Cortex <no-reply@cortexapp.me>"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      APP_PUBLIC_URL: http://localhost:5173
+      SECRET_ENCRYPTION_KEYS: ${SECRET_ENCRYPTION_KEYS:-}
+      SECRET_ENCRYPTION_ACTIVE_KEY_ID: ${SECRET_ENCRYPTION_ACTIVE_KEY_ID:-}
+      MS_OAUTH_CLIENT_ID: ${MS_OAUTH_CLIENT_ID:-}
+      MS_OAUTH_CLIENT_SECRET: ${MS_OAUTH_CLIENT_SECRET:-}
+      MS_OAUTH_REDIRECT_URI: http://localhost:3000/api/v1/integrations/onenote/callback
 
   mcp-notes:
     build:

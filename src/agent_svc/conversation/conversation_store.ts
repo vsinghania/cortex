@@ -8,6 +8,7 @@ import type {
   ContextRef,
   Conversation,
   ConversationMessage,
+  ConversationPatch,
 } from '../types/conversation.types.js';
 
 export class ConversationStore {
@@ -68,8 +69,8 @@ export class ConversationStore {
     return { conversation, created: true };
   }
 
-  async setTitle(conversation_id: string, title: string): Promise<void> {
-    await this.repo.setTitle(conversation_id, title);
+  async setTitleIfUnset(conversation_id: string, title: string): Promise<boolean> {
+    return this.repo.setTitleIfUnset(conversation_id, title);
   }
 
   async loadHistory(conversation_id: string): Promise<Message[]> {
@@ -89,12 +90,12 @@ export class ConversationStore {
     return this.repo.listConversationsForUser(params);
   }
 
-  async setPinnedForUser(params: {
+  async updateForUser(params: {
     conversation_id: string;
     user_id: string;
-    is_pinned: boolean;
+    patch: ConversationPatch;
   }): Promise<Conversation | null> {
-    return this.repo.setPinned(params);
+    return this.repo.updateForUser(params);
   }
 
   async getForUser(params: {

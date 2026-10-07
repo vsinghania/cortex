@@ -1,0 +1,30 @@
+info:
+  name: onenote-select-notebooks
+  type: http
+  seq: 4
+
+http:
+  method: PUT
+  url: "{{base_url}}/integrations/onenote/notebooks"
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "notebook_ids": ["{{notebook_id}}"]
+      }
+  auth: inherit
+
+docs: |-
+  Replaces the selection outright; it is not additive. An empty array means "not set up
+  yet", never "sync everything" - nothing syncs until at least one notebook is chosen.
+
+  Deselecting stops future syncs and leaves already-imported notes in place.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

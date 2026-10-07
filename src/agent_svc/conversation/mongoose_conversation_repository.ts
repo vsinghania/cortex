@@ -1,7 +1,13 @@
 import type { Connection, Model } from 'mongoose';
-import type { ContextRef, Conversation, ConversationMessage } from '../types/conversation.types.js';
+import type {
+  ContextRef,
+  Conversation,
+  ConversationMessage,
+  ConversationPatch,
+} from '../types/conversation.types.js';
 import type {
   ConversationRepositoryInterface,
+  ConversationUserCount,
   ListConversationsForUserParams,
 } from './conversation_repository_interface.js';
 import {
@@ -88,6 +94,16 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     return docs.map((d) => MongooseUtils.toDomain<Conversation>(d));
   }
 
+  /** Unscoped by design - see ConversationUserCount. */
+  async countConversationsByUser(user_ids: string[]): Promise<ConversationUserCount[]> {
+    if (user_ids.length === 0) return [];
+    return this.conv_model.aggregate<ConversationUserCount>([
+      { $match: { user_id: { $in: user_ids } } },
+      { $group: { _id: '$user_id', count: { $sum: 1 } } },
+      { $project: { _id: 0, user_id: '$_id', count: 1 } },
+    ]);
+  }
+
   async setLastProviderResponseId(
     conversation_id: string,
     last_provider_response_id: string
@@ -98,22 +114,23 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     );
   }
 
-  async setTitle(conversation_id: string, title: string): Promise<void> {
-    await this.conv_model.updateOne(
-      { conversation_id },
+  async setTitleIfUnset(conversation_id: string, title: string): Promise<boolean> {
+    const result = await this.conv_model.updateOne(
+      { conversation_id, title: { $exists: false } },
       { $set: { title } }
     );
+    return result.modifiedCount > 0;
   }
 
-  async setPinned(params: {
+  async updateForUser(params: {
     conversation_id: string;
     user_id: string;
-    is_pinned: boolean;
+    patch: ConversationPatch;
   }): Promise<Conversation | null> {
     const doc = await this.conv_model
       .findOneAndUpdate(
         { conversation_id: params.conversation_id, user_id: params.user_id },
-        { $set: { is_pinned: params.is_pinned } },
+        { $set: params.patch },
         { new: true, timestamps: false }
       )
       .lean();

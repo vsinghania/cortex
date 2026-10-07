@@ -5,8 +5,9 @@ import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js'
 import { NotesSvc, type NoteListFilter } from '../../notes_svc/notes_svc.js';
 import { NoteListSort } from '../../notes_svc/note_list_sort.js';
 import { NoteBulkActionMapper } from '../../notes_svc/note_bulk_action_mapper.js';
-import { NotFoundError } from '../../common/errors.js';
+import { ForbiddenError, NotFoundError } from '../../common/errors.js';
 import { NoteFoldersController } from './note_folders.controller.js';
+import { NoteSource } from '../../notes_svc/types/note.types.js';
 import type { NoteContainer } from '../../notes_svc/types/note.types.js';
 import type { NoteChunk, NoteChunkRef } from '../../notes_svc/types/note_chunk.types.js';
 
@@ -292,6 +293,30 @@ export class NotesController {
     };
   }
 
+  /**
+   * A note that mirrors a provider is read-only here: its body is overwritten wholesale
+   * by the next sync, so accepting an edit would be promising to keep something we are
+   * about to discard. Organising it - tags, pin, archive, which the sync never writes -
+   * stays allowed.
+   *
+   * Enforced at this boundary rather than in NotesSvc, which the sync itself calls.
+   */
+  private static async assertEditable(args: {
+    notes_svc: NotesSvc;
+    user_id: string;
+    id: string;
+    patch: NotePatchBody;
+  }): Promise<void> {
+    const touches_content = args.patch.title !== undefined || args.patch.body !== undefined;
+    if (!touches_content) return;
+
+    const note = await args.notes_svc.getNote(args.user_id, { id: args.id });
+    if (!note) throw new NotFoundError('Note not found');
+    if (note.source === NoteSource.Native) return;
+
+    throw new ForbiddenError(`This note is synced from ${note.source} and can only be edited there`);
+  }
+
   @validateRequest({ params: NoteParamsSchema, body: NotePatchBodySchema })
   private async updateNote(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
@@ -299,6 +324,8 @@ export class NotesController {
       const user_id = req.auth!.user_id;
       const patch = req.body as NotePatchBody;
       const notes_svc = await NotesSvc.create();
+      await NotesController.assertEditable({ notes_svc, user_id, id, patch });
+
       const note = await notes_svc.updateNote(user_id, { id }, patch, { indexing: 'deferred' });
       if (!note) throw new NotFoundError('Note not found');
       res.status(200).json({ response: { note } });

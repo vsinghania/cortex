@@ -1,33 +1,53 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
-import { AuthLayout } from '../components/auth_layout';
+import { AuthLayout } from '../components/auth/auth_layout';
+import { AuthField } from '../components/auth/auth_field';
+import { SubmitButton } from '../components/auth/submit_button';
+import { GoogleButton } from '../components/auth/google_button';
+import { AppRoutes } from '../lib/app_routes';
+import { FormValidation } from '../lib/form_validation';
 
-const MIN_PASSWORD_LENGTH = 8;
+type RegisterErrors = Partial<Record<'name' | 'email' | 'password' | 'confirm', string>>;
 
 export function RegisterPage() {
   const navigate = useNavigate();
-  const [email, set_email] = useState('');
   const [name, set_name] = useState('');
+  const [email, set_email] = useState('');
   const [password, set_password] = useState('');
+  const [confirm, set_confirm] = useState('');
+  const [errors, set_errors] = useState<RegisterErrors>({});
+  const [form_error, set_form_error] = useState<string | null>(null);
   const [submitting, set_submitting] = useState(false);
-  const [error, set_error] = useState<string | null>(null);
+
+  // A field's error goes away as soon as the user edits it, not on the next submit.
+  function editField(key: keyof RegisterErrors, setter: (value: string) => void) {
+    return (value: string) => {
+      setter(value);
+      set_errors((current) => ({ ...current, [key]: undefined }));
+    };
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      set_error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
-      return;
-    }
+    const found = FormValidation.collect({
+      name: FormValidation.nameError(name),
+      email: FormValidation.emailError(email),
+      password: FormValidation.passwordError(password),
+      confirm: FormValidation.confirmError(password, confirm),
+    });
+    set_errors(found);
+    set_form_error(null);
+    if (Object.keys(found).length > 0) return;
+
     set_submitting(true);
-    set_error(null);
     try {
-      await ApiClient.register(email, name, password);
-      // The server enqueues a confirmation email on register; tell the banner so it
-      // says so, rather than inviting a resend of the link already on its way.
-      navigate('/notes', { replace: true, state: { verification_sent: true } });
+      await ApiClient.register(email, name.trim(), password);
+      // The server enqueues a confirmation email on register; the banner says so
+      // rather than inviting a resend of the link already on its way.
+      navigate(AppRoutes.notes(), { replace: true, state: { verification_sent: true } });
     } catch (err) {
-      set_error(err instanceof Error ? err.message : 'Registration failed.');
+      set_form_error(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
       set_submitting(false);
     }
@@ -35,50 +55,41 @@ export function RegisterPage() {
 
   return (
     <AuthLayout>
-      <form className="auth-form" onSubmit={handleSubmit}>
-        <div className="auth-heading">
-          <h1>Create your account</h1>
-          <p className="auth-subtitle">Capture notes you can search and chat with.</p>
+      <form className="auth-form" onSubmit={handleSubmit} noValidate>
+        <div>
+          <Link to={AppRoutes.login()} className="back-link">← Back to sign in</Link>
+          <div className="auth-heading">
+            <h1>Create your account</h1>
+            <p>Capture notes you can search, and talk them through with the assistant.</p>
+          </div>
         </div>
-        <label>
-          Name
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => set_name(e.target.value)}
-            autoComplete="name"
-            autoFocus
-            required
-          />
-        </label>
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => set_email(e.target.value)}
-            autoComplete="email"
-            required
-          />
-        </label>
-        <label>
-          Password
-          <input
+        <div className="auth-fields">
+          <AuthField label="Full name" value={name} onChange={editField('name', set_name)} placeholder="Ada Lovelace" autoComplete="name" autoFocus error={errors.name} />
+          <AuthField label="Email" type="email" value={email} onChange={editField('email', set_email)} placeholder="you@company.com" autoComplete="email" error={errors.email} />
+          <AuthField
+            label="Password"
             type="password"
             value={password}
-            onChange={(e) => set_password(e.target.value)}
+            onChange={editField('password', set_password)}
+            placeholder={`Min. ${FormValidation.MIN_PASSWORD_LENGTH} characters`}
             autoComplete="new-password"
-            minLength={MIN_PASSWORD_LENGTH}
-            required
+            error={errors.password}
           />
-          <span className="field-hint">At least {MIN_PASSWORD_LENGTH} characters.</span>
-        </label>
-        {error && <div className="form-error" role="alert">{error}</div>}
-        <button type="submit" className="primary" disabled={submitting}>
-          {submitting ? 'Creating…' : 'Create account'}
-        </button>
+          <AuthField
+            label="Confirm password"
+            type="password"
+            value={confirm}
+            onChange={editField('confirm', set_confirm)}
+            placeholder="Repeat password"
+            autoComplete="new-password"
+            error={errors.confirm}
+          />
+        </div>
+        {form_error && <div className="form-error" role="alert">{form_error}</div>}
+        <SubmitButton busy={submitting} label="Create account" />
+        <GoogleButton />
         <p className="auth-alt">
-          Already have an account? <Link to="/login">Log in</Link>
+          Already have an account? <Link to={AppRoutes.login()} className="text-link text-link-strong">Sign in</Link>
         </p>
       </form>
     </AuthLayout>

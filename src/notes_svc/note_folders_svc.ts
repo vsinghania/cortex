@@ -1,4 +1,10 @@
-import type { NoteFolder, NoteFolderDeleteResult, NoteFolderNode } from './types/note_folder.types.js';
+import type {
+  NoteFolder,
+  NoteFolderContainerType,
+  NoteFolderDeleteResult,
+  NoteFolderNode
+} from './types/note_folder.types.js';
+import type { NoteSource } from './types/note.types.js';
 import type { NoteFolderRepository } from './repositories/note_folder_repository_interface.js';
 import { MongooseNoteFolderRepository } from './repositories/mongoose_note_folder_repository.js';
 import { NoteFolderNameTakenError } from './note_folder_errors.js';
@@ -9,6 +15,17 @@ import { NotFoundError } from '../common/errors.js';
 import { Id } from '../lib/id.js';
 import { Time } from '../lib/time.js';
 import { logger } from '../common/logger.js';
+
+export type EnsureProviderFolderInput = {
+  user_id: string;
+  source: NoteSource;
+  /** The provider's id for this container; the root of a provider's tree may use a sentinel. */
+  external_id: string;
+  /** Omitted for a provider's root folder, which mirrors no single container. */
+  container_type?: NoteFolderContainerType;
+  name: string;
+  parent_id: string | null;
+};
 
 export type NoteFolderUpdateInput = {
   user_id: string;
@@ -25,11 +42,14 @@ export class NoteFoldersSvc {
     private readonly notes_svc: NotesSvc
   ) {}
 
-  static async create(params?: { db?: string; host?: string; port?: number }): Promise<NoteFoldersSvc> {
+  /** Deps are injectable so the folder rules can be tested without Mongo. */
+  static async create(
+    params?: { db?: string; host?: string; port?: number; folder_repo?: NoteFolderRepository; notes_svc?: NotesSvc }
+  ): Promise<NoteFoldersSvc> {
     const db = params?.db ?? DbNameResolver.resolve('notes');
     const [folder_repo, notes_svc] = await Promise.all([
-      MongooseNoteFolderRepository.create({ db, host: params?.host, port: params?.port }),
-      NotesSvc.create({ db, host: params?.host, port: params?.port })
+      params?.folder_repo ?? MongooseNoteFolderRepository.create({ db, host: params?.host, port: params?.port }),
+      params?.notes_svc ?? NotesSvc.create({ db, host: params?.host, port: params?.port })
     ]);
     return new NoteFoldersSvc(folder_repo, notes_svc);
   }
@@ -75,6 +95,69 @@ export class NoteFoldersSvc {
     }
     logger.info({ folder_id: parent!.id, depth: segments.length, created_count }, 'note folder path ensured');
     return { folder: parent!, path, created_count };
+  }
+
+  /**
+   * The folder a provider container maps to, found by its provider id rather than its
+   * name. That is what keeps a sync idempotent across renames on either side: renaming
+   * in Cortex does not make the next sync build a second folder, and renaming on the
+   * provider renames this one instead of orphaning it.
+   */
+  async ensureProviderFolder(params: EnsureProviderFolderInput): Promise<NoteFolder> {
+    const name = NoteFolderTree.normalizeName(params.name);
+    const existing = await this.folder_repo.findByProviderKey({
+      user_id: params.user_id,
+      source: params.source,
+      external_id: params.external_id
+    });
+
+    if (existing) return this.reconcileProviderFolder(existing, { ...params, name });
+
+    const parent = params.parent_id ? await this.requireFolder(params.user_id, params.parent_id) : null;
+    return this.insertProviderFolder({ ...params, name, parent });
+  }
+
+  private async reconcileProviderFolder(
+    folder: NoteFolder,
+    params: EnsureProviderFolderInput & { name: string }
+  ): Promise<NoteFolder> {
+    let current = folder;
+    if (current.name !== params.name) {
+      current = (await this.folder_repo.renameFolder({ user_id: params.user_id, id: current.id, name: params.name })) ?? current;
+    }
+    // A section moved to another notebook on the provider side moves here too.
+    if ((params.parent_id ?? null) !== current.parent_id) {
+      current = await this.moveFolder(current, params.parent_id ?? null);
+    }
+    return current;
+  }
+
+  private async insertProviderFolder(
+    params: EnsureProviderFolderInput & { name: string; parent: NoteFolder | null }
+  ): Promise<NoteFolder> {
+    NoteFolderTree.assertCanCreateUnder(params.parent);
+    const now = new Date();
+    const base = {
+      user_id: params.user_id,
+      source: params.source,
+      external_id: params.external_id,
+      container_type: params.container_type,
+      ...NoteFolderTree.placementUnder(params.parent),
+      created_at: now,
+      updated_at: now
+    };
+
+    try {
+      return await this.folder_repo.createFolder({ ...base, id: Id.generateUuidV7(), name: params.name });
+    } catch (err) {
+      if (!(err instanceof NoteFolderNameTakenError)) throw err;
+      // Something else already holds that name here - a folder the user made, or another
+      // container that happens to share it. Disambiguate deterministically rather than
+      // adopting a folder we do not own: the suffix is derived from the provider id, so
+      // the next sync lands on the same name.
+      const name = NoteFolderTree.normalizeName(`${params.name} (${params.external_id.slice(-6)})`);
+      return this.folder_repo.createFolder({ ...base, id: Id.generateUuidV7(), name });
+    }
   }
 
   async updateFolder(input: NoteFolderUpdateInput): Promise<NoteFolder> {

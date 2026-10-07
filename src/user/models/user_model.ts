@@ -12,7 +12,9 @@ export class UserModelFactory extends BaseModelFactory<User> {
         user_id: { type: String, required: true, unique: true, index: true }, // UUID
         email: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
         name: { type: String, required: true, trim: true },
-        password_hash: { type: String, required: true },
+        // Absent for accounts created through Google sign-in until a password is set via reset.
+        password_hash: { type: String, default: undefined },
+        google_sub: { type: String, default: undefined },
         roles: { type: [String], default: ['user'] },
         last_login_at: { type: Date, default: undefined },
         email_verified_at: { type: Date, default: undefined }
@@ -27,6 +29,7 @@ export class UserModelFactory extends BaseModelFactory<User> {
     // Indexes
     UserSchemaMongoose.index({ user_id: 1 }, { unique: true });
     UserSchemaMongoose.index({ email: 1 }, { unique: true });
+    UserSchemaMongoose.index({ google_sub: 1 }, { unique: true, sparse: true });
 
     // Output shaping
     UserSchemaMongoose.set('toJSON', {

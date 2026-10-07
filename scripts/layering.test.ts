@@ -8,8 +8,9 @@
  * time, so they are asserted rather than documented.
  *
  * jobs_svc is the strictest of them: it is a generic queue, so it must not name a
- * domain concept at all. Handlers are registered into it from the composition root
- * (web-server), which is why the dependency runs notes_svc -> jobs_svc and never back.
+ * domain concept at all. Handlers are registered into it from src/bootstrap, which the
+ * composition roots (web-server, worker) call - which is why the dependency runs
+ * notes_svc -> jobs_svc and never back.
  *
  * mailer_svc is generic in the same way: domains own their templates and send jobs,
  * and hand it a finished message. It must not reach back into any of them.
@@ -27,7 +28,8 @@ type Rule = { module: string; forbidden: string[] };
 const RULES: Rule[] = [
   { module: 'agent_svc', forbidden: ['notes_svc', 'retrieval_svc'] },
   { module: 'citation_svc', forbidden: ['agent_svc'] },
-  { module: 'notes_svc', forbidden: ['agent_svc', 'citation_svc'] },
+  // onenote_svc writes notes; notes must never learn about a provider to write them.
+  { module: 'notes_svc', forbidden: ['agent_svc', 'citation_svc', 'onenote_svc'] },
   {
     module: 'jobs_svc',
     forbidden: [
@@ -36,9 +38,15 @@ const RULES: Rule[] = [
       'citation_svc',
       'embeddings_svc',
       'notes_svc',
+      'onenote_svc',
       'retrieval_svc',
       'voice_svc'
     ]
+  },
+  // Provider-facing and one-directional: it writes notes, nothing reads back from it.
+  {
+    module: 'onenote_svc',
+    forbidden: ['agent_svc', 'ai_svc', 'citation_svc', 'retrieval_svc', 'voice_svc']
   },
   {
     module: 'mailer_svc',
@@ -85,3 +93,23 @@ for (const rule of RULES) {
     assert.deepEqual(violations, [], `forbidden imports:\n  ${violations.join('\n  ')}`);
   });
 }
+
+/*
+ * admin_svc is a read model over the domains, composed only by the web-server. A domain
+ * importing it back would make every domain depend on every other one through it.
+ */
+const ADMIN_READ_MODEL = 'admin_svc';
+const ADMIN_READ_MODEL_CALLERS = new Set([ADMIN_READ_MODEL, 'web-server']);
+
+test(`only web-server imports ${ADMIN_READ_MODEL}`, () => {
+  const violations: string[] = [];
+  for (const module of readdirSync(SRC)) {
+    if (ADMIN_READ_MODEL_CALLERS.has(module) || !statSync(join(SRC, module)).isDirectory()) continue;
+    for (const file of tsFilesUnder(join(SRC, module))) {
+      for (const specifier of importedPaths(readFileSync(file, 'utf8'))) {
+        if (specifier.includes(`/${ADMIN_READ_MODEL}/`)) violations.push(`${relative(SRC, file)} -> ${specifier}`);
+      }
+    }
+  }
+  assert.deepEqual(violations, [], `forbidden imports:\n  ${violations.join('\n  ')}`);
+});

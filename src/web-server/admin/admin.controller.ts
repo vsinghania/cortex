@@ -3,6 +3,7 @@ import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js'
 import { AuthorizeMiddleware } from '../../common/middlewares/authorize.js';
 import { AdminNotesController } from './admin.notes.controller.js';
 import { AdminJobsController } from './admin.jobs.controller.js';
+import { AdminUsersController } from './admin.users.controller.js';
 import { logger } from '../../common/logger.js';
 
 /**
@@ -34,7 +35,8 @@ export class AdminController {
 
     this.router.use('/notes', new AdminNotesController().getRouter());
     this.router.use('/jobs', new AdminJobsController().getRouter());
+    this.router.use('/users', new AdminUsersController().getRouter());
 
-    logger.info({ mounts: ['notes', 'jobs'] }, 'admin routes mounted');
+    logger.info({ mounts: ['notes', 'jobs', 'users'] }, 'admin routes mounted');
   }
 }

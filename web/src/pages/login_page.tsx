@@ -1,30 +1,60 @@
-import { useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
-import { AuthLayout } from '../components/auth_layout';
+import { AuthLayout } from '../components/auth/auth_layout';
+import { AuthField } from '../components/auth/auth_field';
+import { SubmitButton } from '../components/auth/submit_button';
+import { GoogleButton } from '../components/auth/google_button';
+import { AppRoutes } from '../lib/app_routes';
+import { GoogleSignIn } from '../lib/google_sign_in';
+import { FormValidation } from '../lib/form_validation';
 
 type LocationState = { from?: string; notice?: string } | null;
+type LoginErrors = Partial<Record<'email' | 'password', string>>;
 
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const state = location.state as LocationState;
   const [email, set_email] = useState('');
   const [password, set_password] = useState('');
+  const [errors, set_errors] = useState<LoginErrors>({});
+  const [form_error, set_form_error] = useState<string | null>(null);
   const [submitting, set_submitting] = useState(false);
-  const [error, set_error] = useState<string | null>(null);
-  const notice = (location.state as LocationState)?.notice;
+
+  const redirect_to = state?.from && AppRoutes.isInternalPath(state.from) && state.from !== AppRoutes.login()
+    ? state.from
+    : AppRoutes.notes();
+
+  useEffect(() => {
+    const google_error = GoogleSignIn.takeRedirectError();
+    if (google_error) set_form_error(google_error);
+  }, []);
+
+  // A field's error goes away as soon as the user edits it, not on the next submit.
+  function editField(key: keyof LoginErrors, setter: (value: string) => void) {
+    return (value: string) => {
+      setter(value);
+      set_errors((current) => ({ ...current, [key]: undefined }));
+    };
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const found = FormValidation.collect({
+      email: FormValidation.emailError(email),
+      password: password ? null : 'Enter your password.',
+    });
+    set_errors(found);
+    set_form_error(null);
+    if (Object.keys(found).length > 0) return;
+
     set_submitting(true);
-    set_error(null);
     try {
       await ApiClient.login(email, password);
-      const state = location.state as LocationState;
-      const redirect_to = state?.from && state.from !== '/login' ? state.from : '/notes';
       navigate(redirect_to, { replace: true });
     } catch (err) {
-      set_error(err instanceof Error ? err.message : 'Login failed.');
+      set_form_error(err instanceof Error ? err.message : 'Login failed.');
     } finally {
       set_submitting(false);
     }
@@ -32,42 +62,39 @@ export function LoginPage() {
 
   return (
     <AuthLayout>
-      <form className="auth-form" onSubmit={handleSubmit}>
+      <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <div className="auth-heading">
           <h1>Welcome back</h1>
-          <p className="auth-subtitle">Log in to your notes.</p>
+          <p>Sign in to your Cortex workspace</p>
         </div>
-        {notice && <div className="form-notice">{notice}</div>}
-        <label>
-          Email
-          <input
+        {state?.notice && <div className="form-notice" role="status">{state.notice}</div>}
+        <div className="auth-fields">
+          <AuthField
+            label="Email"
             type="email"
             value={email}
-            onChange={(e) => set_email(e.target.value)}
+            onChange={editField('email', set_email)}
+            placeholder="you@company.com"
             autoComplete="email"
             autoFocus
-            required
+            error={errors.email}
           />
-        </label>
-        <label>
-          <span className="auth-label-row">
-            Password
-            <Link to="/forgot-password">Forgot password?</Link>
-          </span>
-          <input
+          <AuthField
+            label="Password"
             type="password"
             value={password}
-            onChange={(e) => set_password(e.target.value)}
+            onChange={editField('password', set_password)}
+            placeholder="••••••••"
             autoComplete="current-password"
-            required
+            error={errors.password}
+            aside={<Link to={AppRoutes.forgotPassword()} className="text-link">Forgot password?</Link>}
           />
-        </label>
-        {error && <div className="form-error" role="alert">{error}</div>}
-        <button type="submit" className="primary" disabled={submitting}>
-          {submitting ? 'Logging in…' : 'Log in'}
-        </button>
+        </div>
+        {form_error && <div className="form-error" role="alert">{form_error}</div>}
+        <SubmitButton busy={submitting} label="Sign in" />
+        <GoogleButton return_to={redirect_to} />
         <p className="auth-alt">
-          Don't have an account? <Link to="/register">Create one</Link>
+          Don't have an account? <Link to={AppRoutes.register()} className="text-link text-link-strong">Join now</Link>
         </p>
       </form>
     </AuthLayout>

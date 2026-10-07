@@ -1,5 +1,11 @@
 import type { Connection, Model } from 'mongoose';
-import { type CreateUserInput, type UpdateUserPatch, type User } from '../types/user.types.js';
+import {
+  type AdminUserRecord,
+  type CreateUserInput,
+  type ListUsersParams,
+  type UpdateUserPatch,
+  type User
+} from '../types/user.types.js';
 import { UserModelFactory } from '../models/user_model.js';
 import { MongooseConnectionManager } from '../../db/mongo/mongoose_connection_manager.js';
 import { MongooseUtils } from '../../db/mongo/mongoose_utils.js';
@@ -27,6 +33,8 @@ export class MongooseUserRepository implements IUserRepository {
       email: input.email,
       name: input.name,
       password_hash: input.password_hash,
+      google_sub: input.google_sub,
+      email_verified_at: input.email_verified_at,
       roles: input.roles ?? ['user']
     });
     return MongooseUtils.toDomain<User>(created);
@@ -39,6 +47,11 @@ export class MongooseUserRepository implements IUserRepository {
 
   async findByEmail(email: string): Promise<User | null> {
     const found = await this.model.findOne({ email: email.toLowerCase().trim() }).lean();
+    return found ? (MongooseUtils.toDomain<User>(found) as User) : null;
+  }
+
+  async findByGoogleSub(google_sub: string): Promise<User | null> {
+    const found = await this.model.findOne({ google_sub }).lean();
     return found ? (MongooseUtils.toDomain<User>(found) as User) : null;
   }
 
@@ -73,5 +86,46 @@ export class MongooseUserRepository implements IUserRepository {
       { new: true }
     ).lean();
     return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
+  }
+
+  async linkGoogleAccount(user_id: string, google_sub: string): Promise<User | null> {
+    const updated = await this.model.findOneAndUpdate(
+      { user_id },
+      { $set: { google_sub } },
+      { new: true }
+    ).lean();
+    return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
+  }
+
+  async listUsers(params: ListUsersParams): Promise<AdminUserRecord[]> {
+    return this.model.aggregate<AdminUserRecord>([
+      { $sort: { created_at: -1, user_id: 1 } },
+      { $skip: params.offset },
+      { $limit: params.limit },
+      {
+        $project: {
+          _id: 0,
+          user_id: 1,
+          email: 1,
+          name: 1,
+          roles: 1,
+          created_at: 1,
+          updated_at: 1,
+          last_login_at: 1,
+          email_verified_at: 1,
+          has_password: MongooseUserRepository.fieldIsSet('$password_hash'),
+          has_google: MongooseUserRepository.fieldIsSet('$google_sub')
+        }
+      }
+    ]);
+  }
+
+  async countUsers(): Promise<number> {
+    return this.model.estimatedDocumentCount();
+  }
+
+  /** Accounts written before a field existed may hold null rather than omit it. */
+  private static fieldIsSet(field: string) {
+    return { $and: [{ $ne: [{ $type: field }, 'missing'] }, { $ne: [field, null] }] };
   }
 }

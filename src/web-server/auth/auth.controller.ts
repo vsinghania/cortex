@@ -6,30 +6,48 @@ import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js'
 import { AuthSvc } from '../../auth_svc/auth_svc.js';
 import { PasswordResetSvc } from '../../auth_svc/password_reset_svc.js';
 import { EmailVerificationSvc } from '../../auth_svc/email_verification_svc.js';
-import { REFRESH_COOKIE_NAME, TokenUtils } from '../../auth_svc/utils/token_utils.js';
+import { GoogleAuthSvc } from '../../auth_svc/google_auth_svc.js';
+import { AppLinks } from '../../auth_svc/app_links.js';
+import type { GoogleOAuthState } from '../../auth_svc/types/google_auth.types.js';
+import { logger } from '../../common/logger.js';
+import { REFRESH_COOKIE_NAME } from '../../auth_svc/utils/token_utils.js';
+import { CookieOptions } from '../cookie_options.js';
 import { Time } from '../../lib/time.js';
 
 const EmailSchema = z.string().email();
 const PasswordSchema = z.string().min(8);
 const NameSchema = z.string().trim().min(1).max(100);
 const EmailTokenSchema = z.string().min(1).max(512);
+const GOOGLE_STATE_COOKIE_NAME = 'g_oauth';
+const GOOGLE_STATE_COOKIE_PATH = '/api/v1/auth/google';
+const GOOGLE_STATE_TTL_MS = Time.minutesToMs(10);
+const GoogleOAuthStateSchema = z.object({
+  state: z.string().min(1),
+  code_verifier: z.string().min(1),
+  return_to: z.string()
+});
 
 
 
 export class AuthController {
 
   private static refreshCookieOptions() {
-    const secure = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
-    const domain = process.env.COOKIE_DOMAIN || undefined;
-    const sameSite = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' | 'none' | undefined) ?? 'lax';
-    return {
-      httpOnly: true,
-      secure,
-      sameSite,
-      domain,
-      path: '/',
-      maxAge: Time.secondsToMs(TokenUtils.refreshTokenTtlSec())
-    } as const;
+    return CookieOptions.refresh();
+  }
+
+  private static googleStateCookieOptions() {
+    return CookieOptions.oauthState({ path: GOOGLE_STATE_COOKIE_PATH, max_age_ms: GOOGLE_STATE_TTL_MS });
+  }
+
+  private static readGoogleState(req: express.Request): GoogleOAuthState | null {
+    const raw = (req as any).cookies?.[GOOGLE_STATE_COOKIE_NAME] as string | undefined;
+    if (!raw) return null;
+    try {
+      const parsed = GoogleOAuthStateSchema.safeParse(JSON.parse(raw));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
   }
 
   private static userAgent(req: express.Request) {
@@ -55,6 +73,8 @@ export class AuthController {
     this.router.post('/refresh', this.refresh.bind(this));
     this.router.post('/logout', this.logout.bind(this));
     this.router.get('/me', RequireAuthMiddleware.requireAuth, this.me.bind(this));
+    this.router.get('/google/start', this.googleStart.bind(this));
+    this.router.get('/google/callback', this.googleCallback.bind(this));
     this.router.post('/password/forgot', RateLimitMiddleware.emailSendRateLimiter, this.forgotPassword.bind(this));
     this.router.post('/password/reset', this.resetPassword.bind(this));
     this.router.post('/email/verify', this.verifyEmail.bind(this));
@@ -223,6 +243,57 @@ export class AuthController {
       res.status(200).json({ response: result });
     } catch (e) {
       next(e);
+    }
+  }
+
+  // Both Google routes are browser navigations, so failures redirect back to the SPA's
+  // login page instead of answering with a problem document nobody would see.
+  private async googleStart(req: express.Request, res: express.Response) {
+    const links = AppLinks.fromEnv();
+    try {
+      if (!GoogleAuthSvc.isConfigured()) {
+        res.redirect(links.loginError('google_unavailable'));
+        return;
+      }
+      const return_to = typeof req.query.return_to === 'string' ? req.query.return_to : undefined;
+      const google_auth_svc = await GoogleAuthSvc.create();
+      const { url, pending } = google_auth_svc.startAuthorization(return_to);
+      res.cookie(GOOGLE_STATE_COOKIE_NAME, JSON.stringify(pending), AuthController.googleStateCookieOptions());
+      res.redirect(url);
+    } catch (err) {
+      logger.error({ err }, 'google login start failed');
+      res.redirect(links.loginError('google_failed'));
+    }
+  }
+
+  private async googleCallback(req: express.Request, res: express.Response) {
+    const links = AppLinks.fromEnv();
+    const pending = AuthController.readGoogleState(req);
+    res.clearCookie(GOOGLE_STATE_COOKIE_NAME, AuthController.googleStateCookieOptions());
+
+    const { code, state, error } = req.query;
+    if (typeof error === 'string') {
+      logger.info({ reason: error }, 'google login abandoned');
+      res.redirect(links.loginError(error === 'access_denied' ? 'google_cancelled' : 'google_failed'));
+      return;
+    }
+    if (!pending || typeof code !== 'string' || typeof state !== 'string') {
+      logger.warn({ reason: pending ? 'missing_code' : 'missing_state_cookie' }, 'google login rejected');
+      res.redirect(links.loginError('google_failed'));
+      return;
+    }
+
+    try {
+      const google_auth_svc = await GoogleAuthSvc.create();
+      const result = await google_auth_svc.completeAuthorization(
+        { code, state, pending },
+        { ip: req.ip, user_agent: AuthController.userAgent(req) }
+      );
+      res.cookie(REFRESH_COOKIE_NAME, result.tokens.refresh_token, AuthController.refreshCookieOptions());
+      res.redirect(links.appPath(result.return_to));
+    } catch (err) {
+      logger.error({ err }, 'google login failed');
+      res.redirect(links.loginError('google_failed'));
     }
   }
 }

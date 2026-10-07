@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import { AuthStore } from '../lib/auth_store';
-import { AuthLayout } from '../components/auth_layout';
-
-const MIN_PASSWORD_LENGTH = 8;
+import { AuthLayout } from '../components/auth/auth_layout';
+import { AuthField } from '../components/auth/auth_field';
+import { SubmitButton } from '../components/auth/submit_button';
+import { AppRoutes } from '../lib/app_routes';
+import { FormValidation } from '../lib/form_validation';
 
 export function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -12,38 +14,36 @@ export function ResetPasswordPage() {
   const [token] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('token'));
   const [password, set_password] = useState('');
   const [confirm, set_confirm] = useState('');
+  const [errors, set_errors] = useState<Partial<Record<'password' | 'confirm', string>>>({});
+  const [form_error, set_form_error] = useState<string | null>(null);
   const [submitting, set_submitting] = useState(false);
-  const [error, set_error] = useState<string | null>(null);
 
   // Once read, take the token out of the address bar and the history entry.
   useEffect(() => {
-    if (window.location.hash) {
-      window.history.replaceState(null, '', window.location.pathname);
-    }
+    if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      set_error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
-      return;
-    }
-    if (password !== confirm) {
-      set_error("Passwords don't match.");
-      return;
-    }
+    const found = FormValidation.collect({
+      password: FormValidation.passwordError(password),
+      confirm: FormValidation.confirmError(password, confirm),
+    });
+    set_errors(found);
+    set_form_error(null);
+    if (Object.keys(found).length > 0) return;
+
     set_submitting(true);
-    set_error(null);
     try {
       await ApiClient.resetPassword(token!, password);
       // The reset revoked every session, so any session in this tab is dead too.
       AuthStore.instance().clear();
-      navigate('/login', {
+      navigate(AppRoutes.login(), {
         replace: true,
-        state: { notice: 'Your password was changed. Log in with the new one.' },
+        state: { notice: 'Your password was changed. Sign in with the new one.' },
       });
     } catch (err) {
-      set_error(err instanceof Error ? err.message : 'Could not reset the password.');
+      set_form_error(err instanceof Error ? err.message : 'Could not reset the password.');
     } finally {
       set_submitting(false);
     }
@@ -55,13 +55,11 @@ export function ResetPasswordPage() {
         <div className="auth-form">
           <div className="auth-heading">
             <h1>Link incomplete</h1>
+            <p>This reset link is missing its token. Open the link from the email again, or request a new one.</p>
           </div>
-          <p className="auth-note">
-            This reset link is missing its token. Open the link from the email again, or request a new one.
-          </p>
-          <p className="auth-alt">
-            <Link to="/forgot-password">Request a new link</Link>
-          </p>
+          <Link to={AppRoutes.forgotPassword()} className="btn btn-outline btn-block btn-lg">
+            Request a new link
+          </Link>
         </div>
       </AuthLayout>
     );
@@ -69,43 +67,43 @@ export function ResetPasswordPage() {
 
   return (
     <AuthLayout>
-      <form className="auth-form" onSubmit={handleSubmit}>
+      <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <div className="auth-heading">
           <h1>Choose a new password</h1>
-          <p className="auth-subtitle">This will sign you out everywhere else.</p>
+          <p>This signs you out everywhere else.</p>
         </div>
-        <label>
-          New password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => set_password(e.target.value)}
-            autoComplete="new-password"
-            minLength={MIN_PASSWORD_LENGTH}
-            autoFocus
-            required
-          />
-          <span className="field-hint">At least {MIN_PASSWORD_LENGTH} characters.</span>
-        </label>
-        <label>
-          Confirm new password
-          <input
-            type="password"
-            value={confirm}
-            onChange={(e) => set_confirm(e.target.value)}
-            autoComplete="new-password"
-            minLength={MIN_PASSWORD_LENGTH}
-            required
-          />
-        </label>
-        {error && (
+        <AuthField
+          label="New password"
+          type="password"
+          value={password}
+          onChange={(value) => {
+            set_password(value);
+            set_errors((current) => ({ ...current, password: undefined }));
+          }}
+          placeholder="••••••••"
+          autoComplete="new-password"
+          autoFocus
+          error={errors.password}
+          hint={`At least ${FormValidation.MIN_PASSWORD_LENGTH} characters.`}
+        />
+        <AuthField
+          label="Confirm new password"
+          type="password"
+          value={confirm}
+          onChange={(value) => {
+            set_confirm(value);
+            set_errors((current) => ({ ...current, confirm: undefined }));
+          }}
+          placeholder="Repeat password"
+          autoComplete="new-password"
+          error={errors.confirm}
+        />
+        {form_error && (
           <div className="form-error" role="alert">
-            {error} <Link to="/forgot-password">Request a new link</Link>
+            {form_error} <Link to={AppRoutes.forgotPassword()}>Request a new link</Link>
           </div>
         )}
-        <button type="submit" className="primary" disabled={submitting}>
-          {submitting ? 'Saving…' : 'Set new password'}
-        </button>
+        <SubmitButton busy={submitting} label="Set new password" />
       </form>
     </AuthLayout>
   );

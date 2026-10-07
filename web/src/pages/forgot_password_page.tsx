@@ -1,44 +1,55 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
-import { AuthLayout } from '../components/auth_layout';
+import { AuthLayout } from '../components/auth/auth_layout';
+import { AuthField } from '../components/auth/auth_field';
+import { SubmitButton } from '../components/auth/submit_button';
+import { Icon } from '../components/icon';
+import { AppRoutes } from '../lib/app_routes';
+import { FormValidation } from '../lib/form_validation';
 
 export function ForgotPasswordPage() {
   const [email, set_email] = useState('');
+  const [email_error, set_email_error] = useState<string | undefined>();
+  const [form_error, set_form_error] = useState<string | null>(null);
   const [submitting, set_submitting] = useState(false);
   const [sent, set_sent] = useState(false);
-  const [error, set_error] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const error = FormValidation.emailError(email);
+    set_email_error(error ?? undefined);
+    set_form_error(null);
+    if (error) return;
+
     set_submitting(true);
-    set_error(null);
     try {
       await ApiClient.forgotPassword(email);
       set_sent(true);
     } catch (err) {
-      set_error(err instanceof Error ? err.message : 'Something went wrong. Try again.');
+      set_form_error(err instanceof Error ? err.message : 'Something went wrong. Try again.');
     } finally {
       set_submitting(false);
     }
   }
 
   if (sent) {
-    // Worded for both cases on purpose: the API does not reveal whether the
-    // account exists, so neither does this page.
+    // Worded for both cases on purpose: the API does not reveal whether the account
+    // exists, so neither does this page.
     return (
       <AuthLayout>
         <div className="auth-form">
+          <span className="status-circle" aria-hidden="true">
+            <Icon name="check" size={22} />
+          </span>
           <div className="auth-heading">
-            <h1>Check your email</h1>
+            <h1>Check your inbox</h1>
+            <p>
+              If <strong>{email}</strong> has an account, we've sent it a link to reset the password. The link works
+              once and expires soon.
+            </p>
           </div>
-          <p className="auth-note">
-            If an account exists for <strong>{email}</strong>, we've sent it a link to reset the
-            password. The link works once and expires soon.
-          </p>
-          <p className="auth-alt">
-            <Link to="/login">Back to log in</Link>
-          </p>
+          <Link to={AppRoutes.login()} className="btn btn-outline btn-block btn-lg">Back to sign in</Link>
         </div>
       </AuthLayout>
     );
@@ -46,31 +57,29 @@ export function ForgotPasswordPage() {
 
   return (
     <AuthLayout>
-      <form className="auth-form" onSubmit={handleSubmit}>
-        <div className="auth-heading">
-          <h1>Reset your password</h1>
-          <p className="auth-subtitle">
-            Enter your account's email and we'll send you a link to choose a new password.
-          </p>
+      <form className="auth-form" onSubmit={handleSubmit} noValidate>
+        <div>
+          <Link to={AppRoutes.login()} className="back-link">← Back to sign in</Link>
+          <div className="auth-heading">
+            <h1>Reset password</h1>
+            <p>Enter your email and we'll send a reset link if an account exists.</p>
+          </div>
         </div>
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => set_email(e.target.value)}
-            autoComplete="email"
-            autoFocus
-            required
-          />
-        </label>
-        {error && <div className="form-error" role="alert">{error}</div>}
-        <button type="submit" className="primary" disabled={submitting}>
-          {submitting ? 'Sending…' : 'Send reset link'}
-        </button>
-        <p className="auth-alt">
-          Remembered it? <Link to="/login">Log in</Link>
-        </p>
+        <AuthField
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(value) => {
+            set_email(value);
+            set_email_error(undefined);
+          }}
+          placeholder="you@company.com"
+          autoComplete="email"
+          autoFocus
+          error={email_error}
+        />
+        {form_error && <div className="form-error" role="alert">{form_error}</div>}
+        <SubmitButton busy={submitting} label="Send reset link" />
       </form>
     </AuthLayout>
   );

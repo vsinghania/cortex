@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import type { JwtClaims, IssueTokenParams } from '../types/auth.types.js';
 import { Time } from '../../lib/time.js';
 
@@ -40,6 +40,12 @@ export class TokenUtils {
   public static sha256Base64Url(input: string): string {
     const hash = createHash('sha256').update(input, 'utf8').digest();
     return TokenUtils.base64url(hash);
+  }
+
+  public static constantTimeEquals(a: string, b: string): boolean {
+    const a_buf = Buffer.from(a, 'utf8');
+    const b_buf = Buffer.from(b, 'utf8');
+    return a_buf.length === b_buf.length && timingSafeEqual(a_buf, b_buf);
   }
 
   public static generateOpaqueToken(bytes = 48): string {

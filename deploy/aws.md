@@ -93,9 +93,9 @@ docker buildx build --platform linux/amd64 -t "$ECR_IMAGE:$(git rev-parse HEAD)"
    │  docker compose  (compose.yaml, shipped by deploy-api)                   │
    │                                                                          │
    │   web-server :3000 ──┬── mcp-notes :3010 (127.0.0.1 host bind only)      │
-   │        │             │        │                                          │
-   │        ▼             ▼        ▼                                          │
-   │   mongodb :27017   qdrant :6333   (Docker-network only, unpublished)     │
+   │        │             │        │          worker (no ports; runs jobs)    │
+   │        ▼             ▼        ▼            │                             │
+   │   mongodb :27017   qdrant :6333  ◄─────────┘  (Docker-network only)     │
    └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -252,8 +252,8 @@ SSH key; GitHub reaches the instance the same way you do.
 
 ## 8. Build and deploy
 
-Private ECR repository **`cortex-app`**. `web-server` and `mcp-notes` run the
-**same image** with different commands (see
+Private ECR repository **`cortex-app`**. `web-server`, `worker` and `mcp-notes`
+run the **same image** with different commands (see
 [docker-compose.prod.yml](docker-compose.prod.yml)).
 
 ### Build — automatic
@@ -282,8 +282,9 @@ default `main`). The workflow:
 5. polls the command and streams the box's stdout/stderr into the Actions log
 
 On the instance the script fetches the artifacts, writes `deploy.env`,
-authenticates to ECR, validates the config, pulls **only** `web-server` and
-`mcp-notes`, applies, and health-checks both services. A failing gate fails the
+authenticates to ECR, validates the config, pulls **only** the app services
+(`web-server`, `mcp-notes`, `worker`), applies, and health-checks them; the
+worker has no listener, so its check is that it is running and not crash-looping. A failing gate fails the
 workflow; recovery is dispatching the previous SHA (§11).
 
 Two things that look optional and are not:
@@ -304,7 +305,7 @@ The app directory (`/home/ssm-user/cortex`) holds three files:
 | File | Owner | Contents |
 | --- | --- | --- |
 | `compose.yaml` | **CI — do not hand-edit** | shipped by every deploy from [docker-compose.prod.yml](docker-compose.prod.yml); local changes are silently reverted |
-| `.env` | human | the four secrets: `JWT_ACCESS_SECRET`, `OPENAI_API_KEY`, `MCP_NOTES_AUTH_TOKEN`, `SMTP_PASS` (the Resend API key, see §10). Automation never writes this file |
+| `.env` | human | the four secrets: `JWT_ACCESS_SECRET`, `OPENAI_API_KEY`, `MCP_NOTES_AUTH_TOKEN`, `SMTP_PASS` (the Resend API key, see §10); optionally `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` to turn on Google sign-in. Automation never writes this file |
 | `deploy.env` | CI | one line, `CORTEX_IMAGE=<registry>/cortex-app:<full-sha>` — which version is running |
 
 Splitting deployment state from secrets is what lets CI change the running version
@@ -338,6 +339,7 @@ If the instance is replaced, these do not come back on their own:
 | --- | --- | --- |
 | `web-server` | `0.0.0.0:3000` (ALB target) | — |
 | `mcp-notes` | `127.0.0.1:3010` (loopback only) | `mcp-notes:3010` |
+| `worker` | none | — (calls out only) |
 | `mongodb` | `127.0.0.1:27017` (loopback only) | `mongodb:27017` |
 | `qdrant` | none | `qdrant:6333` |
 
@@ -457,6 +459,70 @@ Things that bite when editing these rows by hand later:
   format produces answers with no citations and no error.
 - **`auth_token_env` names an env var, not the token.** web-server reads
   `MCP_NOTES_AUTH_TOKEN` from its environment; the secret never goes in Mongo.
+
+### After deploying `edited_at` — backfill every note
+
+Notes gained `edited_at`: when a note last changed *where it is authored* — the provider's
+timestamp for an imported note, Cortex's own for a native one — and the notes list now
+sorts by it. **This is not a OneNote concern**: every note already in the database needs
+it, and a missing field sorts as null, so untouched notes fall to the bottom of the list
+until this runs.
+
+The script ships with the release, so it can only run after the deploy. Run it straight
+away; until it finishes the list is merely misordered, nothing is lost.
+
+```sh
+cd /home/ssm-user/cortex
+docker compose exec -T web-server npm run notes:backfill-edited-at            # dry run, counts
+docker compose exec -T web-server npm run notes:backfill-edited-at -- --apply
+```
+
+It sets `provider_updated_at ?? updated_at` and only touches documents with no
+`edited_at`, so re-running is safe and a second run reports zero.
+
+For native notes that value is approximate: `updated_at` was also bumped by tagging and by
+embedding completing, so a note may read as edited when its embedding finished. Pins,
+archives and folder moves never bumped it. The information to do better is gone, and from
+this release on `edited_at` moves only on a real content change.
+
+### Fresh database — create the OneNote sync schedule
+
+Schedules are data too, and for the same reason: nothing seeds them at boot, so a
+deploy can never resurrect a schedule an operator deleted. Until this row exists,
+**OneNote sync only runs when someone presses "Sync now"** — no recurring sync, and
+no error anywhere to say so.
+
+Run once after the first deploy that includes OneNote sync, as a user with the
+`admin` role (the route is behind `authorizeRoles('admin')`):
+
+```sh
+curl -sS -X PUT https://api.cortexapp.me/api/v1/admin/jobs/schedules \
+  -H "authorization: Bearer <ADMIN_ACCESS_TOKEN>" \
+  -H 'content-type: application/json' \
+  -d '{
+    "id": "onenote-sync-sweep",
+    "name": "onenote_sync_sweep",
+    "label": "OneNote sync fan-out",
+    "payload": {},
+    "schedule": { "kind": "interval", "every_ms": 900000 },
+    "dedup_key": "onenote-sync-sweep",
+    "max_delay_ms": 600000
+  }'
+```
+
+`PUT` is an upsert on the caller-supplied `id`, so re-running is safe. Creation
+validates the job name against the handler registry and runs the payload through the
+handler's own `parsePayload`, so a typo fails here rather than quietly at 03:00.
+
+Check it took, and that it fires:
+
+```sh
+curl -sS https://api.cortexapp.me/api/v1/admin/jobs/schedules \
+  -H "authorization: Bearer <ADMIN_ACCESS_TOKEN>" | jq '.response[] | {id, next_run_at, enabled}'
+```
+
+`enabled` is insert-only — disabling is `PATCH /schedules/onenote-sync-sweep`, and
+re-running this `PUT` will not silently re-enable something an operator turned off.
 
 ## 10. Route 53 / DNS
 
