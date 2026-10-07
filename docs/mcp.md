@@ -19,11 +19,12 @@ Two abstract classes separate "how to serve" from "what to serve":
 
 ## 2. Trust model
 
-This is the part worth reading twice.
+This is the part worth reading twice. The notes server decides who is calling from credentials alone:
 
-- **Authorization is a single shared bearer token** — the `Authorization` header must equal `Bearer ${auth_token}` (compared in constant time), or the request gets a JSON-RPC `-32001`.
-- **Identity is a header, not a token.** `X-User-Id` becomes the caller's `user_id`; tools call `McpCallers.requireUserId(caller)` and throw without it. `X-Trace-Id` becomes `upstream_trace_id`, linking logs across processes.
-- So **the bearer token is a service credential and `X-User-Id` is the tenant selector**: anyone holding the token may act as any user. Treat `MCP_NOTES_AUTH_TOKEN` as a production secret.
+- **Exactly the service bearer** (`MCP_NOTES_AUTH_TOKEN`, compared in constant time) is an **internal** caller with every tool, acting for the `X-User-Id` it sends. Agent runs and voice use it today. Holding this token means acting as any user: treat it as a production secret.
+- **A gateway-signed caller assertion** ([mcp_caller_assertion.ts](../src/mcp/server/mcp_caller_assertion.ts)) is an **external** (a third-party assistant) or **first-party** (Cortex's own caller) caller with exactly its grant's scopes. It is an HS256 JWT under `MCP_GATEWAY_ASSERTION_SECRET`, audience `cortex-notes-mcp`, a 60-second lifetime, and carries the user, client and scopes. It can never claim to be internal.
+- **Anything else is a 401.** No header's presence or absence widens access, and `X-User-Id` counts only alongside the service bearer.
+- `X-Trace-Id` becomes `upstream_trace_id`, linking logs across processes.
 - **Host validation** uses the SDK's allow-list when `MCP_NOTES_ALLOWED_HOSTS` is set and localhost validation when bound to loopback; binding `0.0.0.0` with neither logs a warning and runs without the DNS-rebinding guard.
 
 ## 3. The notes server
@@ -35,6 +36,12 @@ Tools, all backed by `NotesSvc` / `NoteFoldersSvc` and all user-scoped: `notes_l
 Archived notes are hidden from `notes_list`, `notes_search` and `notes_search_semantic` unless asked for. `notes_bulk_update` has **no delete action on purpose** — `notes_delete`, one note at a time, stays the only destructive tool — and folder rename/move/delete and tag deletion are REST-only. Because MCP input schemas are one object shape, `notes_bulk_update` takes a flat `{ids, action, folder_id?, tags?}` and re-checks per-action requirements in the handler.
 
 Note what the semantic tool's description deliberately does **not** say: it states that `chunk_id` is stable and safe to reference, but never prescribes the `[c:…]` marker format. That syntax belongs to citation_svc and is taught by the agent's prompt, so a second agent calling the same tool does not silently inherit a citation convention it never asked for. A tool describes its data; the agent decides what referencing means.
+
+**Scopes are checked twice.** Each tool declares the scope it needs (`notes:read` or `notes:write`, vocabulary in [notes_scope.ts](../src/mcp/server/notes/notes_scope.ts)); a tool the caller's scopes do not cover is never registered, so it is never listed, and the wrapper re-checks the scope on every invocation. Internal callers pass both checks.
+
+**Write schemas take only what a person would set** — title, body, body_raw, tags, folder, archived, pinned. Provider keys, sync state and vectorization are Cortex's own bookkeeping, and external models reach these schemas too. Every tool carries MCP annotations (`readOnlyHint`; an explicit `destructiveHint` on writes, `true` only for delete and update). They are hints a host may use to decide when to ask the user; nothing relies on that.
+
+**External callers get a different view.** Server instructions ([notes_mcp_instructions.ts](../src/mcp/server/notes/notes_mcp_instructions.ts)) explain how the tools fit together; notes are trimmed of bookkeeping and every note and semantic chunk carries a `url` into the SPA ([notes_mcp_external_view.ts](../src/mcp/server/notes/notes_mcp_external_view.ts)), which is what they cite instead of Cortex chat's `[c:…]` markers. Internal and first-party callers keep the full note and no instructions.
 
 Every handler is the same three steps — the caller's user id, parse args with Zod, call `NotesSvc` — and returns both `content` (compact JSON text — it reaches the model verbatim, so indentation costs tokens) and `structuredContent`. Tool *descriptions* are the only documentation the model gets: write them for an LLM, saying when to call and what the fields mean.
 
@@ -52,7 +59,7 @@ Every handler is the same three steps — the caller's user id, parse args with 
 
 ## 6. Extending
 
-- **New tool** → a zod object schema and a `registerXTool(server, caller)` method in the module, registered via the inherited wrapper.
+- **New tool** → a zod object schema and a `registerXTool(server, caller)` method in the module, registered via the inherited wrapper with its `required_scope` and annotations.
 - **New MCP server** → subclass `McpModule` and `BaseMcpHttpServer`, add an entry point, npm scripts and a compose service; then insert an `McpServerManifest` row to let agents use it.
 
 Smoke tests: `npm run mcp:smoke` (client against the server) and `npm run agent:smoke:notes-mcp` (an agent run through the tools).

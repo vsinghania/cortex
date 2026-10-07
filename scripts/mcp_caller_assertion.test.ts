@@ -1,0 +1,49 @@
+/*
+ * The gateway-to-notes-server assertion, and how a caller's scopes are judged.
+ */
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import jwt from 'jsonwebtoken';
+import { McpCallerAssertion } from '../src/mcp/server/mcp_caller_assertion.js';
+import { McpCallers } from '../src/mcp/server/mcp_caller.js';
+import type { McpGatewayCaller } from '../src/mcp/server/types/mcp_server.types.js';
+
+const SECRET = 'assertion-secret';
+const CALLER: McpGatewayCaller = { kind: 'external', user_id: 'u-1', client_id: 'https://claude.test/c.json', scopes: new Set(['notes:read']) };
+
+test('a signed assertion round-trips to the same caller', () => {
+  const verified = McpCallerAssertion.verify({ secret: SECRET, token: McpCallerAssertion.sign({ secret: SECRET, caller: CALLER }) });
+  assert.equal(verified?.kind, 'external');
+  assert.equal(verified?.user_id, 'u-1');
+  assert.equal(verified?.client_id, CALLER.client_id);
+  assert.deepEqual([...verified!.scopes], ['notes:read']);
+});
+
+test('another secret, another audience, an expired token or a non-JWT is no caller at all', () => {
+  const token = McpCallerAssertion.sign({ secret: SECRET, caller: CALLER });
+  assert.equal(McpCallerAssertion.verify({ secret: 'other', token }), null);
+  assert.equal(McpCallerAssertion.verify({ secret: SECRET, token: 'not-a-jwt' }), null);
+
+  const wrong_audience = jwt.sign({ client_id: 'c', scope: 'notes:write', kind: 'external' }, SECRET, { subject: 'u', issuer: 'cortex-mcp-gateway', audience: 'something-else' });
+  assert.equal(McpCallerAssertion.verify({ secret: SECRET, token: wrong_audience }), null);
+
+  const expired = jwt.sign({ client_id: 'c', scope: 'notes:write', kind: 'external', exp: Math.floor(Date.now() / 1000) - 10 }, SECRET, { subject: 'u', issuer: 'cortex-mcp-gateway', audience: 'cortex-notes-mcp' });
+  assert.equal(McpCallerAssertion.verify({ secret: SECRET, token: expired }), null);
+
+  const internal_claim = jwt.sign({ client_id: 'c', scope: '', kind: 'internal' }, SECRET, { subject: 'u', issuer: 'cortex-mcp-gateway', audience: 'cortex-notes-mcp' });
+  assert.equal(McpCallerAssertion.verify({ secret: SECRET, token: internal_claim }), null, 'an assertion can never claim to be internal');
+});
+
+test('only the internal credential grants every scope; external callers get exactly their grant', () => {
+  assert.equal(McpCallers.allows({ kind: 'internal' }, 'notes:write'), true);
+  assert.equal(McpCallers.allows(CALLER, 'notes:read'), true);
+  assert.equal(McpCallers.allows(CALLER, 'notes:write'), false);
+  assert.equal(McpCallers.allows({ ...CALLER, scopes: new Set() }, 'notes:read'), false);
+});
+
+test('authInfo carries a caller to the server factory and nothing else becomes one', () => {
+  const round = McpCallers.fromAuthInfo(McpCallers.toAuthInfo(CALLER));
+  assert.equal(round?.kind, 'external');
+  assert.equal(McpCallers.fromAuthInfo(undefined), null);
+  assert.equal(McpCallers.fromAuthInfo({ token: 't', clientId: 'c', scopes: ['notes:write'] }), null);
+});

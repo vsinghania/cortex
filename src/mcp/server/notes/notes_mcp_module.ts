@@ -7,7 +7,8 @@ import { NoteListSort } from '../../../notes_svc/note_list_sort.js';
 import { NoteBulkActionMapper } from '../../../notes_svc/note_bulk_action_mapper.js';
 import { NoteFolderTree } from '../../../notes_svc/note_folder_tree.js';
 import type { NoteBulkAction } from '../../../notes_svc/types/note_bulk.types.js';
-import { NoteSource, type NoteContainer, type NoteLocator } from '../../../notes_svc/types/note.types.js';
+import { NoteSource, type Note, type NoteLocator } from '../../../notes_svc/types/note.types.js';
+import type { RetrievedChunk } from '../../../retrieval_svc/types/retrieval.types.js';
 import { MongooseConnectionManager } from '../../../db/mongo/mongoose_connection_manager.js';
 import { DbNameResolver } from '../../../db/mongo/db_name_resolver.js';
 import { QdrantCollectionBootstrap } from '../../../db/qdrant/qdrant_collection_bootstrap.js';
@@ -15,36 +16,11 @@ import { EmbeddingsSvc } from '../../../embeddings_svc/embeddings_svc.js';
 import { logger } from '../../../common/logger.js';
 import { McpCallers } from '../mcp_caller.js';
 import type { McpCaller } from '../types/mcp_server.types.js';
+import { NoteLinks } from './note_links.js';
+import { NotesMcpExternalView } from './notes_mcp_external_view.js';
+import { NotesScope } from './notes_scope.js';
 
 const zNoteSource = z.nativeEnum(NoteSource);
-
-// Tool arguments arrive as JSON, so dates are strings; z.coerce.date() can't be expressed in the advertised JSON Schema.
-const zOptionalDateInput = z.string()
-  .refine((v) => !Number.isNaN(Date.parse(v)), { error: 'Invalid date' })
-  .optional()
-  .transform((v) => (v ? new Date(v) : undefined))
-  .describe('ISO 8601 date-time');
-
-const zContainerType = z.enum(['notebook', 'database', 'folder', 'page', 'section', 'collection', 'other']);
-const zNoteContainer: z.ZodType<NoteContainer> = z.object({
-  container_type: zContainerType,
-  container_id: z.string().min(1),
-  container_name: z.string().min(1).optional()
-});
-
-const zNoteMetadata = z.object({
-  provider_url: z.string().url().optional(),
-  provider_etag: z.string().optional(),
-  extra: z.record(z.string(), z.unknown()).optional()
-});
-
-const zVectorizationStatus = z.enum(['none', 'pending', 'embedded', 'error']);
-const zNoteVectorization = z.object({
-  status: zVectorizationStatus,
-  last_embedded_at: zOptionalDateInput,
-  embedding_model: z.string().optional(),
-  chunk_count: z.number().int().positive().optional()
-});
 
 const zNoteLocator: z.ZodType<NoteLocator> = z.union([
   z.object({ id: z.string().min(1) }).strict(),
@@ -90,37 +66,18 @@ const zSearchSemanticInput = z.object({
   include_archived: z.boolean().optional().default(false)
 });
 
-const zCreateInputBase = z.object({
-  source: zNoteSource.optional(),
-  external_id: z.string().min(1).optional(),
-
+// Only what a person would set by hand. Provider keys, sync state and vectorization are
+// written by Cortex itself; letting a model set them could corrupt indexing or collide
+// with a OneNote sync, and external assistants reach these schemas too.
+const zCreateInput = z.object({
   title: z.string().min(1),
   body: z.string().default(''),
-  body_raw: z.string().optional(),
+  body_raw: z.string().optional()
+    .describe('The original artifact the body was cleaned from, such as a verbatim transcript. Optional.'),
   tags: z.array(z.string()).optional(),
-  container: zNoteContainer.optional(),
-  folder_id: z.string().min(1).optional(),
-
-  provider_created_at: zOptionalDateInput,
-  provider_updated_at: zOptionalDateInput,
-
+  folder_id: z.string().min(1).optional().describe('Folder id from notes_folders.'),
   is_archived: z.boolean().optional(),
-  is_pinned: z.boolean().optional(),
-  is_deleted: z.boolean().optional(),
-
-  metadata: zNoteMetadata.optional(),
-  vectorization: zNoteVectorization.optional()
-});
-
-const zCreateInput = zCreateInputBase.superRefine((value, ctx) => {
-  const has_source = value.source !== undefined && value.source !== NoteSource.Native;
-  const has_ext = value.external_id !== undefined;
-  if (has_source !== has_ext) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'source and external_id must be provided together for source-keyed notes; omit both for native notes.'
-    });
-  }
+  is_pinned: z.boolean().optional()
 });
 
 const zPatch = z.object({
@@ -128,19 +85,9 @@ const zPatch = z.object({
   body: z.string().optional(),
   body_raw: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  container: zNoteContainer.optional(),
   folder_id: z.string().min(1).nullable().optional().describe('Folder id from notes_folders; null removes the note from its folder.'),
-
-  provider_created_at: zOptionalDateInput,
-  provider_updated_at: zOptionalDateInput,
-  last_synced_at: zOptionalDateInput,
-
   is_archived: z.boolean().optional(),
-  is_pinned: z.boolean().optional(),
-  is_deleted: z.boolean().optional(),
-
-  metadata: zNoteMetadata.optional(),
-  vectorization: zNoteVectorization.optional()
+  is_pinned: z.boolean().optional()
 }).strict();
 
 const zUpdateInput = z.object({
@@ -181,9 +128,20 @@ const zBulkUpdateInput = z.object({
   tags: zBulkTags.optional().describe('Required for add_tags and remove_tags.')
 });
 
+/**
+ * MCP tool annotations: hints a host may use to decide when to ask the user before a
+ * call runs. They are not a security boundary - scopes and server-side checks are -
+ * and nothing here relies on a host honouring them. The spec treats a missing
+ * destructiveHint as true, so every write tool states it outright.
+ */
+const READ_ONLY_TOOL = { readOnlyHint: true, openWorldHint: false } as const;
+const ADDITIVE_WRITE_TOOL = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
+const DESTRUCTIVE_WRITE_TOOL = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
+
 export class NotesMcpModule extends McpModule {
   private notes_svc?: NotesSvc;
   private folders_svc?: NoteFoldersSvc;
+  private links: NoteLinks | null = null;
 
   private constructor() {
     super();
@@ -207,6 +165,10 @@ export class NotesMcpModule extends McpModule {
       NotesSvc.create(svc_params),
       NoteFoldersSvc.create(svc_params)
     ]);
+    this.links = NoteLinks.fromEnv();
+    if (!this.links) {
+      logger.warn('APP_PUBLIC_URL not set; notes returned to external MCP clients will carry no links');
+    }
   }
 
   private static async bootstrapQdrantCollection(): Promise<void> {
@@ -232,12 +194,12 @@ export class NotesMcpModule extends McpModule {
     this.registerListTool(server, caller);
     this.registerTagsTool(server, caller);
     this.registerGetTool(server, caller);
-    this.registerCreateTool(server, caller);
-    this.registerUpdateTool(server, caller);
-    this.registerDeleteTool(server, caller);
     this.registerSearchTool(server, caller);
     this.registerSearchSemanticTool(server, caller);
     this.registerFoldersTool(server, caller);
+    this.registerCreateTool(server, caller);
+    this.registerUpdateTool(server, caller);
+    this.registerDeleteTool(server, caller);
     this.registerFolderCreateTool(server, caller);
     this.registerBulkUpdateTool(server, caller);
   }
@@ -245,9 +207,11 @@ export class NotesMcpModule extends McpModule {
   private registerSearchSemanticTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_search_semantic',
+      required_scope: NotesScope.READ,
       config: {
         title: 'Semantic Search Notes',
-        description:
+        description: this.describe(
+          caller,
           'Search note CONTENT by semantic similarity when the user is trying to recall ' +
           'ideas, facts, decisions, opinions, or topics and their wording may differ from ' +
           'the wording in the notes. Returns ranked content chunks for grounded answers. ' +
@@ -257,8 +221,11 @@ export class NotesMcpModule extends McpModule {
           'Do NOT use this tool for listing notes, counting notes, browsing recent notes, ' +
           'or retrieving an already-known note; use notes_list or notes_get instead. ' +
           'Returned chunks include stable chunk_id values that are safe to reference.',
+          'Each chunk carries a `url`: a stable link that opens its note in Cortex at that passage.'
+        ),
         inputSchema: zSearchSemanticInput,
-        outputSchema: z.object({ chunks: z.array(z.any()) })
+        outputSchema: z.object({ chunks: z.array(z.any()) }),
+        annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
@@ -270,7 +237,7 @@ export class NotesMcpModule extends McpModule {
           source_filter: args.source_filter,
           include_archived: args.include_archived
         });
-        return NotesMcpModule.toStructuredTextResult({ chunks });
+        return NotesMcpModule.toStructuredTextResult({ chunks: chunks.map((chunk) => this.presentChunk(caller, chunk)) });
       }
     });
   }
@@ -278,9 +245,12 @@ export class NotesMcpModule extends McpModule {
   private registerListTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_list',
+      required_scope: NotesScope.READ,
       config: {
         title: 'List Notes',
-        description: 'List and browse notes for the authenticated user, with optional filtering and pagination. ' +
+        description: this.describe(
+          caller,
+          'List and browse notes for the authenticated user, with optional filtering and pagination. ' +
           'Use this for collection-level questions such as how many notes exist, recent notes, ' +
           'listing notes, or browsing notes by source/filter. The response includes `total`, which ' +
           'is the authoritative count for the matching collection; pass `limit: 0` to get only ' +
@@ -292,8 +262,11 @@ export class NotesMcpModule extends McpModule {
           'real tag list rather than guessing a spelling. ' +
           'Do NOT use this to answer questions about the meaning or contents of unknown notes; ' +
           'use notes_search or notes_search_semantic instead.',
+          NotesMcpModule.NOTE_URL_HINT
+        ),
         inputSchema: zListInput,
-        outputSchema: zNoteListOutput
+        outputSchema: zNoteListOutput,
+        annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
@@ -306,7 +279,10 @@ export class NotesMcpModule extends McpModule {
           limit: args.limit,
           offset: args.offset
         });
-        return NotesMcpModule.toStructuredTextResult(result);
+        return NotesMcpModule.toStructuredTextResult({
+          total: result.total,
+          items: result.items.map((note) => this.presentNote(caller, note))
+        });
       }
     });
   }
@@ -314,6 +290,7 @@ export class NotesMcpModule extends McpModule {
   private registerTagsTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_tags',
+      required_scope: NotesScope.READ,
       config: {
         title: 'List Note Tags',
         description: 'List every tag the authenticated user has, with the number of notes carrying each. ' +
@@ -321,7 +298,8 @@ export class NotesMcpModule extends McpModule {
           'certain way, and to resolve a valid tag value before calling notes_list with `tags`. ' +
           'Tags differing only by case are folded into a single row.',
         inputSchema: zTagsInput,
-        outputSchema: z.object({ tags: z.array(z.object({ tag: z.string(), count: z.number() })) })
+        outputSchema: z.object({ tags: z.array(z.object({ tag: z.string(), count: z.number() })) }),
+        annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
@@ -335,19 +313,25 @@ export class NotesMcpModule extends McpModule {
   private registerGetTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_get',
+      required_scope: NotesScope.READ,
       config: {
         title: 'Get Note',
-        description: 'Retrieve one specific note by a known locator: { id } or { source, external_id }. ' +
+        description: this.describe(
+          caller,
+          'Retrieve one specific note by a known locator: { id } or { source, external_id }. ' +
           'Use this when the target note has already been identified. Do not search again when ' +
           'a valid locator for the intended note is already available.',
+          NotesMcpModule.NOTE_URL_HINT
+        ),
         inputSchema: zGetInput,
-        outputSchema: zNoteLookupOutput
+        outputSchema: zNoteLookupOutput,
+        annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
         const { locator } = zGetInput.parse(raw ?? {});
         const note = await this.requireNotesSvc().getNote(user_id, locator);
-        return NotesMcpModule.toStructuredTextResult({ found: !!note, note: note ?? null });
+        return NotesMcpModule.toStructuredTextResult({ found: !!note, note: note ? this.presentNote(caller, note) : null });
       }
     });
   }
@@ -355,20 +339,20 @@ export class NotesMcpModule extends McpModule {
   private registerCreateTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_create',
+      required_scope: NotesScope.WRITE,
       config: {
         title: 'Create Note',
-        description:
-          'Create a new note. Use only when the user intends to create or save a note. ' +
-          'Omit source and external_id for a native in-app note; pass both for a ' +
-          'source-keyed create-or-update operation.',
-        inputSchema: zCreateInputBase,
-        outputSchema: z.object({ note: z.any() })
+        description: 'Create a new note. Use only when the user intends to create or save a note. ' +
+          '`body` is markdown.',
+        inputSchema: zCreateInput,
+        outputSchema: z.object({ note: z.any() }),
+        annotations: ADDITIVE_WRITE_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
         const input = zCreateInput.parse(raw ?? {});
         const note = await this.requireNotesSvc().createNote({ ...input, user_id });
-        return NotesMcpModule.toStructuredTextResult({ note });
+        return NotesMcpModule.toStructuredTextResult({ note: this.presentNote(caller, note) });
       }
     });
   }
@@ -376,19 +360,25 @@ export class NotesMcpModule extends McpModule {
   private registerUpdateTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_update',
+      required_scope: NotesScope.WRITE,
       config: {
         title: 'Update Note (partial)',
         description: 'Partially update one existing note identified by locator. Use only when the user ' +
           'intends to modify a note. If the intended note is not yet identified, first resolve ' +
-          'it using notes_list, notes_search, or notes_search_semantic as appropriate.',
+          'it using notes_list, notes_search, or notes_search_semantic as appropriate. ' +
+          'A `body` in the patch replaces the whole body.',
         inputSchema: zUpdateInput,
-        outputSchema: zNoteLookupOutput
+        outputSchema: zNoteLookupOutput,
+        annotations: DESTRUCTIVE_WRITE_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
         const { locator, patch } = zUpdateInput.parse(raw ?? {});
         const updated = await this.requireNotesSvc().updateNote(user_id, locator, patch);
-        return NotesMcpModule.toStructuredTextResult({ found: !!updated, note: updated ?? null });
+        return NotesMcpModule.toStructuredTextResult({
+          found: !!updated,
+          note: updated ? this.presentNote(caller, updated) : null
+        });
       }
     });
   }
@@ -396,13 +386,15 @@ export class NotesMcpModule extends McpModule {
   private registerDeleteTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_delete',
+      required_scope: NotesScope.WRITE,
       config: {
         title: 'Delete Note',
         description: 'Delete one existing note identified by locator. Use only when the user intends to ' +
           'delete a note. If the intended note is ambiguous or its locator is unknown, first ' +
           'resolve the target note.',
         inputSchema: zDeleteInput,
-        outputSchema: z.object({ success: z.boolean() })
+        outputSchema: z.object({ success: z.boolean() }),
+        annotations: DESTRUCTIVE_WRITE_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
@@ -416,6 +408,7 @@ export class NotesMcpModule extends McpModule {
   private registerFoldersTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_folders',
+      required_scope: NotesScope.READ,
       config: {
         title: 'List Note Folders',
         description: 'List every note folder the authenticated user has, as `{ id, path, note_count }` rows ' +
@@ -423,7 +416,8 @@ export class NotesMcpModule extends McpModule {
           'Use this to resolve a folder id before notes_list, notes_update or notes_bulk_update, ' +
           'and to answer questions about how notes are organised.',
         inputSchema: zFoldersInput,
-        outputSchema: z.object({ folders: z.array(z.object({ id: z.string(), path: z.string(), note_count: z.number() })) })
+        outputSchema: z.object({ folders: z.array(z.object({ id: z.string(), path: z.string(), note_count: z.number() })) }),
+        annotations: READ_ONLY_TOOL
       },
       handler: async () => {
         const user_id = McpCallers.requireUserId(caller);
@@ -441,6 +435,7 @@ export class NotesMcpModule extends McpModule {
   private registerFolderCreateTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_folder_create',
+      required_scope: NotesScope.WRITE,
       config: {
         title: 'Create Note Folder',
         description: 'Create a note folder by path, e.g. "Work/Clients", creating any missing parent folders. ' +
@@ -448,7 +443,8 @@ export class NotesMcpModule extends McpModule {
           'wants a folder created or wants notes filed into a folder that does not exist yet. ' +
           'Folder names ignore case when matching existing folders.',
         inputSchema: zFolderCreateInput,
-        outputSchema: z.object({ folder: z.object({ id: z.string(), path: z.string() }), created_count: z.number() })
+        outputSchema: z.object({ folder: z.object({ id: z.string(), path: z.string() }), created_count: z.number() }),
+        annotations: { ...ADDITIVE_WRITE_TOOL, idempotentHint: true }
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
@@ -465,6 +461,7 @@ export class NotesMcpModule extends McpModule {
   private registerBulkUpdateTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_bulk_update',
+      required_scope: NotesScope.WRITE,
       config: {
         title: 'Bulk Update Notes',
         description: `Apply one organising action to up to ${NoteBulkActionMapper.MAX_IDS} notes by id: ` +
@@ -473,7 +470,9 @@ export class NotesMcpModule extends McpModule {
           'ids with notes_list or notes_search and folder ids with notes_folders first. ' +
           'This tool cannot delete notes.',
         inputSchema: zBulkUpdateInput,
-        outputSchema: z.object({ action: z.string(), matched: z.number(), modified: z.number() })
+        outputSchema: z.object({ action: z.string(), matched: z.number(), modified: z.number() }),
+        // Every action here can be undone by its opposite, and none deletes.
+        annotations: ADDITIVE_WRITE_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
@@ -491,23 +490,52 @@ export class NotesMcpModule extends McpModule {
   private registerSearchTool(server: McpServer, caller: McpCaller): void {
     this.registerTool(server, caller, {
       name: 'notes_search',
+      required_scope: NotesScope.READ,
       config: {
         title: 'Search Notes',
-        description: 'Full-text lexical search across note titles and bodies for the authenticated user. ' +
+        description: this.describe(
+          caller,
+          'Full-text lexical search across note titles and bodies for the authenticated user. ' +
           'Use this when the user provides words, phrases, names, titles, code symbols, or other ' +
           'text expected to appear literally in a note. Prefer this over semantic search when ' +
           'exact wording matters. Use notes_search_semantic instead for conceptual recall where ' +
           'the wording may differ.',
+          NotesMcpModule.NOTE_URL_HINT
+        ),
         inputSchema: zSearchInput,
-        outputSchema: zNoteListOutput
+        outputSchema: zNoteListOutput,
+        annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireUserId(caller);
         const args = zSearchInput.parse(raw ?? {});
         const result = await this.requireNotesSvc().searchNotes({ ...args, user_id });
-        return NotesMcpModule.toStructuredTextResult(result);
+        return NotesMcpModule.toStructuredTextResult({
+          total: result.total,
+          items: result.items.map((note) => this.presentNote(caller, note))
+        });
       }
     });
+  }
+
+  private static readonly NOTE_URL_HINT = 'Each note carries a `url`: a stable link that opens it in Cortex.';
+
+  /**
+   * Links exist only for external callers, so only they are told about them. The hint
+   * says what the field is, not how to cite it: a tool describes its data and the
+   * calling agent decides what referencing means.
+   */
+  private describe(caller: McpCaller, description: string, url_hint: string): string {
+    return McpCallers.isExternal(caller) && this.links ? `${description} ${url_hint}` : description;
+  }
+
+  /** Internal and first-party callers keep the full note they have always had; external ones get the trimmed, linked view. */
+  private presentNote(caller: McpCaller, note: Note) {
+    return McpCallers.isExternal(caller) ? NotesMcpExternalView.note(note, this.links) : note;
+  }
+
+  private presentChunk(caller: McpCaller, chunk: RetrievedChunk) {
+    return McpCallers.isExternal(caller) ? NotesMcpExternalView.chunk(chunk, this.links) : chunk;
   }
 
   private async bootstrapMongo(host: string, port: number): Promise<void> {
@@ -574,10 +602,10 @@ export class NotesMcpModule extends McpModule {
    * agents SDK drops `structuredContent` and re-encodes this text), so indentation is
    * paid for in tokens on every tool call.
    */
-  private static toStructuredTextResult<T extends object>(result: T): CallToolResult {
+  private static toStructuredTextResult<T extends Record<string, unknown>>(result: T): CallToolResult {
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      structuredContent: result as Record<string, unknown>
+      structuredContent: result
     };
   }
 }
