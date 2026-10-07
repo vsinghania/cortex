@@ -25,3 +25,24 @@ export type OAuthConsentRequest = {
   access_options: OAuthAccessOption[];
   default_access: McpAccess;
 };
+
+/** Dates arrive as ISO strings; nothing here is ever a token. */
+export type ConnectedApp = {
+  grant_id: string;
+  client_name: string;
+  client_host: string | null;
+  /** Which MCP server the connection is for (Notes, ...); null if it is no longer served. */
+  resource_id: string | null;
+  resource_name: string | null;
+  scopes: string[];
+  created_at: string;
+  last_used_at: string | null;
+};
+
+export type ConnectedAppsStatus = {
+  /** False when this server has no public MCP configured. */
+  available: boolean;
+  /** The MCP servers a user can connect, each with the URL to paste into an assistant. */
+  resources: { id: string; name: string; url: string }[];
+  grants: ConnectedApp[];
+};

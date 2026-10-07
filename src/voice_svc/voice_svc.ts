@@ -1,5 +1,8 @@
 import { logger } from '../common/logger.js';
 import { logExecTime } from '../lib/decorators/logging_decorators.js';
+import { Time } from '../lib/time.js';
+import { OAuthSvc } from '../oauth_svc/oauth_svc.js';
+import { McpResourceCatalog } from '../mcp/resource/mcp_resource_catalog.js';
 import { DEFAULT_VOICE_PROVIDER, VoiceAdapterRegistry } from './adapters/voice_adapter_registry.js';
 import { McpAttachmentSpec, RealtimeVoiceAdapter } from './adapters/realtime_voice_adapter.js';
 import { VoiceCaptureInstructions } from './prompts/voice_capture_instructions.js';
@@ -13,6 +16,13 @@ import { VoiceSvcInterface } from './voice_svc_interface.js';
 
 const MCP_SERVER_LABEL = 'cortex-notes';
 const SLOW_MINT_THRESHOLD_MS = 2000;
+const VOICE_MCP_CLIENT_ID = 'cortex-voice';
+const VOICE_MCP_CLIENT_NAME = 'Cortex voice';
+/** Outlives the longest Realtime session, so tools never stop working mid-call. */
+const VOICE_MCP_TOKEN_TTL_SEC = Time.hoursToSec(1);
+
+/** Mints a token that lets one voice session reach the public MCP as one user. */
+type VoiceMcpTokenIssuer = (user_id: string) => Promise<string>;
 
 export class VoiceSvc implements VoiceSvcInterface {
 
@@ -22,18 +32,18 @@ export class VoiceSvc implements VoiceSvcInterface {
   private readonly registry: VoiceAdapterRegistry;
   private readonly provider: VoiceProvider;
   private readonly mcp_public_url: string | undefined;
-  private readonly mcp_auth_token: string | undefined;
+  private readonly issueMcpToken: VoiceMcpTokenIssuer | undefined;
 
   private constructor(opts: {
     registry: VoiceAdapterRegistry;
     provider: VoiceProvider;
     mcp_public_url: string | undefined;
-    mcp_auth_token: string | undefined;
+    issueMcpToken: VoiceMcpTokenIssuer | undefined;
   }) {
     this.registry = opts.registry;
     this.provider = opts.provider;
     this.mcp_public_url = opts.mcp_public_url;
-    this.mcp_auth_token = opts.mcp_auth_token;
+    this.issueMcpToken = opts.issueMcpToken;
   }
 
   public static async getInstance(): Promise<VoiceSvc> {
@@ -48,12 +58,13 @@ export class VoiceSvc implements VoiceSvcInterface {
       const inst = new VoiceSvc({
         registry: VoiceAdapterRegistry.getInstance(),
         provider: VoiceSvc.resolveProvider(),
-        mcp_public_url: process.env.VOICE_MCP_PUBLIC_URL,
-        mcp_auth_token: process.env.MCP_NOTES_AUTH_TOKEN,
+        // Overridable so a local tunnel can stand in for the public URL OpenAI must reach.
+        mcp_public_url: process.env.VOICE_MCP_PUBLIC_URL || VoiceSvc.notesResourceUrl(),
+        issueMcpToken: OAuthSvc.isConfigured() ? VoiceSvc.issueFirstPartyToken : undefined,
       });
       VoiceSvc.instance = inst;
       logger.info(
-        { provider: inst.provider, mcp_attached: Boolean(inst.mcp_public_url && inst.mcp_auth_token) },
+        { provider: inst.provider, mcp_attached: Boolean(inst.mcp_public_url && inst.issueMcpToken) },
         'VoiceSvc initialized'
       );
       return inst;
@@ -65,7 +76,7 @@ export class VoiceSvc implements VoiceSvcInterface {
   @logExecTime({ threshold_in_ms: SLOW_MINT_THRESHOLD_MS })
   public async mintEphemeralToken(req: MintTokenRequest): Promise<MintTokenResponse> {
     const adapter = this.resolveAdapter();
-    const mcp_attachment = this.buildMcpAttachment(req.user_id);
+    const mcp_attachment = await this.buildMcpAttachment(req.user_id);
     const session = await adapter.mintEphemeralSession({
       user_id: req.user_id,
       instructions: VoiceCaptureInstructions.build(),
@@ -94,22 +105,47 @@ export class VoiceSvc implements VoiceSvcInterface {
     return this.registry.getAdapter(this.provider);
   }
 
-  private buildMcpAttachment(user_id: string): McpAttachmentSpec | undefined {
-    if (!this.mcp_public_url) {
-      logger.warn('VOICE_MCP_PUBLIC_URL not set; minting voice session without MCP tools');
+  /**
+   * OpenAI hosts the MCP client for voice, so whatever goes in here leaves our network.
+   * A per-user token scoped to the public MCP means a leaked one reaches one user's
+   * notes for an hour, not every user's notes for as long as the service token lives.
+   */
+  private async buildMcpAttachment(user_id: string): Promise<McpAttachmentSpec | undefined> {
+    if (!this.mcp_public_url || !this.issueMcpToken) {
+      logger.warn('Public notes MCP or OAuth not configured; minting voice session without MCP tools');
       return undefined;
     }
-    if (!this.mcp_auth_token) {
-      logger.warn('MCP_NOTES_AUTH_TOKEN not set; minting voice session without MCP tools');
+
+    try {
+      return {
+        server_label: MCP_SERVER_LABEL,
+        server_url: this.mcp_public_url,
+        bearer_token: await this.issueMcpToken(user_id),
+        headers: {},
+        require_approval: 'never',
+      };
+    } catch (err) {
+      // A session that can talk but not save beats no session at all.
+      logger.error({ err }, 'voice MCP token issue failed; minting voice session without MCP tools');
       return undefined;
     }
-    return {
-      server_label: MCP_SERVER_LABEL,
-      server_url: this.mcp_public_url,
-      bearer_token: this.mcp_auth_token,
-      headers: { 'X-User-Id': user_id },
-      require_approval: 'never',
-    };
+  }
+
+  private static async issueFirstPartyToken(user_id: string): Promise<string> {
+    const oauth_svc = await OAuthSvc.create();
+    const { access_token } = await oauth_svc.issueFirstPartyAccessToken({
+      user_id,
+      resource_id: 'notes',
+      client_id: VOICE_MCP_CLIENT_ID,
+      client_name: VOICE_MCP_CLIENT_NAME,
+      ttl_sec: VOICE_MCP_TOKEN_TTL_SEC,
+    });
+    return access_token;
+  }
+
+  /** The public notes MCP (`https://mcp.cortexapp.me/notes`), when it is served. */
+  private static notesResourceUrl(): string | undefined {
+    return McpResourceCatalog.fromEnv().find('notes')?.url;
   }
 
   private static resolveProvider(): VoiceProvider {

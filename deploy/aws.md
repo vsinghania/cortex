@@ -620,13 +620,9 @@ inspector — [README.md](README.md#attaching-a-debugger).
 What is and isn't exposed, in one place:
 
 - **Public:** CloudFront (SPA), the ALB (:80/:443 → web-server :3000). Nothing else.
-- **Not public, but internet-reachable *through* web-server:** `/api/v1/mcp/notes`
-  is proxied to the notes MCP so OpenAI Realtime can reach it, gated only by
-  `MCP_NOTES_AUTH_TOKEN` with the tenant chosen by an `X-User-Id` header. Treat that
-  token as the entire perimeter around every user's notes — see
-  [../docs/mcp.md](../docs/mcp.md) §2 and [../docs/voice.md](../docs/voice.md) §4.
 - **Public by design, for MCP clients:** `mcp.cortexapp.me/notes` (and any later MCP
-  server beside it) is proxied to the notes MCP for ChatGPT, Claude and other assistants. Every request needs a per-user OAuth access
+  server beside it) is proxied to the notes MCP for ChatGPT, Claude and other assistants,
+  and for OpenAI Realtime (voice). Every request needs a per-user OAuth access
   token, which alone decides whose notes it reaches; the gateway strips any identity
   header a caller sends and signs its own assertion to `mcp-notes`. The OAuth endpoints
   (`/.well-known/*`, `/authorize`, `/token`, `/revoke`) are public too, and the

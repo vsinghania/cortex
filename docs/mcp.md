@@ -21,7 +21,7 @@ Two abstract classes separate "how to serve" from "what to serve":
 
 This is the part worth reading twice. The notes server decides who is calling from credentials alone:
 
-- **Exactly the service bearer** (`MCP_NOTES_AUTH_TOKEN`, compared in constant time) is an **internal** caller with every tool, acting for the `X-User-Id` it sends. Agent runs and voice use it today. Holding this token means acting as any user: treat it as a production secret.
+- **Exactly the service bearer** (`MCP_NOTES_AUTH_TOKEN`, compared in constant time) is an **internal** caller with every tool, acting for the `X-User-Id` it sends. Agent runs use it. Holding this token means acting as any user, so it never leaves the private network: everything from outside, voice included, goes through the public gateway (§5).
 - **A gateway-signed caller assertion** ([mcp_caller_assertion.ts](../src/mcp/server/mcp_caller_assertion.ts)) is an **external** (a third-party assistant) or **first-party** (Cortex's own caller) caller with exactly its grant's scopes. It is an HS256 JWT under `MCP_GATEWAY_ASSERTION_SECRET`, addressed to one server by its audience (the notes server's is `cortex-notes-mcp`, so an assertion for another MCP server is refused here), lives 60 seconds, and carries the user, client and scopes. It can never claim to be internal.
 - **Anything else is a 401.** No header's presence or absence widens access, and `X-User-Id` counts only alongside the service bearer.
 - `X-Trace-Id` becomes `upstream_trace_id`, linking logs across processes.
@@ -53,13 +53,9 @@ Every handler is the same three steps — the caller's user id, parse args with 
 
 **This is not what agent runs use.** [agent_svc](agent_svc.md)'s `McpServerRegistry` goes through the `@openai/agents` SDK's own MCP client, because the tools must be handed to the agent SDK. `src/mcp/client` is the standalone path, used by [scripts/mcp_http_smoke.ts](../scripts/mcp_http_smoke.ts).
 
-## 5. The reverse proxy
+## 5. The public gateway
 
-`/api/v1/mcp/notes` forwards to `MCP_NOTES_INTERNAL_URL` so OpenAI Realtime — which hosts the MCP client for voice — can reach a server that otherwise listens internally. It is mounted before `express.json()`; see [architecture.md §1](architecture.md#1-processes-and-topology). It **does not authenticate**: headers pass through and the notes server's bearer check is the only gate. In production this route is internet-facing, because [voice](voice.md) requires it to be, so that bearer token is the entire perimeter around every user's notes. Unset `MCP_NOTES_INTERNAL_URL` means the route is not mounted at all.
-
-## 6. The public gateway
-
-Each public MCP server is a **resource server** on the MCP host, at `MCP_PUBLIC_BASE_URL` + its path: notes is `https://mcp.cortexapp.me/notes`, and articles or chats would sit beside it. [`McpResourceCatalog`](../src/mcp/resource/mcp_resource_catalog.ts) defines them, one entry each (path, display name, scopes and assertion audience from the server's contract class, internal URL variable); a resource is served only when its internal URL is set. [public_mcp_gateway.ts](../src/web-server/mcp/public_mcp_gateway.ts) mounts one gateway per enabled resource:
+Each public MCP server is a **resource server** on the MCP host, at `MCP_PUBLIC_BASE_URL` + its path: notes is `https://mcp.cortexapp.me/notes`, and articles or chats would sit beside it. These are the only way into the MCP servers from outside: ChatGPT, Claude and other MCP clients, and OpenAI Realtime for voice (with a first-party token per session, [voice.md](voice.md)). The old unauthenticated `/api/v1/mcp/notes` proxy is gone. [`McpResourceCatalog`](../src/mcp/resource/mcp_resource_catalog.ts) defines them, one entry each (path, display name, scopes and assertion audience from the server's contract class, internal URL variable); a resource is served only when its internal URL is set. [public_mcp_gateway.ts](../src/web-server/mcp/public_mcp_gateway.ts) mounts one gateway per enabled resource:
 - It serves that resource's RFC 9728 metadata at `/.well-known/oauth-protected-resource/<path>`, naming `OAUTH_ISSUER_URL` (on the API host) as the authorization server.
 - A request without a valid token gets a 401 whose `WWW-Authenticate` names that metadata and the resource's scopes.
 - It verifies tokens only through [`McpTokenVerifier`](../src/mcp/resource/mcp_token_verifier.ts) — token in, `{ user, client, grant, scopes, resource, kind }` or `null` out — so it never touches token storage, and it refuses a token issued for any other resource (RFC 8707), including another of our own.
@@ -71,7 +67,7 @@ The gateways sit behind a **host gate** ([host_gate.ts](../src/web-server/mcp/ho
 
 **Adding a public MCP server** (articles, chats): give the server a contract class with its scopes and assertion audience (like `NotesMcpContract`), add its id to `McpResourceId` and an entry to `McpResourceCatalog.DEFINITIONS`, and set its internal URL variable. The authorization server and the gateway need no changes.
 
-## 7. Extending
+## 6. Extending
 
 - **New tool** → a zod object schema and a `registerXTool(server, caller)` method in the module, registered via the inherited wrapper with its `required_scope` and annotations.
 - **New MCP server** → subclass `McpModule` and `BaseMcpHttpServer`, add an entry point, npm scripts and a compose service; then insert an `McpServerManifest` row to let agents use it.

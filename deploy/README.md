@@ -129,16 +129,19 @@ Qdrant or OpenAI — so a deploy that breaks the database connection still passe
 - **Fix:** a `/readyz` that pings Mongo and Qdrant, used by both the compose
   healthcheck and the deploy gate; then real tests worth blocking on.
 
-### MCP notes perimeter is a single shared token
+### MCP notes perimeter
 
-Now that `VOICE_MCP_PUBLIC_URL` is live, `/api/v1/mcp/notes` is internet-facing
-and gated only by `MCP_NOTES_AUTH_TOKEN`, with the tenant chosen by an
-`X-User-Id` header the caller controls — anyone holding the token can act as any
-user. See [../docs/mcp.md](../docs/mcp.md) §2 and [../docs/voice.md](../docs/voice.md) §4.
+Resolved: the only way into the notes MCP from outside is `https://mcp.cortexapp.me/notes`,
+which takes a per-user OAuth access token and derives the user from it; the `X-User-Id`
+header a caller sends is stripped. External assistants get their tokens through the consent
+flow, and each voice session gets a one-hour token of its own. The gateway reaches
+`mcp-notes` with a signed caller assertion (`MCP_GATEWAY_ASSERTION_SECRET`, set on both
+services); `MCP_NOTES_AUTH_TOKEN` is now only for internal agent runs. See
+[../docs/oauth.md](../docs/oauth.md) and [../docs/mcp.md](../docs/mcp.md) §2.
 
-- **Fix (real work, not a config tweak):** bind MCP identity to the credential
-  instead of trusting a header — the token should determine the user, not
-  accompany a user id. This is application-layer, tracked with the voice/MCP
-  work rather than here.
-- **Until then:** keep the token long, random and out of shared shells/tunnels;
-  rotate if it leaks.
+- **On first deploy of this change:**
+  - add `MCP_GATEWAY_ASSERTION_SECRET` to the box's `.env`;
+  - remove `VOICE_MCP_PUBLIC_URL` from it (voice now defaults to the notes resource);
+  - create the `mcp.cortexapp.me` Route 53 Alias to the ALB and make sure the listener's
+    certificate covers it ([aws.md](aws.md));
+  - rotate `MCP_NOTES_AUTH_TOKEN`, since it was internet-facing until now.

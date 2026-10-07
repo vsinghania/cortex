@@ -4467,7 +4467,51 @@ body {
   margin-top: 16px;
 }
 
-/* ── Connecting assistants (OAuth consent) ───────────────── */
+/* ── Connected assistants (MCP) ────────────────────────── */
+
+.settings-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.copy-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.copy-field-label {
+  flex: none;
+  color: var(--subtext);
+  font-size: 12px;
+}
+
+.copy-field-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-card .notebook-status-list {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
 
 .consent-options {
   display: grid;

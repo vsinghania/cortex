@@ -29,7 +29,7 @@ import type {
   OneNoteSyncStart,
 } from './onenote.types';
 import type { AdminUserPage } from './admin.types';
-import type { McpAccess, OAuthConsentRequest } from './connected_apps.types';
+import type { ConnectedAppsStatus, McpAccess, OAuthConsentRequest } from './connected_apps.types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
 
@@ -239,6 +239,14 @@ export class ApiClient {
     return ApiClient.request<{ redirect_url: string }>(`/oauth/requests/${encodeURIComponent(request_id)}/deny`, {
       method: 'POST',
     });
+  }
+
+  static async getConnectedApps(): Promise<ConnectedAppsStatus> {
+    return ApiClient.request<ConnectedAppsStatus>('/oauth/grants');
+  }
+
+  static async disconnectApp(grant_id: string): Promise<void> {
+    return ApiClient.request<void>(`/oauth/grants/${encodeURIComponent(grant_id)}`, { method: 'DELETE' });
   }
 
   static async listAdminUsers(params: { limit: number; offset: number }): Promise<AdminUserPage> {
