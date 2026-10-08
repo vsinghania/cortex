@@ -10,6 +10,8 @@ import type {
 import type { User } from '../user/types/user.types.js';
 import type { UserRepository } from '../user/repositories/user_repository_interface.js';
 import { MongooseUserRepository } from '../user/repositories/user_repository.js';
+import type { RefreshTokenRepository } from './repositories/refresh_token_repository_interface.js';
+import { MongooseRefreshTokenRepository } from './repositories/refresh_token_repository.js';
 import type { GoogleOAuthAdapterInterface } from './adapters/google_oauth_adapter_interface.js';
 import { GoogleOAuthAdapter } from './adapters/google_oauth_adapter.js';
 import { GoogleOAuthConfigLoader } from './config/google_oauth_config.js';
@@ -26,6 +28,7 @@ const FALLBACK_NAME = 'Cortex user';
 
 type GoogleAuthSvcDeps = {
   user_repo: UserRepository;
+  rt_repo: RefreshTokenRepository;
   session_issuer: SessionIssuer;
   google: GoogleOAuthAdapterInterface;
 };
@@ -40,9 +43,12 @@ export class GoogleAuthSvc implements GoogleAuthSvcInterface {
   }
 
   static async create(overrides?: Partial<GoogleAuthSvcDeps>): Promise<GoogleAuthSvc> {
+    const rt_repo =
+      overrides?.rt_repo ?? (await MongooseRefreshTokenRepository.create({ db: DbNameResolver.resolve('auth') }));
     return new GoogleAuthSvc({
       user_repo: overrides?.user_repo ?? (await MongooseUserRepository.create({ db: DbNameResolver.resolve('user') })),
-      session_issuer: overrides?.session_issuer ?? (await SessionIssuer.create()),
+      rt_repo,
+      session_issuer: overrides?.session_issuer ?? (await SessionIssuer.create(rt_repo)),
       google: overrides?.google ?? GoogleAuthSvc.createAdapter()
     });
   }
@@ -132,11 +138,28 @@ export class GoogleAuthSvc implements GoogleAuthSvcInterface {
 
   private async linkUser(user: User, google_sub: string): Promise<User> {
     const user_repo = this.deps.user_repo;
+    if (!user.email_verified_at) await this.discardUnprovenAccess(user);
     let linked = (await user_repo.linkGoogleAccount(user.user_id, google_sub)) ?? user;
     if (!linked.email_verified_at) {
       linked = (await user_repo.setEmailVerifiedAt(user.user_id, new Date())) ?? linked;
     }
     return linked;
+  }
+
+  /**
+   * Nobody had proved they own this address before Google did, so whoever set the password
+   * may not be the owner: anyone can register a victim's email and wait for the victim to
+   * sign in with Google, which would otherwise verify the account with the squatter's
+   * password still on it. The owner can set a password of their own through forgot-password.
+   */
+  private async discardUnprovenAccess(user: User): Promise<void> {
+    const had_password = !!user.password_hash;
+    if (had_password) await this.deps.user_repo.removePassword(user.user_id);
+    const revoked_sessions = await this.deps.rt_repo.revokeAllForUser(user.user_id);
+    logger.warn(
+      { user_id: user.user_id, had_password, revoked_sessions },
+      'unverified account access discarded on google link'
+    );
   }
 
   private async createUser(identity: GoogleIdentity): Promise<User> {

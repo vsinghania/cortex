@@ -83,6 +83,11 @@ class InMemoryUserRepo implements UserRepository {
     if (user) user.google_sub = google_sub;
     return user;
   }
+  async removePassword(user_id: string) {
+    const user = await this.findByUserId(user_id);
+    if (user) delete user.password_hash;
+    return user;
+  }
 }
 
 class RecordingMailer implements MailerSvcInterface {

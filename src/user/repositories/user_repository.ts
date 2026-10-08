@@ -98,6 +98,15 @@ export class MongooseUserRepository implements IUserRepository {
     return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
   }
 
+  async removePassword(user_id: string): Promise<User | null> {
+    const updated = await this.model.findOneAndUpdate(
+      { user_id },
+      { $unset: { password_hash: 1 } },
+      { new: true }
+    ).lean();
+    return updated ? (MongooseUtils.toDomain<User>(updated) as User) : null;
+  }
+
   async listUsers(params: ListUsersParams): Promise<AdminUserRecord[]> {
     return this.model.aggregate<AdminUserRecord>([
       { $sort: { created_at: -1, user_id: 1 } },

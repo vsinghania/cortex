@@ -15,6 +15,7 @@ import type { RefreshTokenRepository } from '../src/auth_svc/repositories/refres
 import type { UserRepository } from '../src/user/repositories/user_repository_interface.js';
 import type { CreateUserInput, UpdateUserPatch, User } from '../src/user/types/user.types.js';
 import { UnauthorizedError } from '../src/common/errors.js';
+import { Time } from '../src/lib/time.js';
 
 process.env.JWT_ACCESS_SECRET = 'test-secret';
 
@@ -55,6 +56,11 @@ class InMemoryUserRepo implements UserRepository {
     if (user) user.google_sub = google_sub;
     return user;
   }
+  async removePassword(user_id: string) {
+    const user = await this.findByUserId(user_id);
+    if (user) delete user.password_hash;
+    return user;
+  }
 }
 
 class FakeGoogle implements GoogleOAuthAdapterInterface {
@@ -74,7 +80,17 @@ class FakeGoogle implements GoogleOAuthAdapterInterface {
   }
 }
 
-const rt_repo = { createSession: async () => undefined } as unknown as RefreshTokenRepository;
+class RecordingSessions {
+  revoked_for: string[] = [];
+
+  async createSession() {
+    return undefined;
+  }
+  async revokeAllForUser(user_id: string) {
+    this.revoked_for.push(user_id);
+    return 2;
+  }
+}
 
 function existingUser(overrides: Partial<User> = {}): User {
   return {
@@ -89,17 +105,20 @@ function existingUser(overrides: Partial<User> = {}): User {
   };
 }
 
+async function buildSvc(user_repo: InMemoryUserRepo, google: FakeGoogle) {
+  const sessions = new RecordingSessions();
+  const rt_repo = sessions as unknown as RefreshTokenRepository;
+  const svc = await GoogleAuthSvc.create({ user_repo, google, rt_repo, session_issuer: await SessionIssuer.create(rt_repo) });
+  return { svc, sessions };
+}
+
 async function signIn(opts: { identity: GoogleIdentity; users?: User[]; return_to?: string }) {
   const user_repo = new InMemoryUserRepo(opts.users);
   const google = new FakeGoogle(opts.identity);
-  const svc = await GoogleAuthSvc.create({
-    user_repo,
-    google,
-    session_issuer: await SessionIssuer.create(rt_repo)
-  });
+  const { svc, sessions } = await buildSvc(user_repo, google);
   const { pending } = svc.startAuthorization(opts.return_to);
   const result = await svc.completeAuthorization({ code: 'code-1', state: pending.state, pending });
-  return { result, user_repo, google, pending };
+  return { result, user_repo, google, pending, sessions };
 }
 
 const ADA: GoogleIdentity = { sub: 'g-ada', email: 'ada@example.com', email_verified: true, name: 'Ada L' };
@@ -128,12 +147,27 @@ test('a returning Google user signs into the same account', async () => {
   assert.equal(user_repo.users.length, 1);
 });
 
-test('a verified Google email links the existing password account and verifies it', async () => {
-  const { result, user_repo } = await signIn({ identity: ADA, users: [existingUser()] });
+test('a verified Google email links a verified password account, which keeps its password and sessions', async () => {
+  const verified_at = new Date(Date.now() - Time.daysToMs(3));
+  const { result, user_repo, sessions } = await signIn({
+    identity: ADA,
+    users: [existingUser({ email_verified_at: verified_at })]
+  });
   assert.equal(result.user.user_id, 'user-1');
   assert.equal(user_repo.users[0].google_sub, 'g-ada');
   assert.equal(user_repo.users[0].password_hash, 'hash', 'the password keeps working');
+  assert.equal(user_repo.users[0].email_verified_at, verified_at);
+  assert.deepEqual(sessions.revoked_for, []);
+});
+
+test('linking an unverified password account drops the unproven password and its sessions', async () => {
+  // Someone registered Ada's address with their own password; Ada now signs in with Google.
+  const { result, user_repo, sessions } = await signIn({ identity: ADA, users: [existingUser()] });
+  assert.equal(result.user.user_id, 'user-1');
+  assert.equal(user_repo.users[0].google_sub, 'g-ada');
+  assert.equal(user_repo.users[0].password_hash, undefined, 'the squatter can no longer sign in');
   assert.ok(user_repo.users[0].email_verified_at);
+  assert.deepEqual(sessions.revoked_for, ['user-1'], 'nor keep a session started with that password');
 });
 
 test('an unverified Google email never links or creates an account', async () => {
@@ -150,11 +184,7 @@ test('an account already linked to another Google account is not re-linked', asy
 
 test('a callback whose state does not match the cookie is rejected before exchanging the code', async () => {
   const google = new FakeGoogle(ADA);
-  const svc = await GoogleAuthSvc.create({
-    user_repo: new InMemoryUserRepo(),
-    google,
-    session_issuer: await SessionIssuer.create(rt_repo)
-  });
+  const { svc } = await buildSvc(new InMemoryUserRepo(), google);
   const { pending } = svc.startAuthorization();
   await assert.rejects(
     svc.completeAuthorization({ code: 'code-1', state: 'forged', pending }),
@@ -175,7 +205,7 @@ test('return_to only accepts same-origin paths', async () => {
 test('password login on a Google-only account fails like a wrong password', async () => {
   const svc = await AuthSvc.create({
     user_repo: new InMemoryUserRepo([existingUser({ password_hash: undefined, google_sub: 'g-ada' })]),
-    rt_repo,
+    rt_repo: new RecordingSessions() as unknown as RefreshTokenRepository,
     email_verification: { requestVerification: async () => undefined }
   });
   await assert.rejects(svc.login({ email: 'ada@example.com', password: 'anything-at-all' }), /Invalid credentials/);

@@ -97,11 +97,12 @@ GET /auth/google/callback?code&state                                       → 3
 
 Resolving the user, in order:
 1. A user whose `google_sub` matches → sign in.
-2. A user with the same email, **only if Google says `email_verified`** → link (`linkGoogleAccount`), set `email_verified_at` if unset, sign in. A user already linked to a *different* Google account is refused.
+2. A user with the same email, **only if Google says `email_verified`** → link (`linkGoogleAccount`), set `email_verified_at` if unset, sign in. A user already linked to a *different* Google account is refused. If the account was **not yet verified**, its password is removed and every refresh session revoked first (see below).
 3. Otherwise, if verified → create a user with no `password_hash`, `email_verified_at` set, and no verification email.
 
 - **Both routes are browser navigations, so they never return a problem document.** Every failure redirects to `/login#error=google_failed` (or `google_cancelled`, `google_unavailable`), and the login page shows a message.
 - **`return_to` is only ever a same-origin path** (`GoogleAuthSvc.sanitizeReturnTo`); anything else becomes `/notes`, so the callback cannot be used as an open redirect.
+- **Linking an unverified account discards the access nobody proved.** Until someone clicks a link sent to the address, whoever set the password may not own it: anyone can register a victim's email and wait for the victim to sign in with Google, which would otherwise verify the account with the squatter's password still on it. So `linkUser` calls `UserRepository.removePassword` and `revokeAllForUser` before linking, and logs `unverified account access discarded on google link` at `warn`. The cost falls on a genuine owner who never verified: their password stops working and forgot-password sets a new one. A verified account keeps its password and sessions.
 - **Google-only users have no password.** Password login fails with the usual `Invalid credentials` (logged as `no_password_set`); forgot-password works and gives them one.
 - **Config:** `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` enable it (unset → disabled), and `GOOGLE_OAUTH_REDIRECT_URI` must match an authorized redirect URI on the Google "Web application" client. Local: `http://localhost:3000/api/v1/auth/google/callback`; prod: `https://api.cortexapp.me/api/v1/auth/google/callback`.
 - **The adapter** ([google_oauth_adapter.ts](../src/auth_svc/adapters/google_oauth_adapter.ts)) wraps `google-auth-library` and Zod-validates the ID token claims. Logs carry `user_id` and `outcome` (`existing` / `linked` / `created`), never the Google claims.
