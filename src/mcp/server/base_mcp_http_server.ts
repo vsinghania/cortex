@@ -206,7 +206,14 @@ export abstract class BaseMcpHttpServer {
     const server_info = this.requireServerInfo();
     const instructions = this.getInstructions(caller);
     const server = new McpServer(
-      { name: server_info.name, version: server_info.version },
+      {
+        name: server_info.name,
+        version: server_info.version,
+        title: server_info.title,
+        description: server_info.description,
+        websiteUrl: server_info.website_url,
+        icons: server_info.icons
+      },
       instructions ? { ...server_info.options, instructions } : server_info.options
     );
 
