@@ -50,6 +50,19 @@ test('the document must name itself, list redirect URIs, and be a public client'
   await invalidClient(resolverServing({ ...VALID, redirect_uris: ['http://attacker.test/cb'] }).resolve(CLIENT_ID));
 });
 
+test('a client preferring private_key_jwt is accepted only if it also supports acting as a public client', async () => {
+  const chatgpt_style = {
+    ...VALID,
+    token_endpoint_auth_method: 'private_key_jwt',
+    token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'],
+    token_endpoint_auth_signing_alg: 'RS256',
+    jwks_uri: 'https://claude.test/oauth/jwks.json'
+  };
+  assert.equal((await resolverServing(chatgpt_style).resolve(CLIENT_ID)).client_name, 'Claude');
+  await invalidClient(resolverServing({ ...chatgpt_style, token_endpoint_auth_methods_supported: ['private_key_jwt'] }).resolve(CLIENT_ID));
+  await invalidClient(resolverServing({ ...VALID, token_endpoint_auth_method: 'client_secret_basic' }).resolve(CLIENT_ID));
+});
+
 test('caches per Cache-Control, and not at all for no-store', async () => {
   const cached = { calls: 0 };
   const resolver = resolverServing(VALID, { 'cache-control': 'max-age=600' }, cached);

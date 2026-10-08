@@ -46,7 +46,7 @@ All of it is our own code. MCP SDK v2 ships resource-server helpers only, and v1
 - **Clients are Client ID Metadata Documents only.** A client's id is the https URL of a JSON document describing it. [ClientIdMetadataResolver](../src/oauth_svc/clients/client_id_metadata_resolver.ts) fetches and validates it:
   - the document's `client_id` must equal its URL exactly;
   - `client_name` and `redirect_uris` are required;
-  - only public clients (`token_endpoint_auth_method: "none"`) and the `authorization_code` grant are accepted;
+  - the client must be able to act as a public client (`token_endpoint_auth_method: "none"`), and use the `authorization_code` grant. A client preferring `private_key_jwt` is accepted when its document also lists `"none"` in `token_endpoint_auth_methods_supported`, as ChatGPT's does; its `client_assertion` is not checked until `private_key_jwt` is supported;
   - every redirect URI must pass [OAuthRedirectUriPolicy](../src/oauth_svc/oauth_redirect_uri_policy.ts).
 
   Documents are cached by `Cache-Control`, clamped to 1 minute–24 hours, and not at all for `no-store`. **There is no Dynamic Client Registration**: the 2026-07-28 spec deprecates it, so clients that only do DCR cannot connect.

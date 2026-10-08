@@ -46,6 +46,9 @@ const CLIENT_ID = 'https://chatgpt.test/oauth/client.json';
 const REDIRECT = 'https://chatgpt.test/callback';
 const USER_ID = 'user-1';
 
+const KEYED_CLIENT_ID = 'https://keyed.test/oauth/client.json';
+const KEYED_REDIRECT = 'https://keyed.test/connector_platform_oauth_redirect';
+
 const DOCUMENTS: Record<string, unknown> = {
   [CLIENT_ID]: {
     client_id: CLIENT_ID,
@@ -59,6 +62,19 @@ const DOCUMENTS: Record<string, unknown> = {
     client_name: 'One-shot',
     redirect_uris: ['https://noreresh.test/cb'],
     grant_types: ['authorization_code']
+  },
+  // The shape chatgpt.com/oauth/client.json publishes: prefers private_key_jwt, also supports "none".
+  [KEYED_CLIENT_ID]: {
+    client_id: KEYED_CLIENT_ID,
+    client_uri: 'https://keyed.test/',
+    redirect_uris: [KEYED_REDIRECT],
+    token_endpoint_auth_method: 'private_key_jwt',
+    token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    client_name: 'Keyed',
+    token_endpoint_auth_signing_alg: 'RS256',
+    jwks_uri: 'https://keyed.test/oauth/jwks.json'
   },
   'https://liar.test/client.json': {
     client_id: 'https://someone-else.test/client.json',
@@ -241,6 +257,27 @@ test('an untrustworthy client or redirect is refused without redirecting anywher
   await rejectsWith(startAuthorization(h, { client_id: 'https://unknown.test/client.json' }), 'invalid_client');
   await rejectsWith(startAuthorization(h, { client_id: 'https://liar.test/client.json', redirect_uri: 'https://liar.test/cb' }), 'invalid_client');
   await rejectsWith(startAuthorization(h, { redirect_uri: 'https://attacker.test/cb' }), 'invalid_request');
+});
+
+test('a client preferring private_key_jwt that also supports "none" connects and refreshes as a public client', async () => {
+  const h = await harness();
+  const { url, verifier } = await startAuthorization(h, { client_id: KEYED_CLIENT_ID, redirect_uri: KEYED_REDIRECT });
+  const { redirect_url } = await h.svc.approve({ request_id: url.searchParams.get('request')!, user_id: USER_ID, access: 'read' });
+  const tokens = await h.server.token({
+    grant_type: 'authorization_code',
+    code: new URL(redirect_url).searchParams.get('code')!,
+    code_verifier: verifier,
+    client_id: KEYED_CLIENT_ID,
+    redirect_uri: KEYED_REDIRECT,
+    resource: RESOURCE,
+    // Sent anyway by a client set on private_key_jwt; not read until that method is supported.
+    client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+    client_assertion: 'eyJhbGciOiJSUzI1NiJ9.e30.c2ln'
+  });
+  assert.equal(tokens.scope, 'notes:read');
+  assert.ok(tokens.refresh_token);
+  const refreshed = await h.server.token({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token!, client_id: KEYED_CLIENT_ID });
+  assert.equal((await h.verifier.verify(refreshed.access_token))?.client_id, KEYED_CLIENT_ID);
 });
 
 test('a loopback redirect may use any port', async () => {
