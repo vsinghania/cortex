@@ -35,6 +35,7 @@ export class MongooseUserRepository implements IUserRepository {
       password_hash: input.password_hash,
       google_sub: input.google_sub,
       email_verified_at: input.email_verified_at,
+      email_verification_required: input.email_verification_required,
       roles: input.roles ?? ['user']
     });
     return MongooseUtils.toDomain<User>(created);

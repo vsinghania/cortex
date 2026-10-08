@@ -104,7 +104,7 @@ Cortex's agents get their behaviour from prompts and instruction policies ([agen
 - **Plain http only on localhost.** claude.ai and ChatGPT need a public https URL. To test them locally, point `OAUTH_ISSUER_URL` and `MCP_PUBLIC_BASE_URL` at a tunnel (one tunnel host for both works: the host gates then pass for both).
 - **CIMD cannot be tested against localhost clients.** SafeFetcher refuses loopback by design. Local end-to-end runs stub the fetch; real clients need their public document.
 - **The client name on the consent screen is self-declared; the client host is not.** The page shows both, and tells the user that the host is the part to check.
-- **Consent requests last 15 minutes and are single-use**, long enough to sign up on the way. Login, register and Google sign-in carry the `/connect?request=…` path through.
+- **Consent requests last 15 minutes and are single-use**, long enough to sign up on the way. Login, register and Google sign-in carry the `/connect?request=…` path through; a password sign-up carries it to the sign-in link on its "check your inbox" panel, since it cannot sign in until the email is confirmed ([auth.md](auth.md) §4).
 - **Never logged:** tokens, codes, assertions, `state`. Logged: client id and name, scopes, grant id, outcome, fetch refusal reasons. `oauth refresh reuse detected` and `oauth authorization code replay detected` at warn are the ones to alert on.
 - **Rate limits:** `/authorize` 100 per 15 min per IP; `/token` and `/revoke` 60 per minute per IP; each resource 120 per minute per grant.
 - **DNS and TLS:** `mcp.cortexapp.me` needs its own Route 53 record (an Alias to the same ALB) and must be covered by the ALB's certificate — see [deploy/aws.md](../deploy/aws.md).

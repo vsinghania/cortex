@@ -1,5 +1,5 @@
 import { AuthStore } from './auth_store';
-import type { AuthResponse, RefreshResponse, User } from './auth.types';
+import type { AuthResponse, RefreshResponse, RegisterResponse, User } from './auth.types';
 import type {
   Note,
   NoteBulkAction,
@@ -44,6 +44,11 @@ export class ApiError extends Error {
     this.status = status;
     this.body = body;
   }
+
+  /** The problem document's `type`, which names the error more precisely than the status. */
+  hasType(type: string): boolean {
+    return !!this.body && typeof this.body === 'object' && (this.body as Record<string, unknown>).type === type;
+  }
 }
 
 export class ApiClient {
@@ -58,6 +63,7 @@ export class ApiClient {
     '/auth/password/forgot',
     '/auth/password/reset',
     '/auth/email/verify',
+    '/auth/email/verify/request',
   ]);
 
   private static async request<T>(
@@ -269,13 +275,11 @@ export class ApiClient {
     return result;
   }
 
-  static async register(email: string, name: string, password: string): Promise<AuthResponse> {
-    const result = await ApiClient.request<AuthResponse>('/auth/register', {
+  static async register(email: string, name: string, password: string): Promise<RegisterResponse> {
+    return ApiClient.request<RegisterResponse>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, name, password }),
     });
-    AuthStore.instance().setSession(result.access_token, result.user);
-    return result;
   }
 
   static async logout(): Promise<void> {
@@ -308,6 +312,14 @@ export class ApiClient {
     await ApiClient.request<{ success: true }>('/auth/email/verify', {
       method: 'POST',
       body: JSON.stringify({ token }),
+    });
+  }
+
+  /** For a signed-out caller, such as a new account that cannot sign in until confirmed. */
+  static async requestVerification(email: string): Promise<void> {
+    await ApiClient.request<{ accepted: true }>('/auth/email/verify/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
     });
   }
 

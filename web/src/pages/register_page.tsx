@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import { AuthLayout } from '../components/auth/auth_layout';
 import { AuthField } from '../components/auth/auth_field';
 import { SubmitButton } from '../components/auth/submit_button';
 import { GoogleButton } from '../components/auth/google_button';
+import { CheckInbox } from '../components/auth/check_inbox';
 import { AppRoutes } from '../lib/app_routes';
 import { FormValidation } from '../lib/form_validation';
 
@@ -12,7 +13,6 @@ type RegisterErrors = Partial<Record<'name' | 'email' | 'password' | 'confirm', 
 type LocationState = { from?: string } | null;
 
 export function RegisterPage() {
-  const navigate = useNavigate();
   const state = useLocation().state as LocationState;
   // Set when login sent the user here on the way to somewhere, such as a consent page.
   const return_to = state?.from && AppRoutes.isInternalPath(state.from) && state.from !== AppRoutes.register()
@@ -25,6 +25,7 @@ export function RegisterPage() {
   const [errors, set_errors] = useState<RegisterErrors>({});
   const [form_error, set_form_error] = useState<string | null>(null);
   const [submitting, set_submitting] = useState(false);
+  const [registered_email, set_registered_email] = useState<string | null>(null);
 
   // A field's error goes away as soon as the user edits it, not on the next submit.
   function editField(key: keyof RegisterErrors, setter: (value: string) => void) {
@@ -48,15 +49,21 @@ export function RegisterPage() {
 
     set_submitting(true);
     try {
-      await ApiClient.register(email, name.trim(), password);
-      // The server enqueues a confirmation email on register; the banner says so
-      // rather than inviting a resend of the link already on its way.
-      navigate(return_to ?? AppRoutes.notes(), { replace: true, state: { verification_sent: true } });
+      const result = await ApiClient.register(email, name.trim(), password);
+      set_registered_email(result.user.email);
     } catch (err) {
       set_form_error(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
       set_submitting(false);
     }
+  }
+
+  if (registered_email) {
+    return (
+      <AuthLayout>
+        <CheckInbox email={registered_email} heading="Check your inbox" just_sent return_to={return_to} />
+      </AuthLayout>
+    );
   }
 
   return (

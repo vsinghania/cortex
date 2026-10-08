@@ -78,6 +78,7 @@ export class AuthController {
     this.router.post('/password/forgot', RateLimitMiddleware.emailSendRateLimiter, this.forgotPassword.bind(this));
     this.router.post('/password/reset', this.resetPassword.bind(this));
     this.router.post('/email/verify', this.verifyEmail.bind(this));
+    this.router.post('/email/verify/request', RateLimitMiddleware.emailSendRateLimiter, this.requestVerification.bind(this));
     this.router.post(
       '/email/verify/resend',
       RequireAuthMiddleware.requireAuth,
@@ -91,22 +92,9 @@ export class AuthController {
     try {
       const { email, name, password } = req.body as { email: string; name: string; password: string };
       const auth_svc = await AuthSvc.create();
-      const result = await auth_svc.register(
-        { email, name, password },
-        { ip: req.ip, user_agent: AuthController.userAgent(req) }
-      );
-
-      // Set refresh token cookie, do not expose it in response body
-      const opts = AuthController.refreshCookieOptions();
-      res.cookie(REFRESH_COOKIE_NAME, result.tokens.refresh_token, opts);
-
-      res.status(201).json({
-        response: {
-          user: result.user,
-          access_token: result.tokens.access_token,
-          access_token_expires_in_sec: result.tokens.access_token_expires_in_sec
-        }
-      });
+      const result = await auth_svc.register({ email, name, password });
+      // No session until the address is verified; the client signs in after clicking the link.
+      res.status(201).json({ response: { user: result.user, verification_required: true } });
     } catch (e) {
       next(e);
     }
@@ -217,6 +205,20 @@ export class AuthController {
       const email_verification_svc = await EmailVerificationSvc.create();
       await email_verification_svc.verify(token);
       res.status(200).json({ response: { success: true } });
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  @validateRequest({ body: z.object({ email: EmailSchema }) })
+  private async requestVerification(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const { email } = req.body as { email: string };
+      const email_verification_svc = await EmailVerificationSvc.create();
+      // 202 whatever happened, like forgot-password, so this cannot probe which emails
+      // have accounts or which of them are verified.
+      await email_verification_svc.requestVerificationForEmail(email);
+      res.status(202).json({ response: { accepted: true } });
     } catch (e) {
       next(e);
     }

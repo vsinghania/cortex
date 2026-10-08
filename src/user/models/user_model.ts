@@ -17,7 +17,8 @@ export class UserModelFactory extends BaseModelFactory<User> {
         google_sub: { type: String, default: undefined },
         roles: { type: [String], default: ['user'] },
         last_login_at: { type: Date, default: undefined },
-        email_verified_at: { type: Date, default: undefined }
+        email_verified_at: { type: Date, default: undefined },
+        email_verification_required: { type: Boolean, default: undefined }
       },
       {
         collection: 'users',

@@ -106,6 +106,12 @@ export class ForbiddenError<T extends HttpErrorDetails = HttpErrorDetails> exten
   }
 }
 
+export class EmailNotVerifiedError<T extends HttpErrorDetails = HttpErrorDetails> extends HttpError<T> {
+  constructor(message = "Email not verified", opts?: { details?: T; cause?: unknown }) {
+    super(403, "email_not_verified", message, opts);
+  }
+}
+
 export class ServiceUnavailableError<T extends HttpErrorDetails = HttpErrorDetails> extends HttpError<T> {
   constructor(message = "Service Unavailable", opts?: { details?: T; cause?: unknown }) {
     super(503, "service_unavailable", message, opts);

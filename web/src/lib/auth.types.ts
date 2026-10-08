@@ -17,6 +17,12 @@ export type AuthResponse = {
   access_token_expires_in_sec: number;
 };
 
+/** Registration starts no session: the account signs in once its email is confirmed. */
+export type RegisterResponse = {
+  user: User;
+  verification_required: true;
+};
+
 export type RefreshResponse = {
   access_token: string;
   access_token_expires_in_sec: number;

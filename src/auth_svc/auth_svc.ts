@@ -6,10 +6,12 @@ import type {
   LogoutResult,
   MeResult,
   RefreshResult,
-  RegisterInput
+  RegisterInput,
+  RegisterResult
 } from './types/auth.types.js';
 import { MongooseUserRepository } from '../user/repositories/user_repository.js';
 import type { UserRepository } from '../user/repositories/user_repository_interface.js';
+import type { User } from '../user/types/user.types.js';
 import { MongooseRefreshTokenRepository } from './repositories/refresh_token_repository.js';
 import type { EmailVerificationSvcInterface } from './email_verification_svc_interface.js';
 import { EmailVerificationSvc } from './email_verification_svc.js';
@@ -17,7 +19,13 @@ import type { RefreshTokenRepository } from './repositories/refresh_token_reposi
 import { PasswordUtils } from './utils/password_utils.js';
 import { TokenUtils } from './utils/token_utils.js';
 import { SessionIssuer } from './session_issuer.js';
-import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from '../common/errors.js';
+import {
+  BadRequestError,
+  ConflictError,
+  EmailNotVerifiedError,
+  NotFoundError,
+  UnauthorizedError
+} from '../common/errors.js';
 import { DbNameResolver } from '../db/mongo/db_name_resolver.js';
 import { Id } from '../lib/id.js';
 import { Time } from '../lib/time.js';
@@ -46,7 +54,7 @@ export class AuthSvc implements AuthSvcInterface {
     });
   }
 
-  async register(input: RegisterInput, ctx?: AuthContext): Promise<AuthResult> {
+  async register(input: RegisterInput): Promise<RegisterResult> {
     const start_ms = performance.now();
     const user_repo = this.deps.user_repo;
     const existing = await user_repo.findByEmail(input.email);
@@ -63,10 +71,9 @@ export class AuthSvc implements AuthSvcInterface {
       email: input.email.toLowerCase().trim(),
       name: input.name.trim(),
       password_hash,
+      email_verification_required: true,
       roles: input.roles ?? ['user']
     });
-
-    const result = await this.deps.session_issuer.issue(created, ctx);
 
     await this.requestVerificationEmail(created.user_id);
 
@@ -79,7 +86,7 @@ export class AuthSvc implements AuthSvcInterface {
       'user registered'
     );
 
-    return result;
+    return { user: SessionIssuer.toPublicUser(created) };
   }
 
   async login(input: LoginInput, ctx?: AuthContext): Promise<AuthResult> {
@@ -100,6 +107,13 @@ export class AuthSvc implements AuthSvcInterface {
     if (!valid) {
       logger.warn({ reason: 'bad_password', user_id: user.user_id }, 'login rejected');
       throw new UnauthorizedError('Invalid credentials');
+    }
+
+    // Only after the password check, so this answer cannot be used to probe which
+    // emails have accounts.
+    if (AuthSvc.isAwaitingVerification(user)) {
+      logger.warn({ reason: 'email_unverified', user_id: user.user_id }, 'login rejected');
+      throw new EmailNotVerifiedError('Confirm your email address to sign in. Check your inbox for the link.');
     }
 
     // Update last_login_at (best effort)
@@ -208,10 +222,13 @@ export class AuthSvc implements AuthSvcInterface {
     return SessionIssuer.toPublicUser(user);
   }
 
+  private static isAwaitingVerification(user: User): boolean {
+    return user.email_verification_required === true && !user.email_verified_at;
+  }
+
   /**
-   * Best effort. The account exists and the caller is already signed in, so a queue
-   * that is down must not turn a successful registration into an error; the user can
-   * still ask for the mail again from the banner.
+   * Best effort. The account exists, so a queue that is down must not turn a successful
+   * registration into an error; the user can ask for the mail again from the sign-in page.
    */
   private async requestVerificationEmail(user_id: string): Promise<void> {
     try {

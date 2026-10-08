@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ApiClient } from '../lib/api_client';
+import { ApiClient, ApiError } from '../lib/api_client';
 import { AuthLayout } from '../components/auth/auth_layout';
 import { AuthField } from '../components/auth/auth_field';
 import { SubmitButton } from '../components/auth/submit_button';
 import { GoogleButton } from '../components/auth/google_button';
+import { CheckInbox } from '../components/auth/check_inbox';
 import { AppRoutes } from '../lib/app_routes';
 import { GoogleSignIn } from '../lib/google_sign_in';
 import { FormValidation } from '../lib/form_validation';
@@ -21,6 +22,7 @@ export function LoginPage() {
   const [errors, set_errors] = useState<LoginErrors>({});
   const [form_error, set_form_error] = useState<string | null>(null);
   const [submitting, set_submitting] = useState(false);
+  const [unverified_email, set_unverified_email] = useState<string | null>(null);
 
   const redirect_to = state?.from && AppRoutes.isInternalPath(state.from) && state.from !== AppRoutes.login()
     ? state.from
@@ -54,10 +56,28 @@ export function LoginPage() {
       await ApiClient.login(email, password);
       navigate(redirect_to, { replace: true });
     } catch (err) {
+      if (err instanceof ApiError && err.hasType('email_not_verified')) {
+        set_unverified_email(email.trim());
+        return;
+      }
       set_form_error(err instanceof Error ? err.message : 'Login failed.');
     } finally {
       set_submitting(false);
     }
+  }
+
+  if (unverified_email) {
+    return (
+      <AuthLayout>
+        <CheckInbox
+          email={unverified_email}
+          heading="Confirm your email"
+          just_sent={false}
+          return_to={redirect_to}
+          onBackToSignIn={() => set_unverified_email(null)}
+        />
+      </AuthLayout>
+    );
   }
 
   return (

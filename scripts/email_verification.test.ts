@@ -23,7 +23,8 @@ import type { MailMessage } from '../src/mailer_svc/types/mail.types.js';
 import { MailDeliveryError } from '../src/mailer_svc/mail_delivery_error.js';
 import type { EnqueueInput } from '../src/jobs_svc/types/job.types.js';
 import { PermanentJobError } from '../src/jobs_svc/job_errors.js';
-import { BadRequestError, ConflictError } from '../src/common/errors.js';
+import { BadRequestError, ConflictError, EmailNotVerifiedError, UnauthorizedError } from '../src/common/errors.js';
+import { PasswordUtils } from '../src/auth_svc/utils/password_utils.js';
 import { Time } from '../src/lib/time.js';
 
 class InMemoryEmailTokenRepo implements EmailTokenRepository {
@@ -167,6 +168,21 @@ test('an already-verified user enqueues nothing', async () => {
   assert.equal(h.jobs.enqueued.length, 0);
 });
 
+test('a request by email enqueues for that user, and an unknown email quietly enqueues nothing', async () => {
+  const h = await buildHarness();
+  await h.svc.requestVerificationForEmail('Ada@Example.com');
+  await h.svc.requestVerificationForEmail('nobody@example.com');
+
+  assert.equal(h.jobs.enqueued.length, 1);
+  assert.deepEqual(h.jobs.enqueued[0].payload, { user_id: 'user-1' });
+});
+
+test('a request by email for an already-verified user enqueues nothing', async () => {
+  const h = await buildHarness({ verified: true });
+  await h.svc.requestVerificationForEmail('ada@example.com');
+  assert.equal(h.jobs.enqueued.length, 0);
+});
+
 test('an unknown user enqueues nothing', async () => {
   const h = await buildHarness();
   await h.svc.requestVerification('nobody');
@@ -263,34 +279,78 @@ test('the payload schema refuses anything beyond the user id', async () => {
   assert.throws(() => h.handler.parsePayload({}));
 });
 
-test('registering asks for a verification email, and a queue failure does not fail the registration', async () => {
-  // register() signs an access token; TokenUtils reads the secret per call.
-  process.env.JWT_ACCESS_SECRET = 'test-secret';
-  const user_repo = new InMemoryUserRepo([]);
-  const rt_repo = { createSession: async () => undefined } as unknown as RefreshTokenRepository;
-  const requested: string[] = [];
+type SessionLog = { created: string[] };
 
+async function buildAuthSvc(opts: { users?: User[]; request_fails?: boolean } = {}) {
+  // login() signs an access token; TokenUtils reads the secret per call.
+  process.env.JWT_ACCESS_SECRET = 'test-secret';
+  const user_repo = new InMemoryUserRepo(opts.users ?? []);
+  const sessions: SessionLog = { created: [] };
+  const rt_repo = {
+    createSession: async (input: { user_id: string }) => {
+      sessions.created.push(input.user_id);
+    }
+  } as unknown as RefreshTokenRepository;
+  const requested: string[] = [];
   const svc = await AuthSvc.create({
     user_repo,
     rt_repo,
     email_verification: {
       requestVerification: async (user_id: string) => {
+        if (opts.request_fails) throw new Error('queue is down');
         requested.push(user_id);
       }
     }
   });
-  const result = await svc.register({ email: 'Grace@example.com', name: 'Grace', password: 'a-password' });
-  assert.deepEqual(requested, [result.user.user_id]);
-  assert.equal(result.user.email_verified_at, undefined, 'a new account starts unverified');
+  return { svc, user_repo, sessions, requested };
+}
 
-  const failing = await AuthSvc.create({
-    user_repo: new InMemoryUserRepo([]),
-    rt_repo,
-    email_verification: {
-      requestVerification: async () => {
-        throw new Error('queue is down');
-      }
-    }
-  });
-  await assert.doesNotReject(failing.register({ email: 'ada@example.com', name: 'Ada', password: 'a-password' }));
+async function passwordUser(overrides: Partial<User>): Promise<User> {
+  return {
+    user_id: 'user-1',
+    email: 'ada@example.com',
+    name: 'Ada',
+    password_hash: await PasswordUtils.hashPassword('a-password'),
+    roles: ['user'],
+    created_at: new Date(),
+    updated_at: new Date(),
+    ...overrides
+  };
+}
+
+test('registering asks for a verification email and starts no session', async () => {
+  const a = await buildAuthSvc();
+  const result = await a.svc.register({ email: 'Grace@example.com', name: 'Grace', password: 'a-password' });
+
+  assert.deepEqual(a.requested, [result.user.user_id]);
+  assert.deepEqual(a.sessions.created, [], 'no session until the address is verified');
+  assert.equal(result.user.email_verified_at, undefined, 'a new account starts unverified');
+  assert.equal(a.user_repo.users[0].email_verification_required, true);
+});
+
+test('a queue failure does not fail the registration', async () => {
+  const a = await buildAuthSvc({ request_fails: true });
+  await assert.doesNotReject(a.svc.register({ email: 'ada@example.com', name: 'Ada', password: 'a-password' }));
+  assert.equal(a.user_repo.users.length, 1);
+});
+
+test('a new account cannot sign in until its email is verified', async () => {
+  const a = await buildAuthSvc({ users: [await passwordUser({ email_verification_required: true })] });
+
+  await assert.rejects(a.svc.login({ email: 'ada@example.com', password: 'a-password' }), EmailNotVerifiedError);
+  assert.deepEqual(a.sessions.created, []);
+
+  await a.user_repo.setEmailVerifiedAt('user-1', new Date());
+  await assert.doesNotReject(a.svc.login({ email: 'ada@example.com', password: 'a-password' }));
+  assert.deepEqual(a.sessions.created, ['user-1']);
+});
+
+test('a wrong password on an unverified account says nothing about verification', async () => {
+  const a = await buildAuthSvc({ users: [await passwordUser({ email_verification_required: true })] });
+  await assert.rejects(a.svc.login({ email: 'ada@example.com', password: 'wrong-password' }), UnauthorizedError);
+});
+
+test('accounts from before verification was mandatory still sign in unverified', async () => {
+  const a = await buildAuthSvc({ users: [await passwordUser({})] });
+  await assert.doesNotReject(a.svc.login({ email: 'ada@example.com', password: 'a-password' }));
 });

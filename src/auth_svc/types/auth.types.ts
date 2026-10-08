@@ -32,6 +32,11 @@ export type AuthResult = {
   tokens: TokenPair;
 };
 
+/** No session: a new account cannot sign in until its email address is verified. */
+export type RegisterResult = {
+  user: PublicUser;
+};
+
 export type MeResult = PublicUser;
 
 export type RefreshResult = {

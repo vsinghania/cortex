@@ -1,5 +1,6 @@
 import type { EmailVerificationSvcInterface } from './email_verification_svc_interface.js';
 import type { UserRepository } from '../user/repositories/user_repository_interface.js';
+import type { User } from '../user/types/user.types.js';
 import { MongooseUserRepository } from '../user/repositories/user_repository.js';
 import { EmailTokenIssuer } from './email_token_issuer.js';
 import { AuthJobName } from './jobs/auth_job.types.js';
@@ -39,6 +40,38 @@ export class EmailVerificationSvc implements EmailVerificationSvcInterface {
       logger.warn({ user_id, reason: 'user_not_found' }, 'email verification request ignored');
       return;
     }
+    await this.enqueueFor(user);
+  }
+
+  async requestVerificationForEmail(email: string): Promise<void> {
+    const user = await this.deps.user_repo.findByEmail(email);
+    if (!user) {
+      logger.info({ reason: 'user_not_found' }, 'email verification request ignored');
+      return;
+    }
+    await this.enqueueFor(user);
+  }
+
+  async verify(token: string): Promise<void> {
+    const start_ms = performance.now();
+
+    const user_id = await this.deps.token_issuer.consume({ token, purpose: 'email_verification' });
+    if (!user_id) {
+      logger.warn({ reason: 'token_invalid' }, 'email verification rejected');
+      throw new BadRequestError(INVALID_LINK_MESSAGE);
+    }
+
+    const updated = await this.deps.user_repo.setEmailVerifiedAt(user_id, new Date());
+    if (!updated) {
+      logger.warn({ user_id, reason: 'user_missing' }, 'email verification rejected');
+      throw new BadRequestError(INVALID_LINK_MESSAGE);
+    }
+
+    logger.info({ user_id, duration_ms: Time.elapsedMs(start_ms) }, 'email verification completed');
+  }
+
+  private async enqueueFor(user: User): Promise<void> {
+    const user_id = user.user_id;
     if (user.email_verified_at) {
       logger.info({ user_id, reason: 'already_verified' }, 'email verification request ignored');
       return;
@@ -63,23 +96,5 @@ export class EmailVerificationSvc implements EmailVerificationSvcInterface {
       }
       throw err;
     }
-  }
-
-  async verify(token: string): Promise<void> {
-    const start_ms = performance.now();
-
-    const user_id = await this.deps.token_issuer.consume({ token, purpose: 'email_verification' });
-    if (!user_id) {
-      logger.warn({ reason: 'token_invalid' }, 'email verification rejected');
-      throw new BadRequestError(INVALID_LINK_MESSAGE);
-    }
-
-    const updated = await this.deps.user_repo.setEmailVerifiedAt(user_id, new Date());
-    if (!updated) {
-      logger.warn({ user_id, reason: 'user_missing' }, 'email verification rejected');
-      throw new BadRequestError(INVALID_LINK_MESSAGE);
-    }
-
-    logger.info({ user_id, duration_ms: Time.elapsedMs(start_ms) }, 'email verification completed');
   }
 }
