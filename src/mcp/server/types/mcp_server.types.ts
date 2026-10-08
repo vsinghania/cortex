@@ -1,5 +1,5 @@
 import type { Server } from 'node:http';
-import type { ServerOptions } from '@modelcontextprotocol/server';
+import type { Icon, ServerOptions } from '@modelcontextprotocol/server';
 
 export interface McpHttpConfig {
   host: string;
@@ -17,6 +17,11 @@ export interface McpHttpConfig {
 export interface McpServerInfo {
   name: string;
   version: string;
+  /** What an assistant shows for the connector; `name` is the machine identifier. */
+  title?: string;
+  description?: string;
+  website_url?: string;
+  icons?: Icon[];
   options?: ServerOptions;
   log_name: string;
 }

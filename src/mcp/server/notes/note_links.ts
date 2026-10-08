@@ -18,6 +18,10 @@ export class NoteLinks {
     return parsed.success ? new NoteLinks(parsed.data) : null;
   }
 
+  home(): string {
+    return new URL('/', this.base_url).toString();
+  }
+
   note(note_id: string): string {
     return new URL(`/notes/${encodeURIComponent(note_id)}`, this.base_url).toString();
   }

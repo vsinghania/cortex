@@ -7,12 +7,18 @@ import type { McpCaller, McpHttpConfig, McpServerInfo } from '../types/mcp_serve
 import { McpCallers } from '../mcp_caller.js';
 import { NotesMcpInstructions } from './notes_mcp_instructions.js';
 import { NotesMcpContract } from './notes_mcp_contract.js';
+import { NoteLinks } from './note_links.js';
+import { CortexIcons } from '../../brand/cortex_icons.js';
 
 export class NotesMcpHttpServer extends BaseMcpHttpServer {
   protected getServerInfo(): McpServerInfo {
     return {
       name: 'cortex-notes-mcp',
       version: '1.0.0',
+      title: 'Cortex Notes',
+      description: 'Search, read and organise your Cortex notes.',
+      website_url: NoteLinks.fromEnv()?.home(),
+      icons: CortexIcons.forMcp(),
       log_name: 'notes_mcp',
       options: {
         debouncedNotificationMethods: [

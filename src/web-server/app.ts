@@ -6,6 +6,7 @@ import { HttpLoggerMiddleware } from '../common/middlewares/http_logger_middlewa
 import { logger } from '../common/logger.js';
 import { AiController } from './ai/ai.controller.js';
 import { HealthController } from './health/health.controller.js';
+import { FaviconController } from './favicon/favicon.controller.js';
 import cookieParser from 'cookie-parser';
 import { AuthController } from './auth/auth.controller.js';
 import { AgentController } from './agent/agent.controller.js';
@@ -36,6 +37,7 @@ export class App {
     this.app.use(HttpLoggerMiddleware.build(logger));
 
     this.app.get('/healthz', (_req, res) => res.send('ok'));
+    this.app.use(new FaviconController().getRouter());
 
     // Ahead of the app-wide CORS policy: MCP clients discover metadata and exchange
     // tokens from any origin, so those routes set their own permissive CORS.
