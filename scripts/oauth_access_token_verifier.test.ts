@@ -4,18 +4,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OAuthAccessTokenVerifier } from '../src/oauth_svc/oauth_access_token_verifier.js';
-import { OAuthTokenFamilies } from '../src/oauth_svc/oauth_token_families.js';
 import { Time } from '../src/lib/time.js';
 import { InMemoryOAuthStores } from './support/in_memory_oauth_stores.js';
 
 const RESOURCE = 'https://api.cortex.test/mcp';
 
 async function harness(scopes = ['notes:read', 'notes:write']) {
-  const stores = InMemoryOAuthStores.create();
+  const { stores, repos } = InMemoryOAuthStores.create();
   const clock = { now: new Date('2026-10-07T10:00:00Z') };
   const verifier = new OAuthAccessTokenVerifier({ stores: async () => stores, now: () => clock.now });
   const grant = await stores.grants.upsert({
-    grant_id: 'g-1',
     user_id: 'u-1',
     client_id: 'https://claude.test/c.json',
     client_name: 'Claude',
@@ -23,17 +21,16 @@ async function harness(scopes = ['notes:read', 'notes:write']) {
     scopes,
     resource: RESOURCE
   });
-  const families = new OAuthTokenFamilies(stores.tokens);
-  const issued = await families.start({ grant, scopes, now: clock.now, with_refresh: true });
-  return { stores, verifier, issued, clock };
+  const issued = await stores.tokens.start({ grant, scopes, now: clock.now, with_refresh: true });
+  return { stores, repos, verifier, grant, issued, clock };
 }
 
 test('a live access token verifies as its grant\'s user, client, scopes and resource', async () => {
-  const { verifier, issued } = await harness();
+  const { verifier, grant, issued } = await harness();
   assert.deepEqual(await verifier.verify(issued.access.value), {
     user_id: 'u-1',
     client_id: 'https://claude.test/c.json',
-    grant_id: 'g-1',
+    grant_id: grant.grant_id,
     scopes: ['notes:read', 'notes:write'],
     resource: RESOURCE,
     kind: 'external'
@@ -54,20 +51,20 @@ test('unknown, refresh, expired and revoked tokens do not verify', async () => {
 });
 
 test('deleting its grant ends the token', async () => {
-  const { verifier, issued, stores } = await harness();
-  await stores.grants.deleteExternalForUser({ user_id: 'u-1', grant_id: 'g-1' });
+  const { verifier, grant, issued, stores } = await harness();
+  await stores.grants.deleteExternal({ user_id: 'u-1', grant_id: grant.grant_id });
   assert.equal(await verifier.verify(issued.access.value), null);
 });
 
 test('effective scopes are what both the token and the current grant allow', async () => {
-  const { verifier, issued, stores } = await harness();
-  await stores.grants.upsert({ ...stores.grants.rows[0], grant_id: 'ignored', scopes: ['notes:read'] });
+  const { verifier, grant, issued, stores } = await harness();
+  await stores.grants.upsert({ ...grant, scopes: ['notes:read'] });
   assert.deepEqual((await verifier.verify(issued.access.value))?.scopes, ['notes:read']);
 });
 
 test('use is recorded on the grant', async () => {
-  const { verifier, issued, stores } = await harness();
+  const { verifier, issued, repos } = await harness();
   await verifier.verify(issued.access.value);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.ok(stores.grants.rows[0].last_used_at);
+  assert.ok(repos.grants.rows[0].last_used_at);
 });

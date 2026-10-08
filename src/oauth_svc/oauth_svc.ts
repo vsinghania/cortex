@@ -1,6 +1,5 @@
 import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../common/errors.js';
 import { logger } from '../common/logger.js';
-import { Id } from '../lib/id.js';
 import { McpResourceCatalog } from '../mcp/resource/mcp_resource_catalog.js';
 import type { McpResource } from '../mcp/resource/mcp_resource.types.js';
 import { OAuthConfigLoader, type OAuthConfig } from './config/oauth_config.js';
@@ -8,7 +7,6 @@ import { OAuthAuthorizationServer } from './oauth_authorization_server.js';
 import { OAuthRedirects } from './oauth_redirects.js';
 import { OAuthStoresLoader, type OAuthStores } from './oauth_stores.js';
 import type { OAuthSvcInterface } from './oauth_svc_interface.js';
-import { OAuthTokenIssuer } from './oauth_token_issuer.js';
 import type {
   ApproveOAuthRequestInput,
   OAuthAccessOption,
@@ -76,7 +74,6 @@ export class OAuthSvc implements OAuthSvcInterface {
     if (scopes.length === 0) throw new BadRequestError('The app did not ask for that level of access');
 
     const grant = await this.deps.stores.grants.upsert({
-      grant_id: Id.generateUuidV7(),
       user_id: input.user_id,
       client_id: request.client_id,
       client_name: request.client_name,
@@ -86,9 +83,7 @@ export class OAuthSvc implements OAuthSvcInterface {
       resource: request.resource
     });
 
-    const code = OAuthTokenIssuer.authorizationCode(now);
-    await this.deps.stores.codes.create({
-      code_hash: code.hash,
+    const code = await this.deps.stores.codes.issue({
       client_id: request.client_id,
       user_id: input.user_id,
       grant_id: grant.grant_id,
@@ -96,11 +91,11 @@ export class OAuthSvc implements OAuthSvcInterface {
       code_challenge: request.code_challenge,
       scopes,
       resource: request.resource,
-      expires_at: code.expires_at
+      now
     });
 
     logger.info({ client_id: request.client_id, grant_id: grant.grant_id, scopes }, 'oauth consent approved');
-    return { redirect_url: this.respond(request, { code: code.value }) };
+    return { redirect_url: this.respond(request, { code }) };
   }
 
   async deny(input: { request_id: string; user_id: string }): Promise<{ redirect_url: string }> {
@@ -115,15 +110,15 @@ export class OAuthSvc implements OAuthSvcInterface {
   }
 
   async listGrants(user_id: string): Promise<PublicOAuthGrant[]> {
-    const grants = await this.deps.stores.grants.listExternalByUser(user_id);
+    const grants = await this.deps.stores.grants.listExternal(user_id);
     return grants.map((grant) => this.toPublic(grant));
   }
 
   /** Ends the connection everywhere at once: the grant and every token on every device. */
   async revokeGrant(input: { user_id: string; grant_id: string }): Promise<void> {
-    const revoked = await this.deps.stores.grants.deleteExternalForUser(input);
+    const revoked = await this.deps.stores.grants.deleteExternal(input);
     if (!revoked) throw new NotFoundError('Connection not found');
-    await this.deps.stores.tokens.deleteByGrant(input.grant_id);
+    await this.deps.stores.tokens.deleteForGrant(input.grant_id);
     logger.info({ grant_id: input.grant_id }, 'oauth grant revoked');
   }
 

@@ -1,6 +1,4 @@
 import { logger } from '../common/logger.js';
-import { Id } from '../lib/id.js';
-import { Time } from '../lib/time.js';
 import { CanonicalUrl } from '../lib/canonical_url.js';
 import { McpResourceCatalog } from '../mcp/resource/mcp_resource_catalog.js';
 import type { McpResource } from '../mcp/resource/mcp_resource.types.js';
@@ -11,15 +9,8 @@ import { OAuthPkce } from './oauth_pkce.js';
 import { OAuthRedirects } from './oauth_redirects.js';
 import { OAuthStoresLoader, type OAuthStores } from './oauth_stores.js';
 import { OAuthTokenFamilies } from './oauth_token_families.js';
-import { OAUTH_AUTHORIZATION_REQUEST_TTL_SEC, OAuthTokenIssuer } from './oauth_token_issuer.js';
 import type { OAuthClient, OAuthTokenRecord, OAuthTokenResponse } from './types/oauth.types.js';
 
-/**
- * Two refreshes racing on one token are normal (a client retrying a timed-out call).
- * Inside this window the loser is simply refused; after it, a replayed rotated token
- * means it was copied, and its family is revoked.
- */
-const REFRESH_REUSE_GRACE_MS = Time.secondsToMs(30);
 const CONSENT_PATH = '/connect';
 
 /** Request parameters as they arrive (query string or form body): all optional strings. */
@@ -127,11 +118,8 @@ export class OAuthAuthorizationServer {
     const resource = params.resource ? this.deps.resources.findByUrl(params.resource) : null;
     if (!resource) return fail('invalid_target', 'resource must name one of this server\'s MCP endpoints');
 
-    const now = this.now();
-    const request_id = Id.generateRandom(32);
     const { requests } = await this.deps.stores();
-    await requests.create({
-      request_id,
+    const request_id = await requests.park({
       client_id: client.client_id,
       client_name: client.client_name,
       client_host: client.client_host,
@@ -140,7 +128,7 @@ export class OAuthAuthorizationServer {
       state: params.state,
       requested_scopes: McpResourceCatalog.normalizeScopes(resource, params.scope?.split(' ').filter(Boolean) ?? []),
       resource: resource.url,
-      expires_at: OAuthTokenIssuer.expiresAfter(now, OAUTH_AUTHORIZATION_REQUEST_TTL_SEC)
+      now: this.now()
     });
 
     logger.info({ client_id: client.client_id }, 'oauth authorization started');
@@ -159,7 +147,7 @@ export class OAuthAuthorizationServer {
   async revoke(params: OAuthParams): Promise<void> {
     if (!params.token || !params.client_id) throw new OAuthProtocolError('invalid_request', 'token and client_id are required');
     const { tokens } = await this.deps.stores();
-    const revoked = await tokens.revokeByHash({ token_hash: OAuthTokenIssuer.hash(params.token), client_id: params.client_id, now: this.now() });
+    const revoked = await tokens.revoke({ token: params.token, client_id: params.client_id, now: this.now() });
     logger.info({ client_id: params.client_id, revoked }, 'oauth token revoked');
   }
 
@@ -170,9 +158,8 @@ export class OAuthAuthorizationServer {
     const client = await this.deps.clients.resolve(params.client_id);
     const now = this.now();
     const stores = await this.deps.stores();
-    const code_hash = OAuthTokenIssuer.hash(params.code);
 
-    const code = await stores.codes.findByHash(code_hash);
+    const code = await stores.codes.find(params.code);
     if (!code || code.client_id !== client.client_id) throw new OAuthProtocolError('invalid_grant', 'Invalid authorization code');
     if (code.consumed_at) {
       // OAuth 2.1 §4.1.2: a code used twice may have been stolen, so its tokens go too.
@@ -191,14 +178,14 @@ export class OAuthAuthorizationServer {
       throw new OAuthProtocolError('invalid_grant', 'code_verifier does not match the code_challenge');
     }
 
-    const grant = await stores.grants.findById(code.grant_id);
+    const grant = await stores.grants.find(code.grant_id);
     if (!grant) throw new OAuthProtocolError('invalid_grant', 'The connection was revoked');
 
-    const family_id = Id.generateUuidV7();
-    const consumed = await stores.codes.consume({ code_hash, client_id: client.client_id, now, family_id });
+    const family_id = OAuthTokenFamilies.newFamilyId();
+    const consumed = await stores.codes.consume({ code: params.code, client_id: client.client_id, now, family_id });
     if (!consumed) throw new OAuthProtocolError('invalid_grant', 'Authorization code was already used');
 
-    const issued = await new OAuthTokenFamilies(stores.tokens).continue({
+    const issued = await stores.tokens.continue({
       grant,
       family_id,
       scopes: code.scopes,
@@ -216,15 +203,11 @@ export class OAuthAuthorizationServer {
     const client = await this.deps.clients.resolve(params.client_id);
     const now = this.now();
     const stores = await this.deps.stores();
-    const token_hash = OAuthTokenIssuer.hash(params.refresh_token);
 
-    const claimed = await stores.tokens.claimForRotation({ token_hash, client_id: client.client_id, now });
-    if (!claimed) {
-      await this.handleUnusableRefreshToken(stores, { token_hash, client_id: client.client_id, now });
-      throw new OAuthProtocolError('invalid_grant', 'Invalid, expired or already used refresh token');
-    }
+    const claimed = await stores.tokens.claimRefresh({ refresh_token: params.refresh_token, client_id: client.client_id, now });
+    if (!claimed) throw new OAuthProtocolError('invalid_grant', 'Invalid, expired or already used refresh token');
 
-    const grant = await stores.grants.findById(claimed.grant_id);
+    const grant = await stores.grants.find(claimed.grant_id);
     if (!grant) throw new OAuthProtocolError('invalid_grant', 'The connection was revoked');
     if (params.resource !== undefined && CanonicalUrl.parse(params.resource) !== claimed.resource) {
       throw new OAuthProtocolError('invalid_target', 'resource does not match the grant');
@@ -232,7 +215,7 @@ export class OAuthAuthorizationServer {
     const resource = this.deps.resources.findByUrl(claimed.resource);
     if (!resource) throw new OAuthProtocolError('invalid_target', 'This MCP endpoint is no longer served');
 
-    const issued = await new OAuthTokenFamilies(stores.tokens).continue({
+    const issued = await stores.tokens.continue({
       grant,
       family_id: claimed.family_id,
       scopes: OAuthAuthorizationServer.narrowScopes({ token: claimed, grant_scopes: grant.scopes, resource, requested: params.scope }),
@@ -241,24 +224,6 @@ export class OAuthAuthorizationServer {
     });
     logger.debug({ client_id: client.client_id, grant_id: grant.grant_id }, 'oauth tokens refreshed');
     return OAuthTokenFamilies.toResponse(issued);
-  }
-
-  /**
-   * A refresh token that cannot be rotated is expired, revoked, lost a race moments ago,
-   * or is a copy being replayed after the real client already rotated it.
-   */
-  private async handleUnusableRefreshToken(
-    stores: OAuthStores,
-    input: { token_hash: string; client_id: string; now: Date }
-  ): Promise<void> {
-    const token = await stores.tokens.findRefresh(input);
-    if (!token?.rotated_at || token.revoked_at) return;
-    if (input.now.getTime() - token.rotated_at.getTime() <= REFRESH_REUSE_GRACE_MS) {
-      logger.info({ client_id: input.client_id, grant_id: token.grant_id, reason: 'lost_race' }, 'oauth token refresh refused');
-      return;
-    }
-    await stores.tokens.revokeFamily({ family_id: token.family_id, now: input.now });
-    logger.warn({ user_id: token.user_id, client_id: input.client_id, grant_id: token.grant_id }, 'oauth refresh reuse detected');
   }
 
   /** A refresh may ask for less than it holds, never more (RFC 6749 §6); the grant caps it too. */

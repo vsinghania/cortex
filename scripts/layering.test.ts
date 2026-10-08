@@ -121,3 +121,31 @@ test(`only web-server imports ${ADMIN_READ_MODEL}`, () => {
   }
   assert.deepEqual(violations, [], `forbidden imports:\n  ${violations.join('\n  ')}`);
 });
+
+/*
+ * Each OAuth repository has one owner: the class that keeps its collection's rules
+ * (hashing, expiry, rotation, reuse detection). Everyone else goes through the owner, so
+ * those rules cannot be skipped by reaching for the repository. Only the stores loader,
+ * which hands each repository to its owner, may name them all.
+ */
+const OAUTH_REPOSITORY_OWNERS: Record<string, string> = {
+  oauth_authorization_request_repository: 'oauth_svc/oauth_authorization_requests.ts',
+  oauth_authorization_code_repository: 'oauth_svc/oauth_authorization_codes.ts',
+  oauth_grant_repository: 'oauth_svc/oauth_grants.ts',
+  oauth_token_repository: 'oauth_svc/oauth_token_families.ts'
+};
+const OAUTH_REPOSITORY_WIRING = 'oauth_svc/oauth_stores.ts';
+
+test('each OAuth repository is used only by its owner', () => {
+  const violations: string[] = [];
+  for (const file of tsFilesUnder(SRC)) {
+    const path = relative(SRC, file);
+    if (path === OAUTH_REPOSITORY_WIRING || path.startsWith('oauth_svc/repositories/')) continue;
+    for (const specifier of importedPaths(readFileSync(file, 'utf8'))) {
+      for (const [repository, owner] of Object.entries(OAUTH_REPOSITORY_OWNERS)) {
+        if (specifier.includes(repository) && path !== owner) violations.push(`${path} -> ${specifier}`);
+      }
+    }
+  }
+  assert.deepEqual(violations, [], `only a repository's owner may use it:\n  ${violations.join('\n  ')}`);
+});

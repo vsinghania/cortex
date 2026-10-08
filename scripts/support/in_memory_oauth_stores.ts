@@ -1,5 +1,5 @@
 /* In-memory stand-ins for the OAuth repositories, shared by the OAuth tests. */
-import type { OAuthStores } from '../../src/oauth_svc/oauth_stores.js';
+import { OAuthStoresLoader, type OAuthStores } from '../../src/oauth_svc/oauth_stores.js';
 import type { OAuthAuthorizationRequestRepository } from '../../src/oauth_svc/repositories/oauth_authorization_request_repository_interface.js';
 import type { OAuthAuthorizationCodeRepository, OAuthCodeLookup } from '../../src/oauth_svc/repositories/oauth_authorization_code_repository_interface.js';
 import type { OAuthGrantRepository } from '../../src/oauth_svc/repositories/oauth_grant_repository_interface.js';
@@ -119,10 +119,14 @@ export class InMemoryTokens implements OAuthTokenRepository {
   }
 }
 
+export type InMemoryOAuthRepositories = { requests: InMemoryRequests; codes: InMemoryCodes; grants: InMemoryGrants; tokens: InMemoryTokens };
+
 export class InMemoryOAuthStores {
   private constructor() {}
 
-  static create(): OAuthStores & { requests: InMemoryRequests; codes: InMemoryCodes; grants: InMemoryGrants; tokens: InMemoryTokens } {
-    return { requests: new InMemoryRequests(), codes: new InMemoryCodes(), grants: new InMemoryGrants(), tokens: new InMemoryTokens() };
+  /** The stores as production wires them, plus the rows underneath for assertions. */
+  static create(): { stores: OAuthStores; repos: InMemoryOAuthRepositories } {
+    const repos = { requests: new InMemoryRequests(), codes: new InMemoryCodes(), grants: new InMemoryGrants(), tokens: new InMemoryTokens() };
+    return { stores: OAuthStoresLoader.fromRepositories(repos), repos };
   }
 }

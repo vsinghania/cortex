@@ -12,8 +12,6 @@ import { DatastoreBootstrap } from '../src/bootstrap/datastore_bootstrap.js';
 import { McpResourceCatalog } from '../src/mcp/resource/mcp_resource_catalog.js';
 import type { McpResourceId } from '../src/mcp/resource/mcp_resource.types.js';
 import { OAuthStoresLoader } from '../src/oauth_svc/oauth_stores.js';
-import { OAuthTokenFamilies } from '../src/oauth_svc/oauth_token_families.js';
-import { Id } from '../src/lib/id.js';
 import { Time } from '../src/lib/time.js';
 
 const DEV_CLIENT_ID = 'cortex-dev-cli';
@@ -36,7 +34,6 @@ class MintMcpDevToken {
       const stores = await OAuthStoresLoader.get();
       const scopes = access === 'read_write' ? McpResourceCatalog.allScopes(resource) : [resource.scopes.read];
       const grant = await stores.grants.upsert({
-        grant_id: Id.generateUuidV7(),
         user_id,
         client_id: DEV_CLIENT_ID,
         client_name: 'Cortex dev token',
@@ -44,7 +41,7 @@ class MintMcpDevToken {
         scopes,
         resource: resource.url
       });
-      const issued = await new OAuthTokenFamilies(stores.tokens).start({
+      const issued = await stores.tokens.start({
         grant,
         scopes,
         now: new Date(),

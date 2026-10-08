@@ -85,7 +85,7 @@ function pkce() {
 }
 
 async function harness() {
-  const stores = InMemoryOAuthStores.create();
+  const { stores, repos } = InMemoryOAuthStores.create();
   const clock = { now: new Date('2026-10-06T10:00:00Z') };
   const now = () => clock.now;
   const server = new OAuthAuthorizationServer({
@@ -100,7 +100,7 @@ async function harness() {
   const advance = (ms: number) => {
     clock.now = new Date(clock.now.getTime() + ms);
   };
-  return { stores, server, svc, verifier, advance };
+  return { repos, server, svc, verifier, advance };
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>;
@@ -211,7 +211,7 @@ test('one app connected to two resources holds two grants, revoked independently
   const h = await harness();
   const notes = await connect(h, 'read_write', RESOURCE);
   const articles = await connect(h, 'read', ARTICLES);
-  assert.equal(h.stores.grants.rows.length, 2);
+  assert.equal(h.repos.grants.rows.length, 2);
 
   const notes_token = await h.verifier.verify(notes.tokens.access_token);
   const articles_token = await h.verifier.verify(articles.tokens.access_token);
@@ -274,7 +274,7 @@ test('approve redirects with code, state and iss; the token verifies as the user
   assert.deepEqual(verified, {
     user_id: USER_ID,
     client_id: CLIENT_ID,
-    grant_id: h.stores.grants.rows[0].grant_id,
+    grant_id: h.repos.grants.rows[0].grant_id,
     scopes: ['notes:read', 'notes:write'],
     resource: RESOURCE,
     kind: 'external'
@@ -319,7 +319,7 @@ test('a later replay revokes only that family: the same user on another device k
   const h = await harness();
   const laptop = await connect(h);
   const phone = await connect(h);
-  assert.equal(h.stores.grants.rows.length, 1, 'one consent, two devices');
+  assert.equal(h.repos.grants.rows.length, 1, 'one consent, two devices');
 
   const laptop_next = await h.server.token({ grant_type: 'refresh_token', refresh_token: laptop.tokens.refresh_token, client_id: CLIENT_ID });
   h.advance(Time.minutesToMs(5));
