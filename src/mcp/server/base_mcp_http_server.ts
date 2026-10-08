@@ -1,15 +1,18 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import type { Server } from 'node:http';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { hostHeaderValidation, localhostHostValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createMcpHandler, McpServer, type AuthInfo, type McpHttpHandler, type McpRequestContext } from '@modelcontextprotocol/server';
+import { hostHeaderValidation, localhostHostValidation, toNodeHandler, type NodeIncomingMessageLike, type NodeMcpRequestHandler } from '@modelcontextprotocol/node';
 import { HttpLoggerMiddleware } from '../../common/middlewares/http_logger_middleware.js';
 import { logger } from '../../common/logger.js';
 import { TraceContext } from '../../common/trace_context.js';
+import { TokenUtils } from '../../auth_svc/utils/token_utils.js';
 import { Id } from '../../lib/id.js';
+import { McpCallers } from './mcp_caller.js';
 import type { McpModule } from './mcp_module.js';
-import type { McpHttpConfig, McpHttpServerHandle, McpServerInfo } from './types/mcp_server.types.js';
+import type { McpCaller, McpHttpConfig, McpHttpServerHandle, McpServerInfo } from './types/mcp_server.types.js';
+
+type HostGuard = (req: Request, res: Response) => boolean;
 
 export abstract class BaseMcpHttpServer {
   private app?: express.Express;
@@ -17,6 +20,9 @@ export abstract class BaseMcpHttpServer {
   private http_cfg?: McpHttpConfig;
   private server_info?: McpServerInfo;
   private mcp_modules: McpModule[] = [];
+  private mcp_handler?: McpHttpHandler;
+  private node_handler?: NodeMcpRequestHandler;
+  private host_guard?: HostGuard;
 
   public async start(): Promise<McpHttpServerHandle> {
     this.server_info = this.getServerInfo();
@@ -24,9 +30,12 @@ export abstract class BaseMcpHttpServer {
 
     await this.bootstrap();
     this.mcp_modules = await this.createMcpModules();
+    this.mcp_handler = this.createHandler();
+    this.node_handler = toNodeHandler(this.mcp_handler, { onerror: this.reportError.bind(this) });
+    this.host_guard = BaseMcpHttpServer.createHostGuard(this.http_cfg);
 
     this.app = express();
-    this.configureMiddleware(this.app, this.http_cfg);
+    this.configureMiddleware(this.app);
     this.registerMcpRoute(this.app, this.http_cfg);
 
     this.http_server = this.app.listen(this.http_cfg.port, this.http_cfg.host, () => {
@@ -60,6 +69,7 @@ export abstract class BaseMcpHttpServer {
         });
       }
 
+      await this.mcp_handler?.close();
       await this.cleanupMcpModules();
       await this.cleanup();
     } finally {
@@ -68,6 +78,8 @@ export abstract class BaseMcpHttpServer {
       this.http_cfg = undefined;
       this.server_info = undefined;
       this.mcp_modules = [];
+      this.mcp_handler = undefined;
+      this.node_handler = undefined;
     }
   }
 
@@ -81,45 +93,57 @@ export abstract class BaseMcpHttpServer {
 
   protected async cleanup(): Promise<void> {}
 
-  private configureMiddleware(app: express.Express, cfg: McpHttpConfig): void {
-    app.use(express.json());
-    this.configureHostValidation(app, cfg);
+  /**
+   * Who is calling, decided from this request's credentials alone: exactly the service
+   * bearer, acting for the user named in `X-User-Id`. Anything else is refused.
+   */
+  private authenticate(req: Request): McpCaller | null {
+    const cfg = this.requireHttpConfig();
+    const token = BaseMcpHttpServer.bearerToken(req);
+    if (!token || !TokenUtils.constantTimeEquals(token, cfg.auth_token)) return null;
+    return { kind: 'internal', user_id: BaseMcpHttpServer.singleHeader(req, 'x-user-id') };
+  }
+
+  /**
+   * Explicit protocol policy: 2026-07-28 clients get the modern per-request exchange,
+   * and 2025-era clients (OpenAI Realtime, older connectors) are served
+   * statelessly by a fresh instance from the same factory. GET and DELETE, the 2025
+   * session operations, answer 405 because nothing is kept between requests.
+   */
+  private createHandler(): McpHttpHandler {
+    return createMcpHandler((ctx) => this.createMcpServer(ctx), {
+      legacy: 'stateless',
+      onerror: this.reportError.bind(this)
+    });
+  }
+
+  private configureMiddleware(app: express.Express): void {
     app.use(this.establishTraceContext.bind(this));
     app.use(HttpLoggerMiddleware.build(logger));
   }
 
   private establishTraceContext(req: Request, _res: Response, next: express.NextFunction): void {
-    const trace_header = req.headers['x-trace-id'];
-    const inbound_trace = Array.isArray(trace_header) ? trace_header[0] : trace_header;
-    const upstream_trace_id = inbound_trace && inbound_trace.length > 0 ? inbound_trace : undefined;
-
-    const user_header = req.headers['x-user-id'];
-    const inbound_user = Array.isArray(user_header) ? user_header[0] : user_header;
-    const user_id = inbound_user && inbound_user.length > 0 ? inbound_user : undefined;
-
     TraceContext.enter({
       trace_id: Id.generateRandom(),
-      upstream_trace_id,
-      user_id,
+      upstream_trace_id: BaseMcpHttpServer.singleHeader(req, 'x-trace-id')
     });
     next();
   }
 
-  private configureHostValidation(app: express.Express, cfg: McpHttpConfig): void {
+  private static createHostGuard(cfg: McpHttpConfig): HostGuard | undefined {
     if (cfg.allowed_hosts && cfg.allowed_hosts.length > 0) {
-      app.use(hostHeaderValidation(cfg.allowed_hosts));
-      return;
+      return hostHeaderValidation(cfg.allowed_hosts);
     }
 
     const localhost_hosts = ['127.0.0.1', 'localhost', '::1'];
     if (localhost_hosts.includes(cfg.host)) {
-      app.use(localhostHostValidation());
-      return;
+      return localhostHostValidation();
     }
 
     if (cfg.host === '0.0.0.0' || cfg.host === '::') {
       logger.warn({ host: cfg.host }, 'MCP server is binding without host header validation.');
     }
+    return undefined;
   }
 
   private registerMcpRoute(app: express.Express, cfg: McpHttpConfig): void {
@@ -131,92 +155,59 @@ export abstract class BaseMcpHttpServer {
   }
 
   private async handleRequest(req: Request, res: Response): Promise<void> {
-    const cfg = this.requireHttpConfig();
+    if (this.host_guard && !this.host_guard(req, res)) return;
 
-    if (!this.authorize(req, res, cfg)) {
-      return;
-    }
-
-    if (req.method === 'POST') {
-      await this.handlePost(req, res);
-      return;
-    }
-
-    this.handleMethodNotAllowed(res);
-  }
-
-  private authorize(req: Request, res: Response, cfg: McpHttpConfig): boolean {
-    const auth_header = req.headers.authorization;
-    const expected_header = `Bearer ${cfg.auth_token}`;
-
-    if (auth_header !== expected_header) {
+    const caller = this.authenticate(req);
+    if (!caller) {
       res.status(401).json(BaseMcpHttpServer.errorResponse(-32001, 'Unauthorized'));
-      return false;
+      return;
     }
-
-    return true;
-  }
-
-  private async handlePost(req: Request, res: Response): Promise<void> {
-    const mcp_server = await this.createMcpServer();
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined
-    });
+    if (caller.user_id) TraceContext.setUserId(caller.user_id);
 
     try {
-      await mcp_server.connect(transport);
-      await transport.handleRequest(req as any, res, req.body);
+      await this.requireNodeHandler()(BaseMcpHttpServer.toNodeRequest(req, McpCallers.toAuthInfo(caller)), res);
     } catch (error) {
       logger.error({ err: error }, `${this.requireServerInfo().log_name}_http_request_failed`);
       if (!res.headersSent) {
         res.status(500).json(BaseMcpHttpServer.errorResponse(-32603, 'Internal server error'));
       }
-    } finally {
-      await this.closeTransport(transport);
-      await this.closeMcpServer(mcp_server);
     }
   }
 
-  private async createMcpServer(): Promise<McpServer> {
-    const server_info = this.requireServerInfo();
-    const server = new McpServer(
-      { name: server_info.name, version: server_info.version },
-      server_info.options
-    );
+  /**
+   * The adapter reads the verified caller from `auth`. Express's own `req.auth` carries
+   * this app's session shape, so the adapter gets a view of the request instead.
+   */
+  private static toNodeRequest(req: Request, auth: AuthInfo): NodeIncomingMessageLike {
+    return {
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      auth,
+      [Symbol.asyncIterator]: () => req[Symbol.asyncIterator]()
+    };
+  }
 
-    await this.registerMcpModules(server);
+  /** One fresh server per request, carrying only what this caller may use. */
+  private async createMcpServer(ctx: McpRequestContext): Promise<McpServer> {
+    const caller = McpCallers.fromAuthInfo(ctx.authInfo);
+    if (!caller) throw new Error('MCP request reached the server factory without an authenticated caller.');
+    const server_info = this.requireServerInfo();
+    const server = new McpServer({ name: server_info.name, version: server_info.version }, server_info.options);
+
+    for (const mcp_module of this.mcp_modules) {
+      await mcp_module.register(server, caller);
+    }
     return server;
   }
 
-  private async registerMcpModules(server: McpServer): Promise<void> {
-    for (const mcp_module of this.mcp_modules) {
-      await mcp_module.register(server);
-    }
+  private reportError(error: Error): void {
+    logger.warn({ err: error }, `${this.server_info?.log_name ?? 'mcp'}_handler_error`);
   }
 
   private async cleanupMcpModules(): Promise<void> {
     for (const mcp_module of this.mcp_modules) {
       await mcp_module.cleanup();
-    }
-  }
-
-  private handleMethodNotAllowed(res: Response): void {
-    res.status(405).json(BaseMcpHttpServer.errorResponse(-32000, 'Method not allowed.'));
-  }
-
-  private async closeTransport(transport: StreamableHTTPServerTransport): Promise<void> {
-    try {
-      await transport.close();
-    } catch (error) {
-      logger.warn({ err: error }, `${this.requireServerInfo().log_name}_transport_close_failed`);
-    }
-  }
-
-  private async closeMcpServer(mcp_server: McpServer): Promise<void> {
-    try {
-      await mcp_server.close();
-    } catch (error) {
-      logger.warn({ err: error }, `${this.requireServerInfo().log_name}_server_close_failed`);
     }
   }
 
@@ -247,6 +238,27 @@ export abstract class BaseMcpHttpServer {
     }
 
     return this.server_info;
+  }
+
+  private requireNodeHandler(): NodeMcpRequestHandler {
+    if (!this.node_handler) {
+      throw new Error('MCP handler has not been initialized.');
+    }
+
+    return this.node_handler;
+  }
+
+  private static bearerToken(req: Request): string | null {
+    const header = req.headers.authorization;
+    if (!header) return null;
+    const [scheme, token] = header.split(' ');
+    return /^Bearer$/i.test(scheme ?? '') && token ? token : null;
+  }
+
+  private static singleHeader(req: Request, name: string): string | undefined {
+    const value = req.headers[name];
+    const first = Array.isArray(value) ? value[0] : value;
+    return first && first.length > 0 ? first : undefined;
   }
 
   private static errorResponse(code: number, message: string) {
