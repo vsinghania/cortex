@@ -21,7 +21,9 @@ const MetadataDocumentSchema = z.object({
   logo_uri: z.string().url().optional(),
   grant_types: z.array(z.string()).optional(),
   response_types: z.array(z.string()).optional(),
-  token_endpoint_auth_method: z.string().optional()
+  token_endpoint_auth_method: z.string().optional(),
+  /** Not a registered metadata field, but how a client such as ChatGPT says it can also act as a public client. */
+  token_endpoint_auth_methods_supported: z.array(z.string()).optional()
 });
 
 /**
@@ -87,8 +89,7 @@ export class ClientIdMetadataResolver {
     if (doc.client_id !== client_id) {
       throw new OAuthProtocolError('invalid_client', 'The client metadata document names a different client_id');
     }
-    // Public clients only: there is nowhere to keep a secret for a client nobody registered.
-    if (doc.token_endpoint_auth_method && doc.token_endpoint_auth_method !== 'none') {
+    if (!ClientIdMetadataResolver.canActAsPublicClient(doc)) {
       throw new OAuthProtocolError('invalid_client', 'Only public clients (token_endpoint_auth_method "none") are supported');
     }
     if (doc.grant_types && !doc.grant_types.includes('authorization_code')) {
@@ -105,6 +106,16 @@ export class ClientIdMetadataResolver {
       redirect_uris: doc.redirect_uris,
       allows_refresh: !doc.grant_types || doc.grant_types.includes('refresh_token')
     };
+  }
+
+  /**
+   * The token endpoint authenticates no one yet (metadata advertises only "none"), so a
+   * client must be able to work without authenticating. ChatGPT prefers private_key_jwt
+   * but lists "none" among the methods it supports, and then uses it.
+   */
+  private static canActAsPublicClient(doc: z.infer<typeof MetadataDocumentSchema>): boolean {
+    if (!doc.token_endpoint_auth_method || doc.token_endpoint_auth_method === 'none') return true;
+    return doc.token_endpoint_auth_methods_supported?.includes('none') ?? false;
   }
 
   /** Respects the document's own Cache-Control, within bounds that keep both abuse and staleness in check. */
