@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiClient } from '../lib/api_client';
 import { AuthLayout } from '../components/auth/auth_layout';
 import { AuthField } from '../components/auth/auth_field';
@@ -9,9 +9,15 @@ import { AppRoutes } from '../lib/app_routes';
 import { FormValidation } from '../lib/form_validation';
 
 type RegisterErrors = Partial<Record<'name' | 'email' | 'password' | 'confirm', string>>;
+type LocationState = { from?: string } | null;
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const state = useLocation().state as LocationState;
+  // Set when login sent the user here on the way to somewhere, such as a consent page.
+  const return_to = state?.from && AppRoutes.isInternalPath(state.from) && state.from !== AppRoutes.register()
+    ? state.from
+    : null;
   const [name, set_name] = useState('');
   const [email, set_email] = useState('');
   const [password, set_password] = useState('');
@@ -45,7 +51,7 @@ export function RegisterPage() {
       await ApiClient.register(email, name.trim(), password);
       // The server enqueues a confirmation email on register; the banner says so
       // rather than inviting a resend of the link already on its way.
-      navigate(AppRoutes.notes(), { replace: true, state: { verification_sent: true } });
+      navigate(return_to ?? AppRoutes.notes(), { replace: true, state: { verification_sent: true } });
     } catch (err) {
       set_form_error(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
@@ -57,7 +63,7 @@ export function RegisterPage() {
     <AuthLayout>
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <div>
-          <Link to={AppRoutes.login()} className="back-link">← Back to sign in</Link>
+          <Link to={AppRoutes.login()} state={return_to ? { from: return_to } : null} className="back-link">← Back to sign in</Link>
           <div className="auth-heading">
             <h1>Create your account</h1>
             <p>Capture notes you can search, and talk them through with the assistant.</p>
@@ -87,9 +93,9 @@ export function RegisterPage() {
         </div>
         {form_error && <div className="form-error" role="alert">{form_error}</div>}
         <SubmitButton busy={submitting} label="Create account" />
-        <GoogleButton />
+        <GoogleButton return_to={return_to ?? undefined} />
         <p className="auth-alt">
-          Already have an account? <Link to={AppRoutes.login()} className="text-link text-link-strong">Sign in</Link>
+          Already have an account? <Link to={AppRoutes.login()} state={return_to ? { from: return_to } : null} className="text-link text-link-strong">Sign in</Link>
         </p>
       </form>
     </AuthLayout>

@@ -48,6 +48,14 @@ const RULES: Rule[] = [
     module: 'onenote_svc',
     forbidden: ['agent_svc', 'ai_svc', 'citation_svc', 'retrieval_svc', 'voice_svc']
   },
+  // The authorization server knows users and grants, never what the granted resource holds.
+  {
+    module: 'oauth_svc',
+    forbidden: ['agent_svc', 'ai_svc', 'citation_svc', 'jobs_svc', 'notes_svc', 'onenote_svc', 'retrieval_svc', 'voice_svc', 'web-server']
+  },
+  // The resource-server contract is the only thing the /mcp gateway and the authorization
+  // server share; it must not lean on either side of it.
+  { module: 'mcp/resource', forbidden: ['oauth_svc', 'web-server'] },
   {
     module: 'mailer_svc',
     forbidden: [
@@ -112,4 +120,32 @@ test(`only web-server imports ${ADMIN_READ_MODEL}`, () => {
     }
   }
   assert.deepEqual(violations, [], `forbidden imports:\n  ${violations.join('\n  ')}`);
+});
+
+/*
+ * Each OAuth repository has one owner: the class that keeps its collection's rules
+ * (hashing, expiry, rotation, reuse detection). Everyone else goes through the owner, so
+ * those rules cannot be skipped by reaching for the repository. Only the stores loader,
+ * which hands each repository to its owner, may name them all.
+ */
+const OAUTH_REPOSITORY_OWNERS: Record<string, string> = {
+  oauth_authorization_request_repository: 'oauth_svc/oauth_authorization_requests.ts',
+  oauth_authorization_code_repository: 'oauth_svc/oauth_authorization_codes.ts',
+  oauth_grant_repository: 'oauth_svc/oauth_grants.ts',
+  oauth_token_repository: 'oauth_svc/oauth_token_families.ts'
+};
+const OAUTH_REPOSITORY_WIRING = 'oauth_svc/oauth_stores.ts';
+
+test('each OAuth repository is used only by its owner', () => {
+  const violations: string[] = [];
+  for (const file of tsFilesUnder(SRC)) {
+    const path = relative(SRC, file);
+    if (path === OAUTH_REPOSITORY_WIRING || path.startsWith('oauth_svc/repositories/')) continue;
+    for (const specifier of importedPaths(readFileSync(file, 'utf8'))) {
+      for (const [repository, owner] of Object.entries(OAUTH_REPOSITORY_OWNERS)) {
+        if (specifier.includes(repository) && path !== owner) violations.push(`${path} -> ${specifier}`);
+      }
+    }
+  }
+  assert.deepEqual(violations, [], `only a repository's owner may use it:\n  ${violations.join('\n  ')}`);
 });

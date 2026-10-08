@@ -1,3 +1,4 @@
+import type { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { Time } from '../../lib/time.js';
 
@@ -15,6 +16,8 @@ export class RateLimitMiddleware {
     windowMs?: number;
     max?: number;
     message?: string;
+    /** Buckets by something other than client IP, e.g. an authenticated grant. */
+    keyGenerator?: (req: Request, res: Response) => string;
   }) {
     const windowMs = params.windowMs ?? 15 * 60 * 1000; // 15 minutes default
     const max = params.max ?? 100; // limit each IP
@@ -23,7 +26,8 @@ export class RateLimitMiddleware {
       max,
       standardHeaders: true, // Return rate limit info in the RateLimit-* headers
       legacyHeaders: false,
-      message: { error: params.message ?? 'Too many requests, please try again later.' }
+      message: { error: params.message ?? 'Too many requests, please try again later.' },
+      ...(params.keyGenerator ? { keyGenerator: params.keyGenerator } : {})
     });
   }
 

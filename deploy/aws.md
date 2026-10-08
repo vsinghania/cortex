@@ -142,6 +142,11 @@ Two rules the whole design enforces:
 
 - **Domain:** `https://api.cortexapp.me`, a Route 53 Alias → the public ALB.
 - ALB terminates HTTPS with an ACM cert; **:80 redirects to :443**.
+- **`mcp.cortexapp.me`** (the public MCP servers, `/notes` and later others) is a second
+  Alias to the same ALB. The HTTPS listener's certificate must cover it: add it as a SAN
+  when reissuing, or attach a second ACM cert to the listener (the ALB picks by SNI). No
+  listener rule is needed, because the default action already forwards every host to
+  web-server, which keeps each surface on its own host itself.
 - Target group `cortex-web-tg`: HTTP, port **3000**, health check **`GET /healthz`**,
   target = the EC2 instance.
 - Only `web-server` sits behind the ALB. Everything else on the box is internal.
@@ -532,11 +537,13 @@ Hosted zone for `cortexapp.me` is managed by Route 53 (created at registration).
 | --- | --- |
 | `cortexapp.me` (apex) | Alias → CloudFront |
 | `api.cortexapp.me` | Alias → ALB |
+| `mcp.cortexapp.me` | Alias → ALB (same one: web-server serves both hosts) |
 
 ```sh
 dig NS cortexapp.me +short          # four awsdns nameservers
 dig cortexapp.me +short             # resolves to CloudFront
 dig api.cortexapp.me +short         # resolves to the ALB
+dig mcp.cortexapp.me +short         # resolves to the same ALB
 ```
 
 ### Sending mail
@@ -618,6 +625,13 @@ What is and isn't exposed, in one place:
   `MCP_NOTES_AUTH_TOKEN` with the tenant chosen by an `X-User-Id` header. Treat that
   token as the entire perimeter around every user's notes — see
   [../docs/mcp.md](../docs/mcp.md) §2 and [../docs/voice.md](../docs/voice.md) §4.
+- **Public by design, for MCP clients:** `mcp.cortexapp.me/notes` (and any later MCP
+  server beside it) is proxied to the notes MCP for ChatGPT, Claude and other assistants. Every request needs a per-user OAuth access
+  token, which alone decides whose notes it reaches; the gateway strips any identity
+  header a caller sends and signs its own assertion to `mcp-notes`. The OAuth endpoints
+  (`/.well-known/*`, `/authorize`, `/token`, `/revoke`) are public too, and the
+  authorization server fetches client metadata documents from the internet through an
+  SSRF-guarded fetcher — see [../docs/oauth.md](../docs/oauth.md).
 - **Private:** `mcp-notes` and MongoDB are published on the instance **loopback
   only** (`127.0.0.1`, reached via SSM port-forward, never in the SG); Qdrant is
   unpublished (Docker-network only). None has its own auth — a defense-in-depth gap

@@ -13,12 +13,13 @@ Design-level documentation: what the pieces are, why they are shaped that way, a
 | [citation_svc.md](citation_svc.md) | Grounding answers in sources: markers, storage, resolution |
 | [jobs_svc.md](jobs_svc.md) | Durable background work: claiming, leases, resumable sweeps |
 | [mailer_svc.md](mailer_svc.md) | Outbound email: transport adapter, shared layout, what never gets logged |
-| [mcp.md](mcp.md) | MCP server framework, notes tools, client, reverse proxy |
+| [mcp.md](mcp.md) | MCP server framework, notes tools, client, public gateway |
 | [auth.md](auth.md) | JWT access tokens, rotating refresh sessions, users |
+| [oauth.md](oauth.md) | The public MCP: OAuth for ChatGPT/Claude, consent, grants, what external assistants see |
 | [voice.md](voice.md) | Ephemeral OpenAI Realtime sessions |
 | [web.md](web.md) | HTTP surface and the SPA that consumes it |
 | [platform.md](platform.md) | Logger, errors, trace context, middlewares, lib wrappers, db |
 
-**Reading order** — new to the codebase: architecture → web → the module you are touching. Working on recall quality: recall → agent_svc. Working on capture: voice → mcp → recall. Working on grounding or citations: citation_svc → recall.
+**Reading order** — new to the codebase: architecture → web → the module you are touching. Working on recall quality: recall → agent_svc. Working on capture: voice → mcp → recall. Working on external assistants: oauth → mcp. Working on grounding or citations: citation_svc → recall.
 
 Coding conventions live in [CLAUDE.md](../CLAUDE.md). Request/response shapes live in [bruno/](../bruno/). Environment variables live in [.env.example](../.env.example).

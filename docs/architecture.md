@@ -12,7 +12,7 @@ Two long-running Node processes, one browser app, two datastores.
 
 | Process | Entry point | Port | Role |
 | --- | --- | --- | --- |
-| `web-server` | [src/web-server/server.ts](../src/web-server/server.ts) | 3000 | The API. Hosts every domain service in-process and reverse-proxies MCP traffic. |
+| `web-server` | [src/web-server/server.ts](../src/web-server/server.ts) | 3000 | The API. Hosts every domain service in-process, is the OAuth authorization server for the public MCP, serves the MCP resource servers on `mcp.cortexapp.me`, and reverse-proxies voice's MCP traffic. |
 | notes MCP server | [src/mcp/server/notes/server.ts](../src/mcp/server/notes/server.ts) | 3010 | Exposes the user's notes as MCP tools over streamable HTTP. |
 | `web` SPA | [web/](../web/) | 5173 (dev) | React client. Talks to the API only — except during a voice call. |
 | MongoDB | — | 27017 | System of record. |
@@ -38,6 +38,7 @@ Two long-running Node processes, one browser app, two datastores.
 Two structural decisions to internalize:
 
 - **The notes MCP server is a process, not a library.** The chat agent (server-to-server) and OpenAI Realtime (through the proxy) reach the same tool surface over the same protocol, so voice capture and chat recall cannot drift apart.
+- **`mcp.cortexapp.me/<server>` is the public MCP.** External assistants reach each MCP server (`/notes` today) there with a per-user access token; the gateway forwards a signed caller assertion addressed to that server, never the caller's own headers ([mcp.md §6](mcp.md#6-the-public-gateway)). The same web-server answers for `api.cortexapp.me` and `mcp.cortexapp.me`, with a host gate keeping each surface on its own host.
 - **`/api/v1/mcp/notes` exists because OpenAI must reach us.** For voice, OpenAI hosts the MCP *client*, so the server needs a public URL. The proxy is mounted **before `express.json()`** so the body stays a raw stream — reordering it silently breaks MCP.
 
 ## 2. Layering
@@ -69,6 +70,7 @@ The user id travels: JWT claim → `req.auth.user_id` → `TraceContext` → `x-
 | [mailer_svc.md](mailer_svc.md) | Outbound email: transport adapter, shared layout, what never gets logged |
 | [mcp.md](mcp.md) | MCP server framework, notes tools, client, reverse proxy |
 | [auth.md](auth.md) | JWT access tokens, rotating refresh sessions, users |
+| [oauth.md](oauth.md) | The public MCP: OAuth for ChatGPT/Claude, consent, grants, the resource servers on `mcp.cortexapp.me` |
 | [voice.md](voice.md) | Ephemeral OpenAI Realtime sessions |
 | [web.md](web.md) | HTTP surface and the SPA that consumes it |
 | [platform.md](platform.md) | Logger, errors, trace context, middlewares, lib wrappers, db |

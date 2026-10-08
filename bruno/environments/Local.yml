@@ -22,3 +22,7 @@ variables:
     value: ""
   - name: sync_job_id
     value: ""
+  - name: oauth_request_id
+    value: ""
+  - name: grant_id
+    value: ""

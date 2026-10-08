@@ -1,0 +1,19 @@
+info:
+  name: oauth-deny-request
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{base_url}}/oauth/requests/{{oauth_request_id}}/deny"
+  auth: inherit
+
+docs: |-
+  The consent page's Cancel. Answers with `redirect_url` carrying `error=access_denied`
+  and the app's state, and consumes the request.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

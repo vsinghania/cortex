@@ -1,0 +1,27 @@
+info:
+  name: oauth-list-grants
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: "{{base_url}}/oauth/grants"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        const grants = res.getBody()?.response?.grants ?? [];
+        if (grants.length > 0) bru.setEnvVar('grant_id', grants[0].grant_id);
+
+docs: |-
+  The Connected apps card: whether the public MCP is configured, the URL to paste into an
+  assistant, and the user's external connections (never voice's first-party grants, never
+  a token). Stores the first grant's id as `grant_id`.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
