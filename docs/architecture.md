@@ -12,24 +12,26 @@ Two long-running Node processes, one browser app, two datastores.
 
 | Process | Entry point | Port | Role |
 | --- | --- | --- | --- |
-| `web-server` | [src/web-server/server.ts](../src/web-server/server.ts) | 3000 | The API. Hosts every domain service in-process, is the OAuth authorization server for the public MCP, serves the MCP resource servers on `mcp.cortexapp.me`, and reverse-proxies voice's MCP traffic. |
+| `web-server` | [src/web-server/server.ts](../src/web-server/server.ts) | 3000 | The API. Hosts every domain service in-process, is the OAuth authorization server for the public MCP, and serves the MCP resource servers on `mcp.cortexapp.me`. |
 | notes MCP server | [src/mcp/server/notes/server.ts](../src/mcp/server/notes/server.ts) | 3010 | Exposes the user's notes as MCP tools over streamable HTTP. |
 | `web` SPA | [web/](../web/) | 5173 (dev) | React client. Talks to the API only — except during a voice call. |
 | MongoDB | — | 27017 | System of record. |
 | Qdrant | — | 6333 | Vector index for note chunks. |
 
 ```
-        Browser SPA (web/)
-              │  REST + Bearer JWT + rt cookie          ▲  WebRTC audio + tool events
-              ▼                                         │
-   ┌──────────────────────────────────┐                 │
-   │  web-server  :3000               │──── OpenAI ─────┘
-   │  /api/v1/{auth,ai,agent,notes,   │   (chat, embeddings, realtime)
-   │           voice,health}          │        │
-   │  /api/v1/mcp/notes  ── proxy ────┼────┐   │ hosted-MCP tool call
-   └───────┬──────────────────────────┘    │   │ (VOICE_MCP_PUBLIC_URL)
-           │ MCP client (agent runs)       ▼   ▼
-           └──────────────────────►  notes MCP server :3010
+        Browser SPA (web/)                         ChatGPT / Claude / MCP clients
+              │  REST + Bearer JWT + rt cookie            │ OAuth 2.1                │ Bearer cx_at_…
+              ▼                                           ▼                          ▼
+   ┌───────────────────────────── web-server :3000 ─────────────────────────────────────────┐
+   │  api.cortexapp.me                                   │  mcp.cortexapp.me                  │
+   │  /api/v1/{auth,ai,agent,notes,voice,oauth,health}   │  /notes  (later /articles, …)      │
+   │  /.well-known/oauth-authorization-server            │  /.well-known/oauth-protected-     │
+   │  /authorize /token /revoke                          │     resource/notes                 │
+   └───────┬─────────────────────────────────────────────┴──────────┬─────────────────────────┘
+           │ MCP client (agent runs,                                │ signed caller assertion
+           │ service bearer)                                        │ ◄── OpenAI Realtime (voice,
+           ▼                                                        ▼      per-user token)
+                              notes MCP server :3010 (SDK v2)
                        │                   │
                        ▼                   ▼
                  Mongo :27017         Qdrant :6333
@@ -37,9 +39,8 @@ Two long-running Node processes, one browser app, two datastores.
 
 Two structural decisions to internalize:
 
-- **The notes MCP server is a process, not a library.** The chat agent (server-to-server) and OpenAI Realtime (through the proxy) reach the same tool surface over the same protocol, so voice capture and chat recall cannot drift apart.
-- **`mcp.cortexapp.me/<server>` is the public MCP.** External assistants reach each MCP server (`/notes` today) there with a per-user access token; the gateway forwards a signed caller assertion addressed to that server, never the caller's own headers ([mcp.md §6](mcp.md#6-the-public-gateway)). The same web-server answers for `api.cortexapp.me` and `mcp.cortexapp.me`, with a host gate keeping each surface on its own host.
-- **`/api/v1/mcp/notes` exists because OpenAI must reach us.** For voice, OpenAI hosts the MCP *client*, so the server needs a public URL. The proxy is mounted **before `express.json()`** so the body stays a raw stream — reordering it silently breaks MCP.
+- **The notes MCP server is a process, not a library.** The chat agent (server-to-server), OpenAI Realtime and external assistants (through the public gateway) reach the same tool surface over the same protocol, so voice capture, chat recall and ChatGPT/Claude cannot drift apart.
+- **`mcp.cortexapp.me/<server>` is the only public door to the MCP servers.** OpenAI (for voice) and external assistants host their own MCP clients, so each server needs a public URL (`/notes` today). The gateway proves the user with a per-user OAuth token and forwards a signed caller assertion addressed to that server, never the caller's own headers ([mcp.md §5](mcp.md#5-the-public-gateway)). The same web-server answers for `api.cortexapp.me` and `mcp.cortexapp.me`, with a host gate keeping each surface on its own host. The gateway is mounted **before `express.json()`** so the body stays a raw stream — reordering it silently breaks MCP.
 
 ## 2. Layering
 
@@ -122,9 +123,9 @@ Chatting from a note (the note page) is the same flow with `context_ref: { corpu
 
 ```
 SPA ─POST /api/v1/voice/session─► VoiceSvc ─► OpenAI /v1/realtime/client_secrets
-                                              (instructions + MCP tool pinned server-side)
+                                              (instructions + MCP tool with a per-user token, pinned server-side)
      client_secret ─► browser opens WebRTC directly to OpenAI
-                      OpenAI calls the MCP tool ─► /api/v1/mcp/notes ─► notes MCP server
+                      OpenAI calls the MCP tool ─► mcp.cortexapp.me/notes ─► notes MCP server
 ```
 
 Audio never touches our servers. The browser gets a short-lived secret; the instructions and the user's identity are baked in server-side. See [voice.md](voice.md).
@@ -154,5 +155,5 @@ The rule is **degrade, don't crash**: only the database is required to boot; eve
 - **Semantic search has no REST route.** `notes_search_semantic` is MCP-only; the HTTP notes API is CRUD plus lexical search.
 - **Only REST note writes defer vectorization.** `POST /notes` and `PATCH /notes/:id` enqueue a delayed `note_vectorize` job, so an autosaving editor stays fast; MCP tools and source-keyed imports still embed inline so the agent can search what it just wrote. A body edit landing in the instant between the job's final re-read and its completion is not picked up until the note's next edit or the admin re-index sweep.
 - **Background jobs have no routing.** One undifferentiated pool, global FIFO, so a bulk sweep can occupy every worker while a cheap job waits behind it. See [jobs_svc.md](jobs_svc.md) §9.
-- **The MCP proxy does not authenticate.** It forwards whatever `Authorization` header it gets; the notes MCP server's bearer check is the only gate.
+- **The internal service bearer still means "any user".** Agent runs present it with `X-User-Id`; it is safe only while `:3010` stays on the private network and the token stays secret. External and voice traffic never uses it.
 - **`NotesSvc` and `AuthSvc` are constructed per request** while every other service is a singleton — cheap, but two conventions for one thing.

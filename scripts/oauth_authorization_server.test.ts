@@ -407,3 +407,20 @@ test('unsupported grant types are refused', async () => {
   const h = await harness();
   await rejectsWith(h.server.token({ grant_type: 'client_credentials', client_id: CLIENT_ID }), 'unsupported_grant_type');
 });
+
+test('a first-party token reaches the MCP as its user, expires on time and stays out of Settings', async () => {
+  const h = await harness();
+  const { access_token } = await h.svc.issueFirstPartyAccessToken({
+    user_id: USER_ID,
+    resource_id: 'notes',
+    client_id: 'cortex-voice',
+    client_name: 'Cortex voice',
+    ttl_sec: Time.hoursToSec(1)
+  });
+  const verified = await h.verifier.verify(access_token);
+  assert.equal(verified?.kind, 'first_party');
+  assert.equal(verified?.resource, RESOURCE);
+  assert.deepEqual(await h.svc.listGrants(USER_ID), []);
+  h.advance(Time.hoursToMs(1) + 1);
+  assert.equal(await h.verifier.verify(access_token), null);
+});

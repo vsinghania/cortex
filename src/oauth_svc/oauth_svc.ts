@@ -6,7 +6,7 @@ import { OAuthConfigLoader, type OAuthConfig } from './config/oauth_config.js';
 import { OAuthAuthorizationServer } from './oauth_authorization_server.js';
 import { OAuthRedirects } from './oauth_redirects.js';
 import { OAuthStoresLoader, type OAuthStores } from './oauth_stores.js';
-import type { OAuthSvcInterface } from './oauth_svc_interface.js';
+import type { FirstPartyTokenRequest, OAuthSvcInterface } from './oauth_svc_interface.js';
 import type {
   ApproveOAuthRequestInput,
   OAuthAccessOption,
@@ -120,6 +120,29 @@ export class OAuthSvc implements OAuthSvcInterface {
     if (!revoked) throw new NotFoundError('Connection not found');
     await this.deps.stores.tokens.deleteForGrant(input.grant_id);
     logger.info({ grant_id: input.grant_id }, 'oauth grant revoked');
+  }
+
+  async issueFirstPartyAccessToken(input: FirstPartyTokenRequest): Promise<{ access_token: string; expires_at: Date }> {
+    const now = this.now();
+    const resource = this.deps.resources.find(input.resource_id);
+    if (!resource) throw new ServiceUnavailableError(`The ${input.resource_id} MCP endpoint is not served`);
+    const grant = await this.deps.stores.grants.upsert({
+      user_id: input.user_id,
+      client_id: input.client_id,
+      client_name: input.client_name,
+      kind: 'first_party',
+      scopes: McpResourceCatalog.allScopes(resource),
+      resource: resource.url
+    });
+    const issued = await this.deps.stores.tokens.start({
+      grant,
+      scopes: grant.scopes,
+      now,
+      with_refresh: false,
+      access_ttl_sec: input.ttl_sec
+    });
+    logger.debug({ client_id: input.client_id, ttl_sec: input.ttl_sec }, 'oauth first-party token issued');
+    return { access_token: issued.access.value, expires_at: issued.access.expires_at };
   }
 
   /** Single use: approving or denying removes it, so a consent link cannot be replayed. */

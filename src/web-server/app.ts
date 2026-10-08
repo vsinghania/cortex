@@ -13,7 +13,6 @@ import { NotesController } from './notes/notes.controller.js';
 import { VoiceController } from './voice/voice.controller.js';
 import { AdminController } from './admin/admin.controller.js';
 import { OneNoteController } from './integrations/onenote.controller.js';
-import { McpProxyRouter } from './mcp/mcp_proxy_router.js';
 import { PublicMcpGateway } from './mcp/public_mcp_gateway.js';
 import { HostGate } from './mcp/host_gate.js';
 import { OAuthAccessTokenVerifier } from '../oauth_svc/oauth_access_token_verifier.js';
@@ -51,10 +50,6 @@ export class App {
       exposedHeaders: [TraceContextMiddleware.trace_id_header],
     }));
 
-    // MCP proxy routes are registered BEFORE express.json() so the request
-    // body remains a raw stream that can be piped to upstream MCP servers.
-    this.registerMcpProxyRoutes();
-
     this.app.use(express.json());
     this.app.use(cookieParser());
 
@@ -76,17 +71,6 @@ export class App {
     const trusted_hops = Number.isInteger(configured_hops) && configured_hops >= 0 ? configured_hops : 0;
     this.app.set('trust proxy', trusted_hops);
     return trusted_hops;
-  }
-
-  private registerMcpProxyRoutes() {
-    const notes_target = process.env.MCP_NOTES_INTERNAL_URL;
-    if (!notes_target) {
-      logger.warn('MCP_NOTES_INTERNAL_URL not set; /api/v1/mcp/notes proxy is disabled');
-      return;
-    }
-
-    this.app.use('/api/v1/mcp/notes', McpProxyRouter.build({ name: 'notes', target_url: notes_target }));
-    logger.info({ mounts: ['/api/v1/mcp/notes'], notes_target }, 'MCP proxy routes mounted');
   }
 
   /**
@@ -113,7 +97,8 @@ export class App {
 
   /**
    * The MCP resource servers: one gateway per enabled resource (`/notes`, later
-   * `/articles`, …) on the MCP host, each with its protected-resource metadata. They meet
+   * `/articles`, …) on the MCP host, each with its protected-resource metadata, and the
+   * only public way into the MCP servers, for external assistants and voice alike. They meet
    * the authorization server only through the token verifier. Mounted before
    * express.json() so the body stays a raw stream the proxy can pipe on; reordering it
    * silently breaks MCP.

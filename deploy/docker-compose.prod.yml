@@ -106,8 +106,9 @@ services:
       MCP_NOTES_PATH: /mcp
       MCP_NOTES_AUTH_TOKEN: ${MCP_NOTES_AUTH_TOKEN:?MCP_NOTES_AUTH_TOKEN is required}
       MCP_NOTES_INTERNAL_URL: http://mcp-notes:3010/mcp
-      # The public MCP for ChatGPT, Claude and other MCP clients: resource servers on
+      # The public MCP for ChatGPT, Claude and voice: resource servers on
       # mcp.cortexapp.me (/notes, ...), their OAuth authorization server on this API host.
+      # Voice reaches the notes through https://mcp.cortexapp.me/notes too.
       OAUTH_ISSUER_URL: https://api.cortexapp.me
       MCP_PUBLIC_BASE_URL: https://mcp.cortexapp.me
       MCP_GATEWAY_ASSERTION_SECRET: ${MCP_GATEWAY_ASSERTION_SECRET:?MCP_GATEWAY_ASSERTION_SECRET is required}
@@ -115,7 +116,6 @@ services:
       VOICE_PROVIDER: openai
       OPENAI_REALTIME_MODEL: gpt-realtime
       OPENAI_REALTIME_VOICE: alloy
-      VOICE_MCP_PUBLIC_URL: https://api.cortexapp.me/api/v1/mcp/notes
 
       # Resend over SMTP; SMTP_PASS is a sending-only API key. MAIL_FROM must stay
       # on the domain verified in Resend - any other is refused with a 5xx, which
@@ -227,7 +227,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
       OPENAI_EMBEDDING_MODEL: text-embedding-3-small
       QDRANT_URL: http://qdrant:6333
-    # Reachable only over the Docker network (web-server proxies to it) and from
+    # Reachable only over the Docker network (web-server's MCP gateway proxies to it) and from
     # the instance itself via SSM. Never publish on 0.0.0.0 — the EC2 security
     # group would then be the only thing keeping mcp-notes off the internet.
     ports:

@@ -3,6 +3,7 @@ import { AppRail } from '../components/app_rail';
 import { MobileShell } from '../components/mobile/mobile_shell';
 import { MobileBar, MobileBarButton, MobileBarTitle } from '../components/mobile/mobile_bar';
 import { OneNoteCard } from '../components/settings/onenote_card';
+import { ConnectedAppsCard } from '../components/settings/connected_apps_card';
 import { ThemeSelector } from '../components/settings/theme_selector';
 import { AppRoutes } from '../lib/app_routes';
 import { useAuth } from '../lib/use_auth';
@@ -42,7 +43,10 @@ function SettingsBody() {
 
         <section className="settings-section">
           <h2>Connections</h2>
-          <OneNoteCard />
+          <div className="settings-stack">
+            <OneNoteCard />
+            <ConnectedAppsCard />
+          </div>
         </section>
       </div>
     </main>
