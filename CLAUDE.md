@@ -10,6 +10,11 @@ Project-specific guidelines for a TypeScript-based web application with AI servi
 
 ## Coding conventions
 - Function names: camelCase
+- Use fully descriptive method/function names that state the operation and the object it acts on. Apply this to public APIs and private helpers; the call site should communicate intent without needing to inspect the implementation.
+  - Prefer `issueSessionTokens`, `consumeEmailToken`, `renewJobLease`, and `resolveCitationGroups` over vague names such as `issue`, `consume`, `heartbeat`, or `resolveGroups`.
+  - Make side effects and lookup behavior clear: distinguish `findAgent` from `requireAgent`, and name mutations after their effect, such as `revokeSessionsForUser` or `advanceDueSchedule`.
+  - Keep conventional factory/lifecycle names (`create`, `getInstance`, `start`, `stop`) and framework/SDK-required names when their contracts are already clear.
+  - Update interfaces, implementations, callers, scripts, test doubles, and documentation together when renaming.
 - Variable names: snake_case
 - Indentation: 2 spaces
 - File naming:
