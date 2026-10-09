@@ -11,6 +11,15 @@ import { NoteLinks } from './note_links.js';
 import { CortexIcons } from '../../brand/cortex_icons.js';
 
 export class NotesMcpHttpServer extends BaseMcpHttpServer {
+  public static async runHttpServer(): Promise<void> {
+    try {
+      await new NotesMcpHttpServer().start();
+    } catch (err) {
+      logger.error({ err }, 'Notes MCP server startup failed');
+      process.exit(1);
+    }
+  }
+
   protected getServerInfo(): McpServerInfo {
     return {
       name: 'cortex-notes-mcp',
@@ -82,7 +91,4 @@ export class NotesMcpHttpServer extends BaseMcpHttpServer {
   }
 }
 
-new NotesMcpHttpServer().start().catch((error: unknown) => {
-  logger.error({ err: error }, 'notes_mcp_server_start_failed');
-  process.exit(1);
-});
+await NotesMcpHttpServer.runHttpServer();

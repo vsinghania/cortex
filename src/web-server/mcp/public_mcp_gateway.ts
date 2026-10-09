@@ -4,6 +4,7 @@ import { logger } from '../../common/logger.js';
 import { RateLimitMiddleware } from '../../common/middlewares/rate_limit.js';
 import { TraceContext } from '../../common/trace_context.js';
 import { Time } from '../../lib/time.js';
+import { BearerToken } from '../../lib/bearer_token.js';
 import { McpCallerAssertion } from '../../mcp/server/mcp_caller_assertion.js';
 import type { McpGatewayCaller } from '../../mcp/server/types/mcp_server.types.js';
 import type { McpTokenVerifier, VerifiedMcpToken } from '../../mcp/resource/mcp_token_verifier.js';
@@ -77,7 +78,7 @@ export class PublicMcpGateway {
   }
 
   private async authenticateAccessToken(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
-    const token = PublicMcpGateway.parseAuthorizationHeader(req);
+    const token = BearerToken.parseAuthorizationHeader(req.headers.authorization);
     if (!token) {
       this.sendBearerTokenChallenge(res, null);
       return;
@@ -153,12 +154,5 @@ export class PublicMcpGateway {
       message: 'Too many MCP requests, please slow down.',
       keyGenerator: (_req, res) => `${resource_id}:grant:${(res.locals[LOCALS_KEY] as GatewayLocals).grant_id}`
     });
-  }
-
-  private static parseAuthorizationHeader(req: express.Request): string | null {
-    const header = req.headers.authorization;
-    if (!header) return null;
-    const [scheme, token] = header.split(' ');
-    return /^Bearer$/i.test(scheme ?? '') && token ? token : null;
   }
 }

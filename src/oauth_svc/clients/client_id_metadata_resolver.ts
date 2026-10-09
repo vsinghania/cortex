@@ -3,7 +3,7 @@ import { logger } from '../../common/logger.js';
 import { LruCache } from '../../lib/cache/lru_cache.js';
 import { SafeFetchError, SafeFetcher } from '../../lib/net/safe_fetcher.js';
 import { Time } from '../../lib/time.js';
-import { OAuthRedirectUriPolicy } from '../oauth_redirect_uri_policy.js';
+import { OAuthRedirects } from '../oauth_redirects.js';
 import { OAuthProtocolError } from '../oauth_errors.js';
 import type { OAuthClient } from '../types/oauth.types.js';
 
@@ -12,7 +12,7 @@ const DEFAULT_CACHE_TTL_MS = Time.minutesToMs(5);
 const MAX_CACHE_TTL_MS = Time.hoursToMs(24);
 const MAX_CACHED_CLIENTS = 500;
 
-/** Only what we use, validated at the boundary; unknown fields are ignored. */
+/** Known metadata fields are validated at the boundary; additional fields are ignored. */
 const MetadataDocumentSchema = z.object({
   client_id: z.string().min(1),
   client_name: z.string().trim().min(1).max(200),
@@ -95,7 +95,7 @@ export class ClientIdMetadataResolver {
     if (doc.grant_types && !doc.grant_types.includes('authorization_code')) {
       throw new OAuthProtocolError('invalid_client', 'The client does not use the authorization_code grant');
     }
-    if (doc.redirect_uris.some((uri) => !OAuthRedirectUriPolicy.isAllowedRedirectUri(uri))) {
+    if (doc.redirect_uris.some((uri) => !OAuthRedirects.isAllowedRedirectUri(uri))) {
       throw new OAuthProtocolError('invalid_client', 'The client declares a redirect_uri that is not allowed');
     }
 

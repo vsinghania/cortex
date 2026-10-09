@@ -177,7 +177,7 @@ export class NotesMcpModule extends McpModule {
       await QdrantCollectionBootstrap.ensureCollection({ name: 'note_chunks_vec', dim });
     } catch (err) {
       logger.warn(
-        { err: (err as Error)?.message },
+        { err },
         'Qdrant collection bootstrap failed in MCP server; semantic search will error until Qdrant is reachable'
       );
     }
@@ -541,12 +541,9 @@ export class NotesMcpModule extends McpModule {
   private async bootstrapMongoConnection(host: string, port: number): Promise<void> {
     try {
       await MongooseConnectionManager.getInstance({ host, port });
-      logger.info({ msg: 'Mongo base connection bootstrapped for MCP server', host, port });
-    } catch (error) {
-      logger.warn({
-        msg: 'Mongo bootstrap failed for MCP server; continuing. Tools may error.',
-        error: (error as Error)?.message
-      });
+      logger.info({ host, port }, 'Mongo base connection bootstrapped for MCP server');
+    } catch (err) {
+      logger.warn({ err }, 'Mongo bootstrap failed for MCP server; continuing. Tools may error.');
     }
   }
 

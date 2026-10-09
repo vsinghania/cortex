@@ -47,7 +47,7 @@ All of it is our own code. MCP SDK v2 ships resource-server helpers only, and v1
   - the document's `client_id` must equal its URL exactly;
   - `client_name` and `redirect_uris` are required;
   - the client must be able to act as a public client (`token_endpoint_auth_method: "none"`), and use the `authorization_code` grant. A client preferring `private_key_jwt` is accepted when its document also lists `"none"` in `token_endpoint_auth_methods_supported`, as ChatGPT's does; its `client_assertion` is not checked until `private_key_jwt` is supported;
-  - every redirect URI must pass [OAuthRedirectUriPolicy](../src/oauth_svc/oauth_redirect_uri_policy.ts).
+  - every redirect URI must pass [OAuthRedirects](../src/oauth_svc/oauth_redirects.ts).
 
   Documents are cached by `Cache-Control`, clamped to 1 minute–24 hours, and not at all for `no-store`. **There is no Dynamic Client Registration**: the 2026-07-28 spec deprecates it, so clients that only do DCR cannot connect.
 - **The resource is required.** `/authorize` must name one of the enabled resources' canonical URLs (`resource=https://mcp.cortexapp.me/notes`); a missing or unknown one goes back to the client as `invalid_target`. The MCP spec requires clients to send it, and with several resources a default would be a guess.

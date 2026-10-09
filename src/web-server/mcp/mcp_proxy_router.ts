@@ -35,8 +35,8 @@ export class McpProxyRouter {
         },
         error: (err, _req, res) => {
           logger.warn(
-            { err: err.message, mcp_name: opts.name, target_url: opts.target_url },
-            'MCP proxy upstream error'
+            { err, mcp_name: opts.name, target_url: opts.target_url },
+            'MCP proxy upstream request failed'
           );
           McpProxyRouter.sendUpstreamConnectionError(res as ServerResponse | undefined);
         },

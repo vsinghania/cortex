@@ -1,7 +1,23 @@
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+/** Schemes that run or read something locally instead of handing the code to an app. */
+const FORBIDDEN_SCHEMES = new Set(['javascript:', 'data:', 'file:', 'vbscript:', 'blob:', 'about:']);
 
 export class OAuthRedirects {
   private constructor() {}
+
+  /** Web redirects use HTTPS; native apps may use loopback HTTP or a private-use scheme. */
+  static isAllowedRedirectUri(raw: string): boolean {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      return false;
+    }
+    if (url.hash) return false;
+    if (url.protocol === 'https:') return true;
+    if (url.protocol === 'http:') return LOOPBACK_HOSTS.has(url.hostname);
+    return !FORBIDDEN_SCHEMES.has(url.protocol);
+  }
 
   /**
    * Exact match, except that a loopback redirect may use any port (RFC 8252 §7.3):

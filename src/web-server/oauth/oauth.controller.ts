@@ -1,7 +1,6 @@
 import express from 'express';
 import { z } from 'zod';
 import { RequireAuthMiddleware } from '../../common/middlewares/require_auth.js';
-import { ServiceUnavailableError } from '../../common/errors.js';
 import { validateRequest } from '../../lib/decorators/validation_decorators.js';
 import { OAuthSvc } from '../../oauth_svc/oauth_svc.js';
 import type { McpAccess } from '../../mcp/resource/mcp_resource.types.js';
@@ -38,7 +37,7 @@ export class OAuthController {
   @validateRequest({ params: RequestParamsSchema })
   private async describeAuthorizationRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const oauth_svc = await OAuthController.requireOAuthSvc();
+      const oauth_svc = await OAuthSvc.create();
       const request = await oauth_svc.describeAuthorizationRequest(String(req.params.request_id));
       res.status(200).json({ response: { request } });
     } catch (e) {
@@ -53,7 +52,7 @@ export class OAuthController {
   @validateRequest({ params: RequestParamsSchema, body: ApproveBodySchema })
   private async approveAuthorizationRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const oauth_svc = await OAuthController.requireOAuthSvc();
+      const oauth_svc = await OAuthSvc.create();
       const { access } = req.body as { access: McpAccess };
       const result = await oauth_svc.approveAuthorizationRequest({
         request_id: String(req.params.request_id),
@@ -69,7 +68,7 @@ export class OAuthController {
   @validateRequest({ params: RequestParamsSchema })
   private async denyAuthorizationRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const oauth_svc = await OAuthController.requireOAuthSvc();
+      const oauth_svc = await OAuthSvc.create();
       const result = await oauth_svc.denyAuthorizationRequest({ request_id: String(req.params.request_id), user_id: req.auth!.user_id });
       res.status(200).json({ response: result });
     } catch (e) {
@@ -95,18 +94,11 @@ export class OAuthController {
   @validateRequest({ params: GrantParamsSchema })
   private async revokeConnectedAppGrant(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const oauth_svc = await OAuthController.requireOAuthSvc();
+      const oauth_svc = await OAuthSvc.create();
       await oauth_svc.revokeConnectedAppGrant({ user_id: req.auth!.user_id, grant_id: String(req.params.grant_id) });
       res.status(204).end();
     } catch (e) {
       next(e);
     }
-  }
-
-  private static async requireOAuthSvc(): Promise<OAuthSvc> {
-    if (!OAuthSvc.isConfigured()) {
-      throw new ServiceUnavailableError('Connecting external assistants is not configured');
-    }
-    return OAuthSvc.create();
   }
 }

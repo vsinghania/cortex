@@ -3,7 +3,7 @@ import { Id } from '../lib/id.js';
 import { Time } from '../lib/time.js';
 import type { OAuthTokenRepository } from './repositories/oauth_token_repository_interface.js';
 import { OAUTH_ACCESS_TOKEN_TTL_SEC, OAuthTokenIssuer, type IssuedSecret } from './oauth_token_issuer.js';
-import type { OAuthGrant, OAuthTokenRecord, OAuthTokenResponse } from './types/oauth.types.js';
+import type { CreateOAuthTokenInput, OAuthGrant, OAuthTokenRecord, OAuthTokenResponse } from './types/oauth.types.js';
 
 export type IssuedTokens = { family_id: string; access: IssuedSecret; refresh?: IssuedSecret; scopes: string[] };
 
@@ -49,7 +49,7 @@ export class OAuthTokenFamilies {
   }
 
   /**
-   * Claims a live refresh token for rotation: of two refreshes racing on one token,
+   * Consumes a live refresh token for rotation: of two refreshes racing on one token,
    * exactly one gets it. Null for any other token, and a replay of one already rotated
    * revokes its family.
    */
@@ -94,10 +94,13 @@ export class OAuthTokenFamilies {
       scopes: input.scopes,
       resource: input.grant.resource
     };
-    await this.tokens.insertTokenRecords([
-      { ...common, type: 'access', token_hash: access.hash, expires_at: access.expires_at },
-      ...(refresh ? [{ ...common, type: 'refresh' as const, token_hash: refresh.hash, expires_at: refresh.expires_at }] : [])
-    ]);
+    const records: CreateOAuthTokenInput[] = [
+      { ...common, type: 'access', token_hash: access.hash, expires_at: access.expires_at }
+    ];
+    if (refresh) {
+      records.push({ ...common, type: 'refresh', token_hash: refresh.hash, expires_at: refresh.expires_at });
+    }
+    await this.tokens.insertTokenRecords(records);
     return { family_id: input.family_id, access, refresh, scopes: input.scopes };
   }
 
@@ -108,11 +111,15 @@ export class OAuthTokenFamilies {
   private async handleRefreshTokenReuse(input: { token_hash: string; client_id: string; now: Date }): Promise<void> {
     const token = await this.tokens.findRefreshToken(input);
     if (!token?.rotated_at || token.revoked_at) return;
-    if (input.now.getTime() - token.rotated_at.getTime() <= REFRESH_REUSE_GRACE_MS) {
+    if (OAuthTokenFamilies.isWithinRefreshTokenReuseGrace(token.rotated_at, input.now)) {
       logger.info({ client_id: input.client_id, grant_id: token.grant_id, reason: 'lost_race' }, 'oauth token refresh refused');
       return;
     }
     await this.tokens.revokeTokenFamily({ family_id: token.family_id, now: input.now });
     logger.warn({ user_id: token.user_id, client_id: input.client_id, grant_id: token.grant_id }, 'oauth refresh reuse detected');
+  }
+
+  private static isWithinRefreshTokenReuseGrace(rotated_at: Date, now: Date): boolean {
+    return now.getTime() - rotated_at.getTime() <= REFRESH_REUSE_GRACE_MS;
   }
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { OAuthRedirectUriPolicy } from '../src/oauth_svc/oauth_redirect_uri_policy.js';
+import { OAuthRedirects } from '../src/oauth_svc/oauth_redirects.js';
 
 test('allows https, loopback http and private-use schemes', () => {
   for (const uri of [
@@ -11,7 +11,7 @@ test('allows https, loopback http and private-use schemes', () => {
     'http://[::1]:9000/cb',
     'cursor://anysphere.cursor-retrieval/oauth/callback'
   ]) {
-    assert.equal(OAuthRedirectUriPolicy.isAllowedRedirectUri(uri), true, uri);
+    assert.equal(OAuthRedirects.isAllowedRedirectUri(uri), true, uri);
   }
 });
 
@@ -25,6 +25,6 @@ test('rejects plain http off loopback, script-like schemes, fragments and junk',
     'https://claude.ai/cb#frag',
     'not a url'
   ]) {
-    assert.equal(OAuthRedirectUriPolicy.isAllowedRedirectUri(uri), false, uri);
+    assert.equal(OAuthRedirects.isAllowedRedirectUri(uri), false, uri);
   }
 });

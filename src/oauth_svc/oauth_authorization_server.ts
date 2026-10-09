@@ -9,7 +9,7 @@ import { OAuthPkce } from './oauth_pkce.js';
 import { OAuthRedirects } from './oauth_redirects.js';
 import { OAuthStoresLoader, type OAuthStores } from './oauth_stores.js';
 import { OAuthTokenFamilies } from './oauth_token_families.js';
-import type { OAuthClient, OAuthTokenRecord, OAuthTokenResponse } from './types/oauth.types.js';
+import type { OAuthClient, OAuthErrorRedirectInput, OAuthTokenRecord, OAuthTokenResponse } from './types/oauth.types.js';
 
 const CONSENT_PATH = '/connect';
 
@@ -100,23 +100,19 @@ export class OAuthAuthorizationServer {
     const client = await this.deps.clients.resolveClientMetadata(params.client_id);
     const redirect_uri = OAuthAuthorizationServer.resolveRedirectUri(client, params.redirect_uri);
 
-    const issuer = OAuthAuthorizationServer.getIssuerUrl(this.deps.config);
-    const fail = (error: string, description: string) =>
-      OAuthRedirects.buildAuthorizationResponseRedirect({
-        redirect_uri,
-        issuer,
-        state: params.state,
-        params: { error, error_description: description }
-      });
-
-    if (params.response_type !== 'code') return fail('unsupported_response_type', 'Only response_type=code is supported');
+    const response = { redirect_uri, state: params.state };
+    if (params.response_type !== 'code') {
+      return this.buildAuthorizationErrorRedirect({ ...response, error: 'unsupported_response_type', description: 'Only response_type=code is supported' });
+    }
     if (params.code_challenge_method !== 'S256' || !params.code_challenge || !OAuthPkce.isValidCodeChallenge(params.code_challenge)) {
-      return fail('invalid_request', 'PKCE with code_challenge_method=S256 is required');
+      return this.buildAuthorizationErrorRedirect({ ...response, error: 'invalid_request', description: 'PKCE with code_challenge_method=S256 is required' });
     }
     // MCP clients must name the resource (RFC 8707); with several MCP servers, a missing
     // one would be a guess.
     const resource = params.resource ? this.deps.resources.findResourceByUrl(params.resource) : null;
-    if (!resource) return fail('invalid_target', 'resource must name one of this server\'s MCP endpoints');
+    if (!resource) {
+      return this.buildAuthorizationErrorRedirect({ ...response, error: 'invalid_target', description: 'resource must name one of this server\'s MCP endpoints' });
+    }
 
     const { requests } = await this.deps.stores();
     const request_id = await requests.createAuthorizationRequest({
@@ -256,5 +252,14 @@ export class OAuthAuthorizationServer {
 
   private getCurrentTime(): Date {
     return this.deps.now?.() ?? new Date();
+  }
+
+  private buildAuthorizationErrorRedirect(input: OAuthErrorRedirectInput): string {
+    return OAuthRedirects.buildAuthorizationResponseRedirect({
+      redirect_uri: input.redirect_uri,
+      issuer: OAuthAuthorizationServer.getIssuerUrl(this.deps.config),
+      state: input.state,
+      params: { error: input.error, error_description: input.description }
+    });
   }
 }

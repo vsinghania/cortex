@@ -8,6 +8,7 @@ import { logger } from '../../common/logger.js';
 import { TraceContext } from '../../common/trace_context.js';
 import { TokenUtils } from '../../auth_svc/utils/token_utils.js';
 import { Id } from '../../lib/id.js';
+import { BearerToken } from '../../lib/bearer_token.js';
 import { McpCallers } from './mcp_caller.js';
 import { McpCallerAssertion } from './mcp_caller_assertion.js';
 import type { McpModule } from './mcp_module.js';
@@ -106,7 +107,7 @@ export abstract class BaseMcpHttpServer {
    */
   private authenticateMcpCaller(req: Request): McpCaller | null {
     const cfg = this.requireHttpConfig();
-    const token = BaseMcpHttpServer.parseAuthorizationHeader(req);
+    const token = BearerToken.parseAuthorizationHeader(req.headers.authorization);
     if (!token) return null;
     if (TokenUtils.constantTimeEquals(token, cfg.auth_token)) {
       return { kind: 'internal', user_id: BaseMcpHttpServer.getSingleRequestHeader(req, 'x-user-id') };
@@ -268,13 +269,6 @@ export abstract class BaseMcpHttpServer {
     }
 
     return this.node_handler;
-  }
-
-  private static parseAuthorizationHeader(req: Request): string | null {
-    const header = req.headers.authorization;
-    if (!header) return null;
-    const [scheme, token] = header.split(' ');
-    return /^Bearer$/i.test(scheme ?? '') && token ? token : null;
   }
 
   private static getSingleRequestHeader(req: Request, name: string): string | undefined {

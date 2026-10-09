@@ -1,13 +1,10 @@
 import { z } from 'zod';
-
-/** Compose interpolates an unset `${VAR:-}` to '', which has to mean "not configured". */
-const optionalEnv = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess((value) => (value === '' ? undefined : value), schema);
+import { Env } from '../../lib/env.js';
 
 const EnvSchema = z
   .object({
-    OAUTH_ISSUER_URL: optionalEnv(z.string().url().optional()),
-    APP_PUBLIC_URL: optionalEnv(z.string().url().optional())
+    OAUTH_ISSUER_URL: Env.normalizeEmptyStringAsUndefined(z.string().url().optional()),
+    APP_PUBLIC_URL: Env.normalizeEmptyStringAsUndefined(z.string().url().optional())
   })
   .refine((env) => !env.OAUTH_ISSUER_URL || Boolean(env.APP_PUBLIC_URL), {
     message: 'APP_PUBLIC_URL is required when OAUTH_ISSUER_URL is set; the consent page lives there',
