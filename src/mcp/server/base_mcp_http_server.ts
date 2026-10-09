@@ -1,8 +1,8 @@
 import express from 'express';
 import type { Request, Response } from 'express';
-import type { Server } from 'node:http';
-import { createMcpHandler, McpServer, type AuthInfo, type McpHttpHandler, type McpRequestContext } from '@modelcontextprotocol/server';
-import { hostHeaderValidation, localhostHostValidation, toNodeHandler, type NodeIncomingMessageLike, type NodeMcpRequestHandler } from '@modelcontextprotocol/node';
+import { createServer } from 'node:http';
+import { createMcpHandler, McpServer, type AuthInfo, type McpRequestContext } from '@modelcontextprotocol/server';
+import { hostHeaderValidation, localhostHostValidation, toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotocol/node';
 import { HttpLoggerMiddleware } from '../../common/middlewares/http_logger_middleware.js';
 import { logger } from '../../common/logger.js';
 import { TraceContext } from '../../common/trace_context.js';
@@ -12,77 +12,85 @@ import { BearerToken } from '../../lib/bearer_token.js';
 import { McpCallers } from './mcp_caller.js';
 import { McpCallerAssertion } from './mcp_caller_assertion.js';
 import type { McpModule } from './mcp_module.js';
+import type { HostGuard, McpHttpRuntime } from './types/mcp_http_runtime.types.js';
 import type { McpCaller, McpHttpConfig, McpHttpServerHandle, McpServerInfo } from './types/mcp_server.types.js';
 
-type HostGuard = (req: Request, res: Response) => boolean;
-
 export abstract class BaseMcpHttpServer {
-  private app?: express.Express;
-  private http_server?: Server;
-  private http_cfg?: McpHttpConfig;
-  private server_info?: McpServerInfo;
-  private mcp_modules: McpModule[] = [];
-  private mcp_handler?: McpHttpHandler;
-  private node_handler?: NodeMcpRequestHandler;
-  private host_guard?: HostGuard;
+  private runtime?: McpHttpRuntime;
+  private stop_in_flight?: Promise<void>;
+  private readonly shutdown_process = this.shutdownServerProcess.bind(this);
 
   public async start(): Promise<McpHttpServerHandle> {
-    this.server_info = this.getServerInfo();
-    this.http_cfg = this.getHttpConfig();
-
+    if (this.runtime) throw new Error('MCP HTTP server is already started.');
+    const server_info = this.getServerInfo();
+    const http_cfg = this.getHttpConfig();
     await this.bootstrap();
-    this.mcp_modules = await this.createMcpModules();
-    this.mcp_handler = this.createHandler();
-    this.node_handler = toNodeHandler(this.mcp_handler, { onerror: this.logMcpHandlerError.bind(this) });
-    this.host_guard = BaseMcpHttpServer.createHostHeaderGuard(this.http_cfg);
-
-    this.app = express();
-    this.configureHttpMiddleware(this.app);
-    this.registerMcpRoute(this.app, this.http_cfg);
-
-    this.http_server = this.app.listen(this.http_cfg.port, this.http_cfg.host, () => {
-      logger.info({
-        name: this.server_info?.name,
-        host: this.http_cfg?.host,
-        port: this.http_cfg?.port,
-        path: this.http_cfg?.path
-      }, 'MCP HTTP server is ready.');
+    const mcp_modules = await this.createMcpModules();
+    const report_error = (err: Error) => this.logMcpHandlerError(server_info, err);
+    // Both protocol eras use this factory; legacy clients retain stateless HTTP exchanges.
+    const mcp_handler = createMcpHandler((ctx) => this.createMcpServer(server_info, mcp_modules, ctx), {
+      legacy: 'stateless',
+      onerror: report_error
     });
-
-    this.registerShutdownHandlers();
-
-    return {
-      server: this.http_server,
-      shutdown: this.stop.bind(this)
+    const app = express();
+    const runtime: McpHttpRuntime = {
+      http_server: createServer(app),
+      http_cfg,
+      server_info,
+      mcp_modules,
+      mcp_handler,
+      node_handler: toNodeHandler(mcp_handler, { onerror: report_error }),
+      host_guard: BaseMcpHttpServer.createHostHeaderGuard(http_cfg)
     };
+    this.configureHttpMiddleware(app);
+    this.registerMcpRoute(app, runtime);
+    this.runtime = runtime;
+
+    try {
+      await BaseMcpHttpServer.listenForHttpRequests(runtime);
+      process.once('SIGINT', this.shutdown_process);
+      process.once('SIGTERM', this.shutdown_process);
+    } catch (err) {
+      await this.stop();
+      throw err;
+    }
+    logger.info({ name: server_info.name, host: http_cfg.host, port: http_cfg.port, path: http_cfg.path }, 'MCP HTTP server started');
+    return { server: runtime.http_server, shutdown: this.stop.bind(this) };
   }
 
   public async stop(): Promise<void> {
+    if (this.stop_in_flight) return this.stop_in_flight;
+    if (!this.runtime) return;
+    this.stop_in_flight = this.closeHttpServerRuntime(this.runtime);
+    return this.stop_in_flight;
+  }
+
+  private async closeHttpServerRuntime(runtime: McpHttpRuntime): Promise<void> {
     try {
-      if (this.http_server) {
+      if (runtime.http_server.listening) {
         await new Promise<void>((resolve, reject) => {
-          this.http_server?.close((error) => {
-            if (error) {
-              reject(error);
-              return;
-            }
-            resolve();
-          });
+          runtime.http_server.close((err) => err ? reject(err) : resolve());
         });
       }
-
-      await this.mcp_handler?.close();
-      await this.cleanupMcpModules();
+      await runtime.mcp_handler.close();
+      for (const mcp_module of runtime.mcp_modules) await mcp_module.cleanup();
       await this.cleanup();
     } finally {
-      this.http_server = undefined;
-      this.app = undefined;
-      this.http_cfg = undefined;
-      this.server_info = undefined;
-      this.mcp_modules = [];
-      this.mcp_handler = undefined;
-      this.node_handler = undefined;
+      process.removeListener('SIGINT', this.shutdown_process);
+      process.removeListener('SIGTERM', this.shutdown_process);
+      this.runtime = undefined;
+      this.stop_in_flight = undefined;
     }
+  }
+
+  private static listenForHttpRequests(runtime: McpHttpRuntime): Promise<void> {
+    return new Promise((resolve, reject) => {
+      runtime.http_server.once('error', reject);
+      runtime.http_server.listen(runtime.http_cfg.port, runtime.http_cfg.host, () => {
+        runtime.http_server.removeListener('error', reject);
+        resolve();
+      });
+    });
   }
 
   protected abstract getServerInfo(): McpServerInfo;
@@ -105,8 +113,7 @@ export abstract class BaseMcpHttpServer {
    * bearer is an internal caller; a valid gateway assertion is an external or first-party
    * one; anything else is refused. No header's absence ever widens access.
    */
-  private authenticateMcpCaller(req: Request): McpCaller | null {
-    const cfg = this.requireHttpConfig();
+  private authenticateMcpCaller(req: Request, cfg: McpHttpConfig): McpCaller | null {
     const token = BearerToken.parseAuthorizationHeader(req.headers.authorization);
     if (!token) return null;
     if (TokenUtils.constantTimeEquals(token, cfg.auth_token)) {
@@ -114,19 +121,6 @@ export abstract class BaseMcpHttpServer {
     }
     if (!cfg.assertion_secret || !cfg.assertion_audience) return null;
     return McpCallerAssertion.verifyGatewayCallerAssertion({ secret: cfg.assertion_secret, audience: cfg.assertion_audience, token });
-  }
-
-  /**
-   * Explicit protocol policy: 2026-07-28 clients get the modern per-request exchange,
-   * and 2025-era clients (OpenAI Realtime, older connectors) are served
-   * statelessly by a fresh instance from the same factory. GET and DELETE, the 2025
-   * session operations, answer 405 because nothing is kept between requests.
-   */
-  private createHandler(): McpHttpHandler {
-    return createMcpHandler((ctx) => this.createMcpServer(ctx), {
-      legacy: 'stateless',
-      onerror: this.logMcpHandlerError.bind(this)
-    });
   }
 
   private configureHttpMiddleware(app: express.Express): void {
@@ -158,18 +152,19 @@ export abstract class BaseMcpHttpServer {
     return undefined;
   }
 
-  private registerMcpRoute(app: express.Express, cfg: McpHttpConfig): void {
-    const path = BaseMcpHttpServer.normalizeMcpRoutePath(cfg.path);
-    app.all(path, this.handleMcpHttpRequest.bind(this));
-    app.all(`${path}/`, this.handleMcpHttpRequest.bind(this));
+  private registerMcpRoute(app: express.Express, runtime: McpHttpRuntime): void {
+    const path = BaseMcpHttpServer.normalizeMcpRoutePath(runtime.http_cfg.path);
+    const handle_request = this.handleMcpHttpRequest.bind(this, runtime);
+    app.all(path, handle_request);
+    app.all(`${path}/`, handle_request);
 
-    logger.info({ path }, 'MCP HTTP route mounted.');
+    logger.info({ path }, 'MCP HTTP route mounted');
   }
 
-  private async handleMcpHttpRequest(req: Request, res: Response): Promise<void> {
-    if (this.host_guard && !this.host_guard(req, res)) return;
+  private async handleMcpHttpRequest(runtime: McpHttpRuntime, req: Request, res: Response): Promise<void> {
+    if (runtime.host_guard && !runtime.host_guard(req, res)) return;
 
-    const caller = this.authenticateMcpCaller(req);
+    const caller = this.authenticateMcpCaller(req, runtime.http_cfg);
     if (!caller) {
       res.status(401).json(BaseMcpHttpServer.buildJsonRpcErrorResponse(-32001, 'Unauthorized'));
       return;
@@ -177,9 +172,9 @@ export abstract class BaseMcpHttpServer {
     if (caller.user_id) TraceContext.setUserId(caller.user_id);
 
     try {
-      await this.requireNodeHandler()(BaseMcpHttpServer.toAuthenticatedNodeRequest(req, McpCallers.toSdkAuthInfo(caller)), res);
-    } catch (error) {
-      logger.error({ err: error }, `${this.requireServerInfo().log_name}_http_request_failed`);
+      await runtime.node_handler(BaseMcpHttpServer.toAuthenticatedNodeRequest(req, McpCallers.toSdkAuthInfo(caller)), res);
+    } catch (err) {
+      logger.error({ err, server: runtime.server_info.log_name }, 'MCP HTTP request failed');
       if (!res.headersSent) {
         res.status(500).json(BaseMcpHttpServer.buildJsonRpcErrorResponse(-32603, 'Internal server error'));
       }
@@ -201,10 +196,9 @@ export abstract class BaseMcpHttpServer {
   }
 
   /** One fresh server per request, carrying only what this caller may use. */
-  private async createMcpServer(ctx: McpRequestContext): Promise<McpServer> {
+  private async createMcpServer(server_info: McpServerInfo, mcp_modules: McpModule[], ctx: McpRequestContext): Promise<McpServer> {
     const caller = McpCallers.fromSdkAuthInfo(ctx.authInfo);
     if (!caller) throw new Error('MCP request reached the server factory without an authenticated caller.');
-    const server_info = this.requireServerInfo();
     const instructions = this.getInstructions(caller);
     const server = new McpServer(
       {
@@ -218,25 +212,14 @@ export abstract class BaseMcpHttpServer {
       instructions ? { ...server_info.options, instructions } : server_info.options
     );
 
-    for (const mcp_module of this.mcp_modules) {
+    for (const mcp_module of mcp_modules) {
       await mcp_module.registerCapabilities(server, caller);
     }
     return server;
   }
 
-  private logMcpHandlerError(error: Error): void {
-    logger.warn({ err: error }, `${this.server_info?.log_name ?? 'mcp'}_handler_error`);
-  }
-
-  private async cleanupMcpModules(): Promise<void> {
-    for (const mcp_module of this.mcp_modules) {
-      await mcp_module.cleanup();
-    }
-  }
-
-  private registerShutdownHandlers(): void {
-    process.once('SIGINT', this.shutdownServerProcess.bind(this));
-    process.once('SIGTERM', this.shutdownServerProcess.bind(this));
+  private logMcpHandlerError(server_info: McpServerInfo, err: Error): void {
+    logger.warn({ err, server: server_info.log_name }, 'MCP HTTP handler failed');
   }
 
   private async shutdownServerProcess(): Promise<void> {
@@ -245,30 +228,6 @@ export abstract class BaseMcpHttpServer {
     } finally {
       process.exit(0);
     }
-  }
-
-  private requireHttpConfig(): McpHttpConfig {
-    if (!this.http_cfg) {
-      throw new Error('MCP HTTP config has not been initialized.');
-    }
-
-    return this.http_cfg;
-  }
-
-  private requireServerInfo(): McpServerInfo {
-    if (!this.server_info) {
-      throw new Error('MCP server info has not been initialized.');
-    }
-
-    return this.server_info;
-  }
-
-  private requireNodeHandler(): NodeMcpRequestHandler {
-    if (!this.node_handler) {
-      throw new Error('MCP handler has not been initialized.');
-    }
-
-    return this.node_handler;
   }
 
   private static getSingleRequestHeader(req: Request, name: string): string | undefined {

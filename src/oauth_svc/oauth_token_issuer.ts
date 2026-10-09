@@ -1,5 +1,6 @@
 import { TokenUtils } from '../auth_svc/utils/token_utils.js';
 import { Time } from '../lib/time.js';
+import type { IssuedSecret } from './types/oauth.types.js';
 
 export const OAUTH_ACCESS_TOKEN_TTL_SEC = Time.hoursToSec(1);
 export const OAUTH_REFRESH_TOKEN_TTL_SEC = Time.daysToSec(90);
@@ -11,13 +12,6 @@ export const OAUTH_AUTHORIZATION_REQUEST_TTL_SEC = Time.minutesToSec(15);
 const ACCESS_TOKEN_PREFIX = 'cx_at_';
 const REFRESH_TOKEN_PREFIX = 'cx_rt_';
 const AUTHORIZATION_CODE_PREFIX = 'cx_ac_';
-
-export type IssuedSecret = {
-  /** The raw value: handed to the client once, never stored. */
-  value: string;
-  hash: string;
-  expires_at: Date;
-};
 
 export class OAuthTokenIssuer {
   private constructor() {}

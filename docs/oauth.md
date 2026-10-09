@@ -56,7 +56,7 @@ All of it is our own code. MCP SDK v2 ships resource-server helpers only, and v1
   - `oauth_tokens` holds every issued token, grouped into **families**: one per code exchange, meaning one per device or install. Each refresh rotates within its family.
   - Revoking the grant ends every family. With CIMD every install of an app shares one client id, so separate families are what let a user's laptop and phone stay connected at once.
 - **Each collection has one owner.** Only [OAuthAuthorizationRequests](../src/oauth_svc/oauth_authorization_requests.ts), [OAuthAuthorizationCodes](../src/oauth_svc/oauth_authorization_codes.ts), [OAuthGrants](../src/oauth_svc/oauth_grants.ts) and [OAuthTokenFamilies](../src/oauth_svc/oauth_token_families.ts) touch their repositories; the authorization server, `OAuthSvc` and the verifier go through them. Each owner keeps its collection's rules: hashing raw codes and tokens, expiry, rotation and reuse detection all live in one place. [oauth_stores.ts](../src/oauth_svc/oauth_stores.ts) hands each repository to its owner, and a layering test fails any other import.
-- **Method names spell out the operation and object.** Owners expose `createAuthorizationRequest()`, `consumeAuthorizationCode()`, `issueTokensInNewFamily()`, `issueTokensInExistingFamily()` and `findActiveAccessToken()`. `consumeRefreshTokenForRotation()` performs atomic consumption; the authorization server's `rotateRefreshToken()` performs the full exchange. `revokeTokenFamily()` accepts a family id, while `revokeTokenFamilyForToken()` resolves an access or refresh token to its family.
+- **Method names spell out the operation and object.** Owners expose `createAuthorizationRequest()`, `consumeAuthorizationCode()`, `issueTokens()` and `findActiveAccessToken()`. `consumeRefreshTokenForRotation()` performs atomic consumption; the authorization server's `rotateRefreshToken()` performs the full exchange. `revokeTokenFamily()` accepts a family id, while `revokeTokenFamilyForToken()` resolves an access or refresh token to its family.
 - **Effective scopes are the token's scopes ∩ the grant's.** A later, narrower consent narrows tokens already issued.
 - **Refresh rotation with reuse detection.** Claiming a refresh token is one conditional write, so of two racing refreshes exactly one wins.
   - Replaying a rotated token within 30 seconds is treated as a retry and refused.
@@ -73,6 +73,8 @@ All of it is our own code. MCP SDK v2 ships resource-server helpers only, and v1
 ## 4. CIMD and SSRF
 
 Accepting URL-shaped client ids means the AS fetches URLs an untrusted party chose. [SafeFetcher](../src/lib/net/safe_fetcher.ts) is the only way it does so:
+
+It enforces URL, address and response policy; [SafeFetchTransport](../src/lib/net/safe_fetch_transport.ts) handles the pinned HTTPS connection and bounded body reader. Transport tests use local HTTPS with a temporary trusted certificate and retain hostname verification.
 
 - **Allowed URLs:** https on the default port only; no credentials in the URL.
 - **Address checks:**

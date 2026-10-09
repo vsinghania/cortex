@@ -29,6 +29,10 @@ export type OAuthAuthorizationRequest = {
 
 export type CreateOAuthAuthorizationRequestInput = Omit<OAuthAuthorizationRequest, 'created_at'>;
 
+export type CreateOAuthRequestInput = Omit<CreateOAuthAuthorizationRequestInput, 'request_id' | 'expires_at'> & {
+  now: Date;
+};
+
 export type OAuthAuthorizationCode = {
   /** SHA-256 of the code. The raw value exists only in the redirect to the client. */
   code_hash: string;
@@ -48,6 +52,10 @@ export type OAuthAuthorizationCode = {
 };
 
 export type CreateOAuthAuthorizationCodeInput = Omit<OAuthAuthorizationCode, 'created_at' | 'consumed_at' | 'family_id'>;
+
+export type IssueOAuthAuthorizationCodeInput = Omit<CreateOAuthAuthorizationCodeInput, 'code_hash' | 'expires_at'> & {
+  now: Date;
+};
 
 /**
  * `external` grants are connections a user made from ChatGPT, Claude and the like, and
@@ -112,6 +120,38 @@ export type OAuthTokenRecord = {
 
 export type CreateOAuthTokenInput = Omit<OAuthTokenRecord, 'created_at' | 'rotated_at' | 'revoked_at'>;
 
+export type IssuedSecret = {
+  /** The raw value: handed to the client once, never stored. */
+  value: string;
+  hash: string;
+  expires_at: Date;
+};
+
+export type IssuedTokens = {
+  family_id: string;
+  access: IssuedSecret;
+  refresh?: IssuedSecret;
+  scopes: string[];
+};
+
+export type IssueOAuthTokensInput = {
+  grant: OAuthGrant;
+  family_id?: string;
+  scopes: string[];
+  now: Date;
+  with_refresh: boolean;
+  access_ttl_sec?: number;
+};
+
+export type FirstPartyTokenRequest = {
+  user_id: string;
+  /** Which MCP server the token is for. */
+  resource_id: McpResourceId;
+  client_id: string;
+  client_name: string;
+  ttl_sec: number;
+};
+
 /** The shape Settings shows; never carries a token or its hash. */
 export type PublicOAuthGrant = {
   grant_id: string;
@@ -162,6 +202,24 @@ export type OAuthTokenResponse = {
   expires_in: number;
   refresh_token?: string;
   scope: string;
+};
+
+/** Request parameters as they arrive (query string or form body): all optional strings. */
+export type OAuthParams = Record<string, string | undefined>;
+
+export type AuthorizationServerMetadata = {
+  issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  revocation_endpoint: string;
+  response_types_supported: string[];
+  grant_types_supported: string[];
+  code_challenge_methods_supported: string[];
+  token_endpoint_auth_methods_supported: string[];
+  revocation_endpoint_auth_methods_supported: string[];
+  scopes_supported: string[];
+  client_id_metadata_document_supported: boolean;
+  authorization_response_iss_parameter_supported: boolean;
 };
 
 export type OAuthErrorRedirectInput = {

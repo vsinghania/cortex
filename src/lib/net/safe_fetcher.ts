@@ -1,53 +1,12 @@
 import { BlockList, isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import https from 'node:https';
-import type { LookupFunction } from 'node:net';
 
-export type ResolvedAddress = { address: string; family: 4 | 6 };
+import { SafeFetchTransport } from './safe_fetch_transport.js';
+import { SafeFetchError } from './safe_fetch_error.js';
+import type { ResolvedAddress, SafeFetchTarget, SafeFetchResponse, SafeFetcherOptions } from './types/safe_fetch.types.js';
 
-export type SafeFetchTarget = {
-  hostname: string;
-  /** The vetted address the connection must go to: never re-resolved, so DNS cannot change it in between. */
-  address: ResolvedAddress;
-  path: string;
-  timeout_ms: number;
-  max_bytes: number;
-};
-
-export type SafeFetchResponse = {
-  status: number;
-  headers: Record<string, string | string[] | undefined>;
-  body: string;
-};
-
-export type SafeFetcherOptions = {
-  timeout_ms?: number;
-  max_bytes?: number;
-  resolve?: (hostname: string) => Promise<ResolvedAddress[]>;
-  send?: (target: SafeFetchTarget) => Promise<SafeFetchResponse>;
-};
-
-export class SafeFetchError extends Error {
-  constructor(
-    readonly reason:
-      | 'invalid_url'
-      | 'not_https'
-      | 'port_not_allowed'
-      | 'credentials_in_url'
-      | 'unresolvable'
-      | 'blocked_address'
-      | 'redirect_not_allowed'
-      | 'bad_status'
-      | 'not_json'
-      | 'too_large'
-      | 'timeout'
-      | 'network',
-    message: string
-  ) {
-    super(message);
-    this.name = 'SafeFetchError';
-  }
-}
+export { SafeFetchError } from './safe_fetch_error.js';
+export type { ResolvedAddress, SafeFetchTarget, SafeFetchResponse, SafeFetcherOptions } from './types/safe_fetch.types.js';
 
 /**
  * Addresses a server-side fetch must never reach: loopback, private and carrier-grade
@@ -84,7 +43,6 @@ const BLOCKED_SUBNETS: [string, number, 'ipv4' | 'ipv6'][] = [
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_BYTES = 64 * 1024;
-const USER_AGENT = 'Cortex-OAuth/1.0 (+https://cortexapp.me)';
 
 /**
  * Fetches a small JSON document from a URL an untrusted party chose - an OAuth client's
@@ -105,7 +63,7 @@ export class SafeFetcher {
     this.timeout_ms = opts.timeout_ms ?? DEFAULT_TIMEOUT_MS;
     this.max_bytes = opts.max_bytes ?? DEFAULT_MAX_BYTES;
     this.resolve = opts.resolve ?? SafeFetcher.lookupAllHostAddresses;
-    this.send = opts.send ?? SafeFetcher.fetchHttpsResponse;
+    this.send = opts.send ?? SafeFetchTransport.fetchHttpsResponse;
   }
 
   static isBlockedAddress(address: string): boolean {
@@ -181,50 +139,6 @@ export class SafeFetcher {
   private static async lookupAllHostAddresses(hostname: string): Promise<ResolvedAddress[]> {
     const records = await lookup(hostname, { all: true, verbatim: true });
     return records.map((r) => ({ address: r.address, family: r.family as 4 | 6 }));
-  }
-
-  private static fetchHttpsResponse(target: SafeFetchTarget): Promise<SafeFetchResponse> {
-    return new Promise((resolve, reject) => {
-      // Connects to the vetted address while TLS still verifies the certificate for the hostname.
-      const pinned_lookup: LookupFunction = (_hostname, options, callback) => {
-        if ((options as { all?: boolean }).all) {
-          (callback as unknown as (err: null, addresses: { address: string; family: number }[]) => void)(null, [target.address]);
-          return;
-        }
-        callback(null, target.address.address, target.address.family);
-      };
-
-      const req = https.get(
-        {
-          host: target.hostname,
-          servername: target.hostname,
-          path: target.path,
-          headers: { accept: 'application/json', 'user-agent': USER_AGENT },
-          lookup: pinned_lookup,
-          timeout: target.timeout_ms
-        },
-        (res) => {
-          const chunks: Buffer[] = [];
-          let size = 0;
-          res.on('data', (chunk: Buffer) => {
-            size += chunk.length;
-            if (size > target.max_bytes) {
-              req.destroy(new SafeFetchError('too_large', 'Response is too large'));
-              return;
-            }
-            chunks.push(chunk);
-          });
-          res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
-          res.on('error', (err) => reject(SafeFetcher.toSafeFetchError(err)));
-        }
-      );
-      req.on('timeout', () => req.destroy(new SafeFetchError('timeout', 'Request timed out')));
-      req.on('error', (err) => reject(SafeFetcher.toSafeFetchError(err)));
-    });
-  }
-
-  private static toSafeFetchError(err: unknown): SafeFetchError {
-    return err instanceof SafeFetchError ? err : new SafeFetchError('network', (err as Error)?.message ?? 'Network error');
   }
 
   private static getResponseHeader(response: SafeFetchResponse, name: string): string | undefined {

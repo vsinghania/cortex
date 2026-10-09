@@ -54,11 +54,9 @@ export class MongooseOAuthTokenRepository implements OAuthTokenRepository {
     await this.model.updateMany({ family_id: input.family_id, revoked_at: { $exists: false } }, { $set: { revoked_at: input.now } });
   }
 
-  async revokeTokenFamilyByTokenHash(input: { token_hash: string; client_id: string; now: Date }): Promise<boolean> {
-    const token = await this.model.findOne({ token_hash: input.token_hash, client_id: input.client_id }).lean();
-    if (!token) return false;
-    await this.revokeTokenFamily({ family_id: token.family_id, now: input.now });
-    return true;
+  async findTokenByHash(input: { token_hash: string; client_id: string }): Promise<OAuthTokenRecord | null> {
+    const found = await this.model.findOne({ token_hash: input.token_hash, client_id: input.client_id }).lean();
+    return found ? MongooseUtils.toDomain<OAuthTokenRecord>(found) : null;
   }
 
   async deleteTokensForGrant(grant_id: string): Promise<void> {
