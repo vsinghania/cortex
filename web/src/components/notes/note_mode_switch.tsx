@@ -1,4 +1,5 @@
 import { Icon } from '../icon';
+import { NoteEditorControls } from '../../lib/note_editor_controls';
 
 export type EditorMode = 'edit' | 'preview';
 
@@ -14,6 +15,7 @@ export function NoteModeSwitch({ mode, onChange }: { mode: EditorMode; onChange:
           className={`segmented-item${mode === value ? ' segmented-item-active' : ''}`}
           // The label is hidden on mobile, where the bar has no room for it.
           aria-label={value === 'edit' ? 'Edit' : 'Preview'}
+          title={`${value === 'edit' ? 'Edit' : 'Preview'} (${NoteEditorControls.modeToggleLabel()})`}
           onClick={() => onChange(value)}
         >
           <Icon name={value === 'edit' ? 'edit' : 'eye'} size={12} />

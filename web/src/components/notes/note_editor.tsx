@@ -13,6 +13,7 @@ import type { FilingChoice } from '../../lib/note_filing';
 import { useNowTick } from '../../lib/use_now_tick';
 import { useIsMobile } from '../../lib/use_is_mobile';
 import { NoteOutline } from '../../lib/note_outline';
+import { NoteEditorControls } from '../../lib/note_editor_controls';
 import { MarkdownPreview } from '../markdown_preview';
 import { ImportedNoteMeta } from './imported_note_meta';
 import { NoteToolbar } from './note_toolbar';
@@ -96,6 +97,8 @@ export function NoteEditor(props: Props) {
   const create_failed_ref = useRef(false);
   const title_el_ref = useRef<HTMLTextAreaElement>(null);
   const body_el_ref = useRef<HTMLTextAreaElement>(null);
+  const editor_ref = useRef<HTMLElement>(null);
+  const body_selection_ref = useRef({ start: 0, end: 0 });
   const scroll_ref = useRef<HTMLDivElement>(null);
   const autosave = useNoteAutosave({
     note_id: note?.id ?? null,
@@ -126,8 +129,21 @@ export function NoteEditor(props: Props) {
   }, []);
 
   const changeEditorMode = (next: EditorMode) => {
+    if (next === mode) return;
+    if (body_el_ref.current) {
+      body_selection_ref.current = { start: body_el_ref.current.selectionStart, end: body_el_ref.current.selectionEnd };
+    }
     set_mode(next);
     props.onModeChange(next);
+    window.requestAnimationFrame(() => {
+      if (!mounted_ref.current) return;
+      if (next === 'preview') {
+        editor_ref.current?.focus({ preventScroll: true });
+      } else if (body_el_ref.current) {
+        body_el_ref.current.focus({ preventScroll: true });
+        body_el_ref.current.setSelectionRange(body_selection_ref.current.start, body_selection_ref.current.end);
+      }
+    });
   };
 
   const refreshNoteContent = async () => {
@@ -172,6 +188,9 @@ export function NoteEditor(props: Props) {
   // A brand-new draft starts with the cursor in the title.
   useEffect(() => {
     if (!note) title_el_ref.current?.focus();
+    else if (document.activeElement === document.body || document.activeElement?.classList.contains('note-row-select')) {
+      editor_ref.current?.focus({ preventScroll: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -275,7 +294,18 @@ export function NoteEditor(props: Props) {
   }, [filing_done, dismissFiling]);
 
   return (
-    <main className="editor" aria-label="Note editor">
+    <main
+      ref={editor_ref}
+      className="editor"
+      aria-label="Note editor"
+      tabIndex={-1}
+      aria-keyshortcuts={!chunk_id && !imported ? 'Meta+Shift+E Control+Shift+E' : undefined}
+      onKeyDown={(event) => {
+        if (chunk_id || imported || refreshing || !NoteEditorControls.matchesModeToggle(event.nativeEvent)) return;
+        event.preventDefault();
+        changeEditorMode(mode === 'edit' ? 'preview' : 'edit');
+      }}
+    >
       {is_mobile ? (
         <MobileNoteBar
           note={note}
@@ -400,7 +430,15 @@ export function NoteEditor(props: Props) {
               onBlur={() => void autosave.flush()}
             />
           ) : (
-            <MarkdownPreview source={body} className="editor-preview" />
+            <div
+              title={!imported && !props.deleted ? 'Double-click to edit' : undefined}
+              onDoubleClick={(event) => {
+                if (imported || props.deleted || refreshing || NoteEditorControls.isInteractivePreviewTarget(event.target)) return;
+                changeEditorMode('edit');
+              }}
+            >
+              <MarkdownPreview source={body} className="editor-preview" />
+            </div>
           )}
         </div>
       </div>
