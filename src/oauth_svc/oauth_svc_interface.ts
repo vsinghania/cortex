@@ -1,6 +1,6 @@
-import type { McpResourceId } from '../mcp/resource/mcp_resource.types.js';
 import type {
   ApproveOAuthRequestInput,
+  FirstPartyTokenRequest,
   OAuthConsentRequestView,
   PublicMcpResource,
   PublicOAuthGrant
@@ -21,12 +21,3 @@ export interface OAuthSvcInterface {
    */
   issueFirstPartyAccessToken(input: FirstPartyTokenRequest): Promise<{ access_token: string; expires_at: Date }>;
 }
-
-export type FirstPartyTokenRequest = {
-  user_id: string;
-  /** Which MCP server the token is for. */
-  resource_id: McpResourceId;
-  client_id: string;
-  client_name: string;
-  ttl_sec: number;
-};

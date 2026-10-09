@@ -1,8 +1,6 @@
 import { OAuthTokenIssuer } from './oauth_token_issuer.js';
 import type { OAuthAuthorizationCodeRepository } from './repositories/oauth_authorization_code_repository_interface.js';
-import type { CreateOAuthAuthorizationCodeInput, OAuthAuthorizationCode } from './types/oauth.types.js';
-
-export type IssueOAuthAuthorizationCodeInput = Omit<CreateOAuthAuthorizationCodeInput, 'code_hash' | 'expires_at'> & { now: Date };
+import type { IssueOAuthAuthorizationCodeInput, OAuthAuthorizationCode } from './types/oauth.types.js';
 
 /** The only way to `oauth_authorization_codes`. Callers handle raw codes; only their hashes are stored. */
 export class OAuthAuthorizationCodes {

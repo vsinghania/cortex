@@ -12,7 +12,7 @@ export interface OAuthTokenRepository {
    */
   consumeRefreshTokenForRotation(input: { token_hash: string; client_id: string; now: Date }): Promise<OAuthTokenRecord | null>;
   revokeTokenFamily(input: { family_id: string; now: Date }): Promise<void>;
-  /** Revokes the family of whichever token (access or refresh) this is, for this client. */
-  revokeTokenFamilyByTokenHash(input: { token_hash: string; client_id: string; now: Date }): Promise<boolean>;
+  /** An access or refresh token for this client in any state, including expired or revoked. */
+  findTokenByHash(input: { token_hash: string; client_id: string }): Promise<OAuthTokenRecord | null>;
   deleteTokensForGrant(grant_id: string): Promise<void>;
 }

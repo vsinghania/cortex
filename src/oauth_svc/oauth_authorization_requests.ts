@@ -1,11 +1,7 @@
 import { Id } from '../lib/id.js';
 import { OAUTH_AUTHORIZATION_REQUEST_TTL_SEC, OAuthTokenIssuer } from './oauth_token_issuer.js';
 import type { OAuthAuthorizationRequestRepository } from './repositories/oauth_authorization_request_repository_interface.js';
-import type { CreateOAuthAuthorizationRequestInput, OAuthAuthorizationRequest } from './types/oauth.types.js';
-
-export type CreateOAuthRequestInput = Omit<CreateOAuthAuthorizationRequestInput, 'request_id' | 'expires_at'> & {
-  now: Date;
-};
+import type { CreateOAuthRequestInput, OAuthAuthorizationRequest } from './types/oauth.types.js';
 
 /** The only way to `oauth_authorization_requests`: what `/authorize` asked for, parked while the user signs in and consents. */
 export class OAuthAuthorizationRequests {

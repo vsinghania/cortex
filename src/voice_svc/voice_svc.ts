@@ -27,7 +27,6 @@ type VoiceMcpAccessTokenIssuer = (user_id: string) => Promise<string>;
 export class VoiceSvc implements VoiceSvcInterface {
 
   private static instance: VoiceSvc | null = null;
-  private static in_flight: Promise<VoiceSvc> | null = null;
 
   private readonly registry: VoiceAdapterRegistry;
   private readonly provider: VoiceProvider;
@@ -47,30 +46,23 @@ export class VoiceSvc implements VoiceSvcInterface {
   }
 
   public static async getInstance(): Promise<VoiceSvc> {
-    if (VoiceSvc.instance) return VoiceSvc.instance;
-    if (VoiceSvc.in_flight) return VoiceSvc.in_flight;
-    VoiceSvc.in_flight = VoiceSvc.loadVoiceSvcInstance();
-    return VoiceSvc.in_flight;
+    VoiceSvc.instance ??= VoiceSvc.createVoiceSvcInstance();
+    return VoiceSvc.instance;
   }
 
-  private static async loadVoiceSvcInstance(): Promise<VoiceSvc> {
-    try {
-      const inst = new VoiceSvc({
-        registry: VoiceAdapterRegistry.getInstance(),
-        provider: VoiceSvc.resolveVoiceProvider(),
-        // Overridable so a local tunnel can stand in for the public URL OpenAI must reach.
-        mcp_public_url: process.env.VOICE_MCP_PUBLIC_URL || VoiceSvc.getNotesMcpResourceUrl(),
-        issue_mcp_access_token: OAuthSvc.isConfigured() ? VoiceSvc.issueVoiceMcpAccessToken : undefined,
-      });
-      VoiceSvc.instance = inst;
-      logger.info(
-        { provider: inst.provider, mcp_attached: Boolean(inst.mcp_public_url && inst.issue_mcp_access_token) },
-        'VoiceSvc initialized'
-      );
-      return inst;
-    } finally {
-      VoiceSvc.in_flight = null;
-    }
+  private static createVoiceSvcInstance(): VoiceSvc {
+    const instance = new VoiceSvc({
+      registry: VoiceAdapterRegistry.getInstance(),
+      provider: VoiceSvc.resolveVoiceProvider(),
+      // A local tunnel can stand in for the public URL OpenAI must reach.
+      mcp_public_url: process.env.VOICE_MCP_PUBLIC_URL || VoiceSvc.getNotesMcpResourceUrl(),
+      issue_mcp_access_token: OAuthSvc.isConfigured() ? VoiceSvc.issueVoiceMcpAccessToken : undefined,
+    });
+    logger.info(
+      { provider: instance.provider, mcp_attached: Boolean(instance.mcp_public_url && instance.issue_mcp_access_token) },
+      'VoiceSvc initialized'
+    );
+    return instance;
   }
 
   @logExecTime({ threshold_in_ms: SLOW_MINT_THRESHOLD_MS })

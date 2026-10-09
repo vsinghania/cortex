@@ -24,9 +24,9 @@ export class InMemoryRequests implements OAuthAuthorizationRequestRepository {
     return this.rows.find((r) => r.request_id === input.request_id && r.expires_at > input.now) ?? null;
   }
   async consumeAuthorizationRequest(input: { request_id: string; now: Date }) {
-    const found = await this.findActiveAuthorizationRequest(input);
+    const found = this.rows.find((r) => r.request_id === input.request_id && r.expires_at > input.now);
     if (found) this.rows = this.rows.filter((r) => r !== found);
-    return found;
+    return found ?? null;
   }
 }
 
@@ -108,11 +108,8 @@ export class InMemoryTokens implements OAuthTokenRepository {
   async revokeTokenFamily(input: { family_id: string; now: Date }) {
     for (const t of this.rows) if (t.family_id === input.family_id && !t.revoked_at) t.revoked_at = input.now;
   }
-  async revokeTokenFamilyByTokenHash(input: { token_hash: string; client_id: string; now: Date }) {
-    const token = this.rows.find((t) => t.token_hash === input.token_hash && t.client_id === input.client_id);
-    if (!token) return false;
-    await this.revokeTokenFamily({ family_id: token.family_id, now: input.now });
-    return true;
+  async findTokenByHash(input: { token_hash: string; client_id: string }) {
+    return this.rows.find((t) => t.token_hash === input.token_hash && t.client_id === input.client_id) ?? null;
   }
   async deleteTokensForGrant(grant_id: string) {
     this.rows = this.rows.filter((t) => t.grant_id !== grant_id);

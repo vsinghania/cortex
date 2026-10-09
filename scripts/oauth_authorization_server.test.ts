@@ -116,7 +116,7 @@ async function harness() {
   const advance = (ms: number) => {
     clock.now = new Date(clock.now.getTime() + ms);
   };
-  return { repos, server, svc, verifier, advance };
+  return { stores, repos, server, svc, verifier, advance, now };
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>;
@@ -238,7 +238,7 @@ test('one app connected to two resources holds two grants, revoked independently
 
   const listed = await h.svc.listConnectedAppGrants(USER_ID);
   assert.deepEqual(listed.map((g) => g.resource_name).sort(), ['Articles', 'Notes']);
-  await h.svc.revokeConnectedAppGrant({ user_id: USER_ID, grant_id: listed.find((g) => g.resource_id === 'articles')!.grant_id });
+  await h.svc.revokeConnectedAppGrant({ user_id: USER_ID, grant_id: listed.find((g) => g.resource_id === ARTICLES_DEF.id)!.grant_id });
   assert.equal(await h.verifier.verifyAccessToken(articles.tokens.access_token), null);
   assert.ok(await h.verifier.verifyAccessToken(notes.tokens.access_token));
 });
@@ -318,6 +318,23 @@ test('approve redirects with code, state and iss; the token verifies as the user
   });
 });
 
+for (const second_action of ['approveAuthorizationRequest', 'denyAuthorizationRequest'] as const) {
+  test(`concurrent approveAuthorizationRequest and ${second_action} consume consent only once`, async () => {
+    const h = await harness();
+    const { url } = await startAuthorization(h);
+    const request_id = url.searchParams.get('request')!;
+    const input = { request_id, user_id: USER_ID, access: 'read' as const };
+    const results = await Promise.allSettled([h.svc.approveAuthorizationRequest(input), h.svc[second_action](input)]);
+
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    assert.ok(rejected && rejected.status === 'rejected');
+    assert.match(rejected.reason.message, /expired or was already used/);
+    await assert.rejects(h.svc.describeAuthorizationRequest(request_id), /expired or was already used/);
+    assert.equal(h.repos.codes.rows.length, 1, 'the winning approval issues only one code');
+  });
+}
+
 test('a wrong code_verifier is refused', async () => {
   const h = await harness();
   const { url } = await startAuthorization(h);
@@ -350,6 +367,24 @@ test('refresh rotates within the family; a replay moments later is refused but h
   h.advance(Time.secondsToMs(5));
   await rejectsWith(h.server.exchangeTokenGrant({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: CLIENT_ID }), 'invalid_grant');
   assert.ok(await h.verifier.verifyAccessToken(refreshed.access_token));
+});
+
+test('concurrent refreshes have one winner whose tokens remain usable', async () => {
+  const h = await harness();
+  const { tokens } = await connect(h);
+  const params = { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: CLIENT_ID };
+  const results = await Promise.allSettled([h.server.exchangeTokenGrant(params), h.server.exchangeTokenGrant(params)]);
+
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  const winner = results.find((result) => result.status === 'fulfilled');
+  const loser = results.find((result) => result.status === 'rejected');
+  assert.ok(winner && winner.status === 'fulfilled');
+  assert.ok(loser && loser.status === 'rejected');
+  assert.ok(loser.reason instanceof OAuthProtocolError);
+  assert.equal(loser.reason.code, 'invalid_grant');
+  assert.notEqual(winner.value.refresh_token, tokens.refresh_token);
+  assert.ok(await h.verifier.verifyAccessToken(winner.value.access_token));
+  assert.equal(new Set(h.repos.tokens.rows.map((token) => token.family_id)).size, 1);
 });
 
 test('a later replay revokes only that family: the same user on another device keeps working', async () => {
@@ -404,10 +439,83 @@ test('disconnecting in Settings ends every token at once, and only for the owner
   await rejectsWith(h.server.exchangeTokenGrant({ grant_type: 'refresh_token', refresh_token: phone.tokens.refresh_token, client_id: CLIENT_ID }), 'invalid_grant');
 });
 
-test('RFC 7009 revocation by the client revokes that token family', async () => {
+for (const token_type of ['access_token', 'refresh_token'] as const) {
+  test(`RFC 7009 revocation using an ${token_type} revokes only its family`, async () => {
+    const h = await harness();
+    const laptop = await connect(h);
+    const phone = await connect(h);
+    const articles = await connect(h, 'read_write', ARTICLES);
+
+    await h.server.revokeTokenFamilyForToken({ token: laptop.tokens[token_type], client_id: CLIENT_ID });
+
+    assert.equal(await h.verifier.verifyAccessToken(laptop.tokens.access_token), null);
+    await rejectsWith(
+      h.server.exchangeTokenGrant({ grant_type: 'refresh_token', refresh_token: laptop.tokens.refresh_token, client_id: CLIENT_ID }),
+      'invalid_grant'
+    );
+    assert.ok(await h.verifier.verifyAccessToken(phone.tokens.access_token));
+    assert.ok(await h.verifier.verifyAccessToken(articles.tokens.access_token));
+  });
+}
+
+test('a different client cannot revoke either token type', async () => {
   const h = await harness();
   const { tokens } = await connect(h);
-  await h.server.revokeTokenFamilyForToken({ token: tokens.refresh_token, client_id: CLIENT_ID });
+  assert.ok(tokens.refresh_token);
+
+  for (const token of [tokens.access_token, tokens.refresh_token]) {
+    assert.equal(await h.stores.tokens.revokeTokenFamilyForToken({ token, client_id: KEYED_CLIENT_ID, now: h.now() }), false);
+    assert.equal(await h.server.revokeTokenFamilyForToken({ token, client_id: KEYED_CLIENT_ID }), undefined);
+  }
+
+  assert.ok(await h.verifier.verifyAccessToken(tokens.access_token));
+  const refreshed = await h.server.exchangeTokenGrant({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: CLIENT_ID });
+  assert.ok(await h.verifier.verifyAccessToken(refreshed.access_token));
+});
+
+test('revoking an unknown token succeeds without ending existing connections', async () => {
+  const h = await harness();
+  const { tokens } = await connect(h);
+
+  assert.equal(await h.stores.tokens.revokeTokenFamilyForToken({ token: 'unknown', client_id: CLIENT_ID, now: h.now() }), false);
+  assert.equal(await h.server.revokeTokenFamilyForToken({ token: 'unknown', client_id: CLIENT_ID }), undefined);
+  assert.ok(await h.verifier.verifyAccessToken(tokens.access_token));
+});
+
+test('an expired access token still identifies its family for revocation', async () => {
+  const h = await harness();
+  const { tokens } = await connect(h);
+  h.advance(Time.hoursToMs(2));
+
+  assert.equal(await h.stores.tokens.revokeTokenFamilyForToken({ token: tokens.access_token, client_id: CLIENT_ID, now: h.now() }), true);
+  await rejectsWith(
+    h.server.exchangeTokenGrant({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: CLIENT_ID }),
+    'invalid_grant'
+  );
+});
+
+test('revoking a rotated refresh token also revokes its successors', async () => {
+  const h = await harness();
+  const { tokens } = await connect(h);
+  assert.ok(tokens.refresh_token);
+  const refreshed = await h.server.exchangeTokenGrant({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: CLIENT_ID });
+
+  assert.equal(await h.stores.tokens.revokeTokenFamilyForToken({ token: tokens.refresh_token, client_id: CLIENT_ID, now: h.now() }), true);
+  assert.equal(await h.verifier.verifyAccessToken(refreshed.access_token), null);
+  await rejectsWith(
+    h.server.exchangeTokenGrant({ grant_type: 'refresh_token', refresh_token: refreshed.refresh_token, client_id: CLIENT_ID }),
+    'invalid_grant'
+  );
+});
+
+test('repeated revocation of a known token still returns true', async () => {
+  const h = await harness();
+  const { tokens } = await connect(h);
+  const input = { token: tokens.access_token, client_id: CLIENT_ID, now: h.now() };
+
+  assert.equal(await h.stores.tokens.revokeTokenFamilyForToken(input), true);
+  assert.equal(await h.stores.tokens.revokeTokenFamilyForToken(input), true);
+  assert.equal(await h.server.revokeTokenFamilyForToken({ token: tokens.access_token, client_id: CLIENT_ID }), undefined);
   assert.equal(await h.verifier.verifyAccessToken(tokens.access_token), null);
 });
 

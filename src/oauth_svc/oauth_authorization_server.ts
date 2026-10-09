@@ -9,27 +9,16 @@ import { OAuthPkce } from './oauth_pkce.js';
 import { OAuthRedirects } from './oauth_redirects.js';
 import { OAuthStoresLoader, type OAuthStores } from './oauth_stores.js';
 import { OAuthTokenFamilies } from './oauth_token_families.js';
-import type { OAuthClient, OAuthErrorRedirectInput, OAuthTokenRecord, OAuthTokenResponse } from './types/oauth.types.js';
+import type {
+  AuthorizationServerMetadata,
+  OAuthClient,
+  OAuthErrorRedirectInput,
+  OAuthParams,
+  OAuthTokenRecord,
+  OAuthTokenResponse
+} from './types/oauth.types.js';
 
 const CONSENT_PATH = '/connect';
-
-/** Request parameters as they arrive (query string or form body): all optional strings. */
-export type OAuthParams = Record<string, string | undefined>;
-
-export type AuthorizationServerMetadata = {
-  issuer: string;
-  authorization_endpoint: string;
-  token_endpoint: string;
-  revocation_endpoint: string;
-  response_types_supported: string[];
-  grant_types_supported: string[];
-  code_challenge_methods_supported: string[];
-  token_endpoint_auth_methods_supported: string[];
-  revocation_endpoint_auth_methods_supported: string[];
-  scopes_supported: string[];
-  client_id_metadata_document_supported: boolean;
-  authorization_response_iss_parameter_supported: boolean;
-};
 
 type OAuthAuthorizationServerDeps = {
   stores: () => Promise<OAuthStores>;
@@ -181,7 +170,7 @@ export class OAuthAuthorizationServer {
     const consumed = await stores.codes.consumeAuthorizationCode({ code: params.code, client_id: client.client_id, now, family_id });
     if (!consumed) throw new OAuthProtocolError('invalid_grant', 'Authorization code was already used');
 
-    const issued = await stores.tokens.issueTokensInExistingFamily({
+    const issued = await stores.tokens.issueTokens({
       grant,
       family_id,
       scopes: code.scopes,
@@ -211,7 +200,7 @@ export class OAuthAuthorizationServer {
     const resource = this.deps.resources.findResourceByUrl(consumed.resource);
     if (!resource) throw new OAuthProtocolError('invalid_target', 'This MCP endpoint is no longer served');
 
-    const issued = await stores.tokens.issueTokensInExistingFamily({
+    const issued = await stores.tokens.issueTokens({
       grant,
       family_id: consumed.family_id,
       scopes: OAuthAuthorizationServer.resolveRefreshTokenScopes({ token: consumed, grant_scopes: grant.scopes, resource, requested: params.scope }),

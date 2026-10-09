@@ -5,7 +5,8 @@ import { RateLimitMiddleware } from '../../common/middlewares/rate_limit.js';
 import { Time } from '../../lib/time.js';
 import type { OAuthConfig } from '../../oauth_svc/config/oauth_config.js';
 import { OAuthProtocolError } from '../../oauth_svc/oauth_errors.js';
-import { OAuthAuthorizationServer, type OAuthParams } from '../../oauth_svc/oauth_authorization_server.js';
+import { OAuthAuthorizationServer } from '../../oauth_svc/oauth_authorization_server.js';
+import type { OAuthParams } from '../../oauth_svc/types/oauth.types.js';
 
 const AUTHORIZE_REQUESTS_PER_15_MIN = 100;
 const TOKEN_REQUESTS_PER_MINUTE = 60;

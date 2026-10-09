@@ -21,7 +21,7 @@ async function harness(scopes = ['notes:read', 'notes:write']) {
     scopes,
     resource: RESOURCE
   });
-  const issued = await stores.tokens.issueTokensInNewFamily({ grant, scopes, now: clock.now, with_refresh: true });
+  const issued = await stores.tokens.issueTokens({ grant, scopes, now: clock.now, with_refresh: true });
   return { stores, repos, verifier, grant, issued, clock };
 }
 

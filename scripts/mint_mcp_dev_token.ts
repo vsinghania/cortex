@@ -41,7 +41,7 @@ class MintMcpDevToken {
         scopes,
         resource: resource.url
       });
-      const issued = await stores.tokens.issueTokensInNewFamily({
+      const issued = await stores.tokens.issueTokens({
         grant,
         scopes,
         now: new Date(),

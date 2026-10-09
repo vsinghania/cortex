@@ -6,9 +6,10 @@ import { OAuthConfigLoader, type OAuthConfig } from './config/oauth_config.js';
 import { OAuthAuthorizationServer } from './oauth_authorization_server.js';
 import { OAuthRedirects } from './oauth_redirects.js';
 import { OAuthStoresLoader, type OAuthStores } from './oauth_stores.js';
-import type { FirstPartyTokenRequest, OAuthSvcInterface } from './oauth_svc_interface.js';
+import type { OAuthSvcInterface } from './oauth_svc_interface.js';
 import type {
   ApproveOAuthRequestInput,
+  FirstPartyTokenRequest,
   OAuthAccessOption,
   OAuthAuthorizationRequest,
   OAuthConsentRequestView,
@@ -134,7 +135,7 @@ export class OAuthSvc implements OAuthSvcInterface {
       scopes: McpResourceCatalog.listResourceScopes(resource),
       resource: resource.url
     });
-    const issued = await this.deps.stores.tokens.issueTokensInNewFamily({
+    const issued = await this.deps.stores.tokens.issueTokens({
       grant,
       scopes: grant.scopes,
       now,

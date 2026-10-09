@@ -11,7 +11,7 @@ MCP is how Cortex avoids writing the note surface twice — the chat agent, the 
 Two abstract classes separate "how to serve" from "what to serve":
 
 - **`BaseMcpHttpServer`** — a subclass supplies `getServerInfo()`, `getHttpConfig()` and `createMcpModules()`; it inherits body parsing, host validation, trace context, request logging, bearer auth, the streamable-HTTP transport and signal-driven shutdown.
-- **`McpModule`** — a unit of capability. `registerCapabilities()` calls the `registerTools`/`registerResources`/`registerPrompts` overrides. Always register tools through the base's `registerTool(...)` wrapper so every invocation emits a uniform `MCP tool invoked` / `MCP tool failed` line.
+- **`McpModule`** — a unit of capability. `registerCapabilities()` calls the `registerTools`/`registerResources`/`registerPrompts` overrides. Always register tools through the base's `registerTool(...)` wrapper. The SDK validates inputs and applies defaults before the handler receives schema-inferred arguments. Handlers return objects; the wrapper produces compact text and `structuredContent` and emits a uniform `MCP tool invoked` / `MCP tool failed` line.
 
 **Built on MCP TypeScript SDK v2** (`@modelcontextprotocol/server` + `@modelcontextprotocol/node`). `createMcpHandler` with an explicit **`legacy: 'stateless'`** policy serves 2026-07-28 clients the modern per-request exchange and 2025-era clients statelessly from the same factory, so neither generation is locked out. GET and DELETE, the 2025 session operations, answer 405. The `@openai/agents` client behind chat negotiates the modern protocol; OpenAI Realtime behind voice and older connectors may not. The v2 *client* only tries the modern protocol when asked (`versionNegotiation: { mode: 'auto' }`).
 
@@ -30,6 +30,8 @@ This is the part worth reading twice. The notes server decides who is calling fr
 ## 3. The notes server
 
 [src/mcp/server/notes/](../src/mcp/server/notes/) — its own process (`npm run mcp:notes:dev`), with its own Mongo connection and Qdrant bootstrap. It shares databases with the web server, not memory.
+
+[NotesMcpModule.create()](../src/mcp/server/notes/notes_mcp_module.ts) initializes its services before construction. Tests inject services through `fromServices()` and exercise validation through an in-memory SDK connection. Input and output schemas live in [notes_mcp_schemas.ts](../src/mcp/server/notes/notes_mcp_schemas.ts).
 
 Tools, all backed by `NotesSvc` / `NoteFoldersSvc` and all user-scoped: `notes_list`, `notes_tags`, `notes_get`, `notes_create`, `notes_update`, `notes_delete`, `notes_search` (lexical), `notes_search_semantic` (vector; returns ranked chunks whose `chunk_id` is what [citations](citation_svc.md) reference), `notes_folders` (flat `{id, path, note_count}` rows), `notes_folder_create` (idempotent, by slash path) and `notes_bulk_update` (move, archive, pin, tags on up to 100 notes).
 
