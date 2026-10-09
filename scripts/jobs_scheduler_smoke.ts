@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   // reaching for conn.model().
   // upsertSchedule refuses a job name no handler is registered for, so a schedule
   // can never be created that spawns work nothing can run. Register a stub.
-  JobHandlerRegistry.getInstance().register({
+  JobHandlerRegistry.getInstance().registerHandler({
     name: 'smoke_scheduled',
     parsePayload: (raw: any) => raw,
     handle: async () => ({ outcome: 'succeeded' as const })
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
       enabled: true
     } as any);
 
-    const after = await repo.getById('smoke-schedule');
+    const after = await repo.getScheduleById('smoke-schedule');
     assert.equal(after!.enabled, false, 'a re-registration must not silently re-enable');
   });
 
@@ -100,27 +100,27 @@ async function main(): Promise<void> {
     const s = await seed();
     const due_at = new Date(s.next_run_at.getTime() + 1000);
 
-    assert.equal(await scheduler.tick(due_at), 1);
+    assert.equal(await scheduler.enqueueDueSchedules(due_at), 1);
     const jobs = await conn.collection('jobs').find({}).toArray();
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].name, 'smoke_scheduled');
     assert.equal(jobs[0].schedule_id, 'smoke-schedule', 'the job must point back at its schedule');
 
-    const after = await repo.getById('smoke-schedule');
+    const after = await repo.getScheduleById('smoke-schedule');
     assert.ok(after!.next_run_at > due_at, 'next_run_at must have advanced');
     assert.equal(after!.last_job_id, jobs[0].id, 'last_job_id must record the run');
   });
 
   await check('a schedule that is not yet due fires nothing', async () => {
     const s = await seed();
-    assert.equal(await scheduler.tick(new Date(s.next_run_at.getTime() - 1000)), 0);
+    assert.equal(await scheduler.enqueueDueSchedules(new Date(s.next_run_at.getTime() - 1000)), 0);
     assert.equal(await conn.collection('jobs').countDocuments({}), 0);
   });
 
   await check('a disabled schedule fires nothing', async () => {
     const s = await seed();
     await scheduler.setScheduleEnabled({ id: 'smoke-schedule', enabled: false });
-    assert.equal(await scheduler.tick(new Date(s.next_run_at.getTime() + 1000)), 0);
+    assert.equal(await scheduler.enqueueDueSchedules(new Date(s.next_run_at.getTime() + 1000)), 0);
   });
 
   await check('re-enabling does not fire the whole backlog at once', async () => {
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     const due_at = new Date(s.next_run_at.getTime() + 1000);
     const other = await JobScheduler.create();
 
-    const [a, b] = await Promise.all([scheduler.tick(due_at), other.tick(due_at)]);
+    const [a, b] = await Promise.all([scheduler.enqueueDueSchedules(due_at), other.enqueueDueSchedules(due_at)]);
     assert.equal(a + b, 1, `expected exactly one spawn across both ticks, got ${a + b}`);
     assert.equal(await conn.collection('jobs').countDocuments({}), 1);
   });
@@ -145,16 +145,16 @@ async function main(): Promise<void> {
     const s = await seed({ dedup_key: 'smoke_scheduled' });
     const due_at = new Date(s.next_run_at.getTime() + 1000);
 
-    assert.equal(await scheduler.tick(due_at), 1, 'first window fires');
+    assert.equal(await scheduler.enqueueDueSchedules(due_at), 1, 'first window fires');
 
     // The previous run is still active, so the next window collides on
     // uniq_job_dedup_active and is skipped.
-    const later = await repo.getById('smoke-schedule');
+    const later = await repo.getScheduleById('smoke-schedule');
     const next_due = new Date(later!.next_run_at.getTime() + 1000);
-    assert.equal(await scheduler.tick(next_due), 0, 'overrunning window must be skipped');
+    assert.equal(await scheduler.enqueueDueSchedules(next_due), 0, 'overrunning window must be skipped');
     assert.equal(await conn.collection('jobs').countDocuments({}), 1);
 
-    const final = await repo.getById('smoke-schedule');
+    const final = await repo.getScheduleById('smoke-schedule');
     assert.ok(final!.next_run_at > next_due, 'next_run_at must still advance past a skipped window');
   });
 
@@ -165,27 +165,27 @@ async function main(): Promise<void> {
 
     // First tick inserts the job, then "crashes" before advancing: simulate by
     // rewinding next_run_at to what it was.
-    assert.equal(await scheduler.tick(due_at), 1);
+    assert.equal(await scheduler.enqueueDueSchedules(due_at), 1);
     await conn.collection('job_schedules').updateOne(
       { id: 'smoke-schedule' },
       { $set: { next_run_at: sched.next_run_at } }
     );
 
     // The retry re-inserts the same window, collides, and advances anyway.
-    await scheduler.tick(due_at);
+    await scheduler.enqueueDueSchedules(due_at);
     assert.equal(
       await conn.collection('jobs').countDocuments({}),
       1,
       'the retry must not create a second job for the same window'
     );
 
-    const after = await repo.getById('smoke-schedule');
+    const after = await repo.getScheduleById('smoke-schedule');
     assert.ok(after!.next_run_at > due_at, 'the retry must still advance past the window');
   });
 
   await check('the job records which window it is', async () => {
     const sched = await seed();
-    await scheduler.tick(new Date(sched.next_run_at.getTime() + 1000));
+    await scheduler.enqueueDueSchedules(new Date(sched.next_run_at.getTime() + 1000));
 
     const job = await conn.collection('jobs').findOne({});
     assert.deepEqual(job!.scheduled_for, sched.next_run_at, 'scheduled_for must freeze the window');
@@ -195,7 +195,7 @@ async function main(): Promise<void> {
   console.log('\ndeadlines');
   await check('no max_delay_ms leaves the job with no deadline', async () => {
     const sched = await seed();
-    await scheduler.tick(new Date(sched.next_run_at.getTime() + 1000));
+    await scheduler.enqueueDueSchedules(new Date(sched.next_run_at.getTime() + 1000));
 
     const job = await conn.collection('jobs').findOne({});
     assert.equal(job!.deadline_at, undefined, 'housekeeping should run whenever');
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
     const sched = await seed({ max_delay_ms: Time.minutesToMs(30) });
     // Fire late on purpose: the deadline must still be window + 30m, not now + 30m.
     const late = new Date(sched.next_run_at.getTime() + Time.hoursToMs(2));
-    await scheduler.tick(late);
+    await scheduler.enqueueDueSchedules(late);
 
     const job = await conn.collection('jobs').findOne({});
     assert.deepEqual(

@@ -40,7 +40,7 @@ export interface ConversationRepositoryInterface {
   setTitleIfUnset(conversation_id: string, title: string): Promise<boolean>;
 
   /** Leaves `updated_at` alone, since the conversation list is ordered by it. */
-  updateForUser(params: {
+  updateConversationForUser(params: {
     conversation_id: string;
     user_id: string;
     patch: ConversationPatch;
@@ -50,7 +50,7 @@ export interface ConversationRepositoryInterface {
 
   listMessages(conversation_id: string): Promise<ConversationMessage[]>;
 
-  nextTurn(conversation_id: string): Promise<number>;
+  allocateNextTurnNumber(conversation_id: string): Promise<number>;
 
   /** Snapshots the conversation and its messages to trash, then deletes them. */
   deleteConversation(conversation_id: string): Promise<{ message_count: number }>;

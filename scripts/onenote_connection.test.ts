@@ -36,7 +36,7 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
     return this.rows.find((row) => row.user_id === user_id) ?? null;
   }
 
-  async upsert(input: CreateOneNoteConnectionInput) {
+  async upsertConnection(input: CreateOneNoteConnectionInput) {
     const existing = await this.findByUserId(input.user_id);
     const row: OneNoteConnection = {
       id: existing?.id ?? 'connection-1',
@@ -116,7 +116,7 @@ class InMemoryConnectionRepo implements OneNoteConnectionRepository {
     return row;
   }
 
-  async listSyncable() {
+  async listSyncableConnections() {
     return this.rows.filter((r) => r.selected_notebook_ids.length > 0);
   }
 
@@ -157,7 +157,7 @@ class FakeMicrosoft implements MicrosoftOAuthAdapterInterface {
     return { url: `https://login.microsoftonline.test/authorize?state=${params.state}`, code_verifier: 'verifier-1' };
   }
 
-  async exchangeCode(params: { code: string; code_verifier: string }): Promise<MicrosoftSession> {
+  async exchangeAuthorizationCode(params: { code: string; code_verifier: string }): Promise<MicrosoftSession> {
     this.exchanged_with = params;
     return {
       access_token: 'access-1',
@@ -390,7 +390,7 @@ test('refreshing the list keeps each notebook where its sync had got to', async 
   await svc.listNotebooks(USER_ID);
 
   const watermark = new Date('2026-09-10T12:00:00Z');
-  await svc.recordNotebookSynced({ user_id: USER_ID, notebook_id: 'nb-1', sync_watermark: watermark, last_synced_at: new Date() });
+  await svc.recordNotebookSyncCompleted({ user_id: USER_ID, notebook_id: 'nb-1', sync_watermark: watermark, last_synced_at: new Date() });
 
   await svc.listNotebooks(USER_ID, { refresh: true });
 
@@ -416,15 +416,15 @@ test('a failure is recorded against the notebook, and a later success clears it'
   await svc.selectNotebooks({ user_id: USER_ID, notebook_ids: ['nb-1'] });
   await svc.listNotebooks(USER_ID);
 
-  await svc.recordNotebookFailed({ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' });
-  await svc.recordNotebookFailed({ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' });
+  await svc.recordNotebookSyncFailure({ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' });
+  await svc.recordNotebookSyncFailure({ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' });
 
   let nb1 = connection_repo.rows[0].notebooks.find((n) => n.id === 'nb-1');
   assert.equal(nb1?.last_error, 'reauth_required');
   assert.equal(nb1?.consecutive_failures, 2, 'a streak is what tells a new problem from an old one');
   assert.ok(nb1?.last_error_at);
 
-  await svc.recordNotebookSynced({ user_id: USER_ID, notebook_id: 'nb-1', last_synced_at: new Date() });
+  await svc.recordNotebookSyncCompleted({ user_id: USER_ID, notebook_id: 'nb-1', last_synced_at: new Date() });
 
   nb1 = connection_repo.rows[0].notebooks.find((n) => n.id === 'nb-1');
   assert.equal(nb1?.last_error, undefined, 'a success clears the error');

@@ -24,13 +24,13 @@ export class AgentRegistry {
     if (AgentRegistry.instance) return AgentRegistry.instance;
     if (AgentRegistry.in_flight) return AgentRegistry.in_flight;
 
-    AgentRegistry.in_flight = AgentRegistry.loadInstance();
+    AgentRegistry.in_flight = AgentRegistry.loadAgentRegistryInstance();
     return AgentRegistry.in_flight;
   }
 
-  private static async loadInstance(): Promise<AgentRegistry> {
+  private static async loadAgentRegistryInstance(): Promise<AgentRegistry> {
     try {
-      const inst = await AgentRegistry.bootstrap();
+      const inst = await AgentRegistry.bootstrapAgentRegistry();
       AgentRegistry.instance = inst;
       return inst;
     } finally {
@@ -42,14 +42,14 @@ export class AgentRegistry {
     return AgentRegistry.instance;
   }
 
-  private static async bootstrap(): Promise<AgentRegistry> {
+  private static async bootstrapAgentRegistry(): Promise<AgentRegistry> {
     logger.info('AgentRegistry bootstrap started');
     // Eagerly initialize the registries so the first refresh() call below
     // sees them ready (McpServerRegistry.getInstance() is async).
     ToolRegistry.getInstance();
     await McpServerRegistry.getInstance();
     const registry = new AgentRegistry();
-    await registry.refresh();
+    await registry.refreshAgents();
     registry.startPeriodicRefresh();
     logger.info({ agent_count: registry.agents.size }, 'AgentRegistry bootstrap complete');
     return registry;
@@ -79,8 +79,8 @@ export class AgentRegistry {
   // connections that McpServerRegistry closes moments later.
   private async refreshWithMcpServers(): Promise<void> {
     const mcp_server_registry = await McpServerRegistry.getInstance();
-    await mcp_server_registry.refresh();
-    await this.refresh();
+    await mcp_server_registry.refreshMcpServers();
+    await this.refreshAgents();
   }
 
   /**
@@ -89,7 +89,7 @@ export class AgentRegistry {
    *   2) Wire sub-agent pointers (tool_agents, handoff_agents).
    *   3) Compile each agent (adapters perform vendor-side setup).
    */
-  async refresh(): Promise<void> {
+  async refreshAgents(): Promise<void> {
     const repo = await MongooseAgentRepository.create();
     const manifests = await repo.listEnabled();
     const tool_registry = ToolRegistry.getInstance();
@@ -100,8 +100,8 @@ export class AgentRegistry {
     for (const manifest of manifests) {
       try {
         const tools = tool_registry.resolveAll(manifest.tool_names);
-        const mcp_servers = mcp_server_registry.resolveAll(manifest.mcp_server_ids);
-        const agent = AgentFactory.forManifest({ manifest, tools, mcp_servers });
+        const mcp_servers = mcp_server_registry.resolveMcpServerHandles(manifest.mcp_server_ids);
+        const agent = AgentFactory.createAgentFromManifest({ manifest, tools, mcp_servers });
         next.set(manifest.agent_id, agent);
         logger.debug(
           {
@@ -148,7 +148,7 @@ export class AgentRegistry {
     logger.info({ count: this.agents.size }, 'AgentRegistry loaded');
   }
 
-  resolve(agent_id: string): BaseAgent {
+  requireAgent(agent_id: string): BaseAgent {
     const agent = this.agents.get(agent_id);
     if (!agent) {
       throw new NotFoundError(`Agent not found or not enabled: ${agent_id}`);
@@ -156,11 +156,11 @@ export class AgentRegistry {
     return agent;
   }
 
-  tryResolve(agent_id: string): BaseAgent | undefined {
+  findAgent(agent_id: string): BaseAgent | undefined {
     return this.agents.get(agent_id);
   }
 
-  list(): BaseAgent[] {
+  listAgents(): BaseAgent[] {
     return Array.from(this.agents.values());
   }
 

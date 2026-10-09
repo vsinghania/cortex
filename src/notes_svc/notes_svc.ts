@@ -111,7 +111,7 @@ export class NotesSvc {
 
   private vectorization_svc?: NotesVectorizationSvc;
   private chunk_repo?: NoteChunkRepository;
-  private jobs_svc?: Pick<JobsSvcInterface, 'enqueue'>;
+  private jobs_svc?: Pick<JobsSvcInterface, 'enqueueJob'>;
 
   private constructor(
     private readonly notes_repo: NoteRepository,
@@ -157,11 +157,11 @@ export class NotesSvc {
     if (input.folder_id) await this.requireFolder(input.user_id, input.folder_id);
     // Both branches, not just the native one: a deferred source-keyed write enqueues a
     // vectorize job too, so without this a synced note reads as un-indexed until it runs.
-    const pending = NotesSvc.withPendingVectorization(input, indexing);
+    const pending = NotesSvc.markPendingVectorization(input, indexing);
     const note = NotesSvc.isSourceKeyedInput(pending)
-      ? await this.upsertSourceKeyed(pending)
-      : await this.createNative(pending);
-    await this.indexSafely(note, indexing);
+      ? await this.upsertNoteBySourceKey(pending)
+      : await this.createNativeNote(pending);
+    await this.indexNoteSafely(note, indexing);
     logger.info(
       {
         note_id: note.id,
@@ -184,9 +184,9 @@ export class NotesSvc {
     const start_ms = performance.now();
     const indexing = opts.indexing ?? 'inline';
     if (patch.folder_id) await this.requireFolder(user_id, patch.folder_id);
-    const touches_body = NotePatchKind.touchesBody(patch);
-    const stored_patch = NotesSvc.withEditedAt(
-      touches_body ? NotesSvc.withPendingVectorization(patch, indexing) : patch
+    const touches_body = NotePatchKind.changesNoteBody(patch);
+    const stored_patch = NotesSvc.applyEditedAt(
+      touches_body ? NotesSvc.markPendingVectorization(patch, indexing) : patch
     );
     const updated = 'id' in locator
       ? await this.notes_repo.updateNoteById({ user_id, id: locator.id, patch: stored_patch })
@@ -198,9 +198,9 @@ export class NotesSvc {
         });
     const revectorized = !!updated && touches_body;
     if (updated && revectorized) {
-      await this.indexSafely(updated, indexing);
+      await this.indexNoteSafely(updated, indexing);
     }
-    if (updated && NotePatchKind.touchesArchive(patch)) {
+    if (updated && NotePatchKind.changesArchiveState(patch)) {
       await this.setArchivedSafely({ user_id, note_ids: [updated.id], is_archived: updated.is_archived });
     }
     if (updated) {
@@ -254,7 +254,7 @@ export class NotesSvc {
    */
   async deleteNotes(params: { user_id: string; ids: string[] }): Promise<number> {
     let deleted_count = 0;
-    for (const batch of NotesSvc.toBatches(params.ids, DELETE_BATCH_SIZE)) {
+    for (const batch of NotesSvc.splitIntoBatches(params.ids, DELETE_BATCH_SIZE)) {
       const deleted_ids = await this.notes_repo.deleteNotesByIds({ user_id: params.user_id, ids: batch });
       await this.removeVectorsForNotesSafely(params.user_id, deleted_ids);
       deleted_count += deleted_ids.length;
@@ -291,14 +291,14 @@ export class NotesSvc {
   }
 
   /** Suggests a folder and tags (and a title, when missing) for note content, without saving anything. */
-  async suggestFiling(params: { user_id: string; title?: string; body: string }): Promise<NoteFilingSuggestion> {
+  async suggestNoteFiling(params: { user_id: string; title?: string; body: string }): Promise<NoteFilingSuggestion> {
     const start_ms = performance.now();
     const [folders, counts, tags] = await Promise.all([
       this.folder_repo.listFolders({ user_id: params.user_id }),
       this.notes_repo.countNotesByFolder({ user_id: params.user_id }),
       this.notes_repo.listTags({ user_id: params.user_id, limit: NoteFilingSuggester.MAX_EXISTING_TAGS })
     ]);
-    const { suggestion, model } = await NoteFilingSuggester.suggest({
+    const { suggestion, model } = await NoteFilingSuggester.suggestNoteFiling({
       title: params.title,
       body: params.body,
       folders: NoteFolderTree.buildNodes(folders, counts),
@@ -360,7 +360,7 @@ export class NotesSvc {
 
   async getChunksByIds(params: { user_id: string; ids: string[] }): Promise<NoteChunk[]> {
     if (params.ids.length === 0) return [];
-    const repo = await this.chunkRepo();
+    const repo = await this.getChunkRepository();
     return repo.getChunksByIds(params);
   }
 
@@ -375,7 +375,7 @@ export class NotesSvc {
   }
 
   async revectorizeNote(params: { user_id: string; note_id: string }): Promise<NoteVectorization | null> {
-    const svc = await this.vectorizationSvc();
+    const svc = await this.getVectorizationSvc();
     return svc.revectorizeNote(params);
   }
 
@@ -391,9 +391,9 @@ export class NotesSvc {
     const { matched, modified } = await this.notes_repo.bulkUpdateNotes({
       user_id,
       ids,
-      update: NoteBulkActionMapper.toRepoUpdate(action)
+      update: NoteBulkActionMapper.toRepositoryBulkUpdate(action)
     });
-    const archived_state = NoteBulkActionMapper.archivedStateAfter(action);
+    const archived_state = NoteBulkActionMapper.getArchiveStateAfterAction(action);
     if (archived_state !== undefined) {
       await this.setArchivedSafely({ user_id, note_ids: ids, is_archived: archived_state });
     }
@@ -420,7 +420,7 @@ export class NotesSvc {
 
   private async setArchivedSafely(params: { user_id: string; note_ids: string[]; is_archived: boolean }): Promise<void> {
     try {
-      const svc = await this.vectorizationSvc();
+      const svc = await this.getVectorizationSvc();
       await svc.setArchived(params);
     } catch (err) {
       logger.warn({ err, note_count: params.note_ids.length }, 'note archive vector sync failed');
@@ -429,14 +429,14 @@ export class NotesSvc {
 
   private async removeVectorsForNotesSafely(user_id: string, note_ids: string[]): Promise<void> {
     try {
-      const svc = await this.vectorizationSvc();
+      const svc = await this.getVectorizationSvc();
       await svc.removeVectorsForNotes({ user_id, note_ids });
     } catch (err) {
       logger.warn({ err, note_count: note_ids.length }, 'bulk note vector cleanup failed');
     }
   }
 
-  private static toBatches<T>(items: T[], size: number): T[][] {
+  private static splitIntoBatches<T>(items: T[], size: number): T[][] {
     const batches: T[][] = [];
     for (let i = 0; i < items.length; i += size) {
       batches.push(items.slice(i, i + size));
@@ -445,27 +445,27 @@ export class NotesSvc {
   }
 
   /** Marks the write as awaiting its deferred embed, so clients can show it is still indexing. */
-  private static withPendingVectorization<T extends { vectorization?: NoteVectorization }>(
+  private static markPendingVectorization<T extends { vectorization?: NoteVectorization }>(
     fields: T,
     indexing: NoteIndexing
   ): T {
     return indexing === 'deferred' ? { ...fields, vectorization: { status: 'pending' } } : fields;
   }
 
-  private async indexSafely(note: Note, indexing: NoteIndexing): Promise<void> {
-    if (indexing === 'deferred' && (await this.enqueueVectorize(note))) return;
+  private async indexNoteSafely(note: Note, indexing: NoteIndexing): Promise<void> {
+    if (indexing === 'deferred' && (await this.enqueueNoteVectorization(note))) return;
     await this.vectorizeSafely(note);
   }
 
   /** Returns false only when the job could not be queued, so the caller falls back to inline. */
-  private async enqueueVectorize(note: Note): Promise<boolean> {
+  private async enqueueNoteVectorization(note: Note): Promise<boolean> {
     try {
-      const jobs = await this.jobsSvc();
-      await jobs.enqueue({
+      const jobs = await this.getJobsSvc();
+      await jobs.enqueueJob({
         name: NotesJobName.NoteVectorize,
         payload: { user_id: note.user_id, note_id: note.id },
         user_id: note.user_id,
-        dedup_key: JobDedupKey.build(['note', note.id]),
+        dedup_key: JobDedupKey.buildDedupKey(['note', note.id]),
         delay_ms: Time.secondsToMs(NOTE_VECTORIZE_DELAY_SEC),
         requested_by: note.user_id
       });
@@ -479,7 +479,7 @@ export class NotesSvc {
     }
   }
 
-  private async jobsSvc(): Promise<Pick<JobsSvcInterface, 'enqueue'>> {
+  private async getJobsSvc(): Promise<Pick<JobsSvcInterface, 'enqueueJob'>> {
     if (!this.jobs_svc) {
       this.jobs_svc = await JobsSvc.getInstance();
     }
@@ -488,7 +488,7 @@ export class NotesSvc {
 
   private async vectorizeSafely(note: Note): Promise<void> {
     try {
-      const svc = await this.vectorizationSvc();
+      const svc = await this.getVectorizationSvc();
       await svc.vectorizeNote(note);
     } catch (err) {
       logger.warn({ err, note_id: note.id }, 'note vectorization failed');
@@ -497,21 +497,21 @@ export class NotesSvc {
 
   private async removeVectorsSafely(user_id: string, note_id: string): Promise<void> {
     try {
-      const svc = await this.vectorizationSvc();
+      const svc = await this.getVectorizationSvc();
       await svc.removeNoteVectors({ user_id, note_id });
     } catch (err) {
       logger.warn({ err, note_id }, 'note vector cleanup failed');
     }
   }
 
-  private async chunkRepo(): Promise<NoteChunkRepository> {
+  private async getChunkRepository(): Promise<NoteChunkRepository> {
     if (!this.chunk_repo) {
       this.chunk_repo = await MongooseNoteChunkRepository.create({ db: DbNameResolver.resolve('notes') });
     }
     return this.chunk_repo;
   }
 
-  private async vectorizationSvc(): Promise<NotesVectorizationSvc> {
+  private async getVectorizationSvc(): Promise<NotesVectorizationSvc> {
     if (!this.vectorization_svc) {
       this.vectorization_svc = await NotesVectorizationSvc.create();
     }
@@ -536,7 +536,7 @@ export class NotesSvc {
    * otherwise only a change to the content counts as an edit — stamping `last_synced_at`
    * must not make a note look freshly written.
    */
-  private static withEditedAt(patch: NotePatch): NotePatch {
+  private static applyEditedAt(patch: NotePatch): NotePatch {
     if (patch.provider_updated_at) return { ...patch, edited_at: patch.provider_updated_at };
     if (patch.title === undefined && patch.body === undefined) return patch;
     return { ...patch, edited_at: new Date() };
@@ -546,7 +546,7 @@ export class NotesSvc {
     return !!input.source && input.source !== NoteSource.Native && !!input.external_id;
   }
 
-  private async upsertSourceKeyed(
+  private async upsertNoteBySourceKey(
     input: NoteCreateInput & { source: NoteSource; external_id: string }
   ): Promise<Note> {
     const existing = await this.notes_repo.getNoteByKey({
@@ -623,7 +623,7 @@ export class NotesSvc {
     return this.notes_repo.createNote(note);
   }
 
-  private async createNative(input: NoteCreateInput): Promise<Note> {
+  private async createNativeNote(input: NoteCreateInput): Promise<Note> {
     const now = new Date();
     const note: Note = {
       id: Id.generateUuidV7(),

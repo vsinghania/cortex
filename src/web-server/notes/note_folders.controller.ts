@@ -47,7 +47,7 @@ export class NoteFoldersController {
     try {
       const user_id = req.auth!.user_id;
       const folders_svc = await NoteFoldersSvc.create();
-      const folders = await folders_svc.listTree({ user_id });
+      const folders = await folders_svc.listFolderTree({ user_id });
       res.status(200).json({ response: { folders } });
     } catch (e) {
       next(e);

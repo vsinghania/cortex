@@ -21,7 +21,7 @@ export class SessionIssuer {
     return rest;
   }
 
-  async issue(user: User, ctx?: AuthContext): Promise<AuthResult> {
+  async issueSessionTokens(user: User, ctx?: AuthContext): Promise<AuthResult> {
     const { token: access_token } = TokenUtils.signAccessToken({ user_id: user.user_id, roles: user.roles });
     const { token: refresh_token, token_hash, expires_at } = TokenUtils.issueRefreshToken();
     await this.rt_repo.createSession({

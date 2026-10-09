@@ -13,13 +13,13 @@ export class JobRetryDecision {
    * The single place attempts, max_attempts and retryability combine.
    *
    * `attempts` is the count *including* the attempt that just failed, because the
-   * claim increments before the handler runs (see MongooseJobRepository.claimNext).
+   * claim increments before the handler runs (see MongooseJobRepository.claimNextJob).
    * So attempts === max_attempts means the budget is spent.
    *
    * `explicit_retryable` comes from a handler returning { outcome: 'failed' } and
    * overrides classification - the handler knows more than the error type does.
    */
-  static decide(params: {
+  static decideJobRetry(params: {
     attempts: number;
     max_attempts: number;
     err?: unknown;

@@ -48,7 +48,7 @@ export class MicrosoftOAuthAdapter implements MicrosoftOAuthAdapterInterface {
     return { url, code_verifier: verifier };
   }
 
-  async exchangeCode(params: { code: string; code_verifier: string }): Promise<MicrosoftSession> {
+  async exchangeAuthorizationCode(params: { code: string; code_verifier: string }): Promise<MicrosoftSession> {
     const client = this.createClient();
     const result = await client.acquireTokenByCode({
       code: params.code,

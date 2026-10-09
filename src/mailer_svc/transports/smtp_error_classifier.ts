@@ -13,10 +13,10 @@ export class SmtpErrorClassifier {
    * asking us to come back later. Without a reply the failure happened below SMTP
    * (connection, DNS, TLS, timeout) and is treated as transient.
    */
-  static classify(err: unknown): MailDeliveryError {
+  static classifyDeliveryError(err: unknown): MailDeliveryError {
     if (err instanceof MailDeliveryError) return err;
 
-    const { code, response_code } = SmtpErrorClassifier.readFields(err);
+    const { code, response_code } = SmtpErrorClassifier.readSmtpErrorFields(err);
     return new MailDeliveryError({
       error_code: code ?? 'unknown',
       response_code,
@@ -30,7 +30,7 @@ export class SmtpErrorClassifier {
     return !(code && PERMANENT_CODES.has(code));
   }
 
-  private static readFields(err: unknown): SmtpErrorFields {
+  private static readSmtpErrorFields(err: unknown): SmtpErrorFields {
     if (typeof err !== 'object' || err === null) return {};
     const { code, responseCode } = err as { code?: unknown; responseCode?: unknown };
     return {

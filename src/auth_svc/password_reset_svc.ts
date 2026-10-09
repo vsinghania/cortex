@@ -24,7 +24,7 @@ type PasswordResetSvcDeps = {
   user_repo: UserRepository;
   rt_repo: RefreshTokenRepository;
   token_issuer: EmailTokenIssuer;
-  jobs: Pick<JobsSvcInterface, 'enqueue'>;
+  jobs: Pick<JobsSvcInterface, 'enqueueJob'>;
 };
 
 export class PasswordResetSvc implements PasswordResetSvcInterface {
@@ -39,7 +39,7 @@ export class PasswordResetSvc implements PasswordResetSvcInterface {
     });
   }
 
-  async requestReset(email: string): Promise<void> {
+  async requestPasswordReset(email: string): Promise<void> {
     const user = await this.deps.user_repo.findByEmail(email);
     if (!user) {
       logger.info({ reason: 'user_not_found' }, 'password reset request ignored');
@@ -47,11 +47,11 @@ export class PasswordResetSvc implements PasswordResetSvcInterface {
     }
 
     try {
-      const { job_id } = await this.deps.jobs.enqueue({
+      const { job_id } = await this.deps.jobs.enqueueJob({
         name: AuthJobName.PasswordResetEmail,
         payload: { user_id: user.user_id },
         user_id: user.user_id,
-        dedup_key: JobDedupKey.build([AuthJobName.PasswordResetEmail]),
+        dedup_key: JobDedupKey.buildDedupKey([AuthJobName.PasswordResetEmail]),
         deadline_at: new Date(Date.now() + SEND_DEADLINE_MS),
         requested_by: user.user_id
       });
@@ -72,7 +72,7 @@ export class PasswordResetSvc implements PasswordResetSvcInterface {
 
     // Consumed before hashing, so a flood of bogus tokens costs an indexed lookup
     // each rather than a bcrypt round.
-    const user_id = await this.deps.token_issuer.consume({ token: input.token, purpose: 'password_reset' });
+    const user_id = await this.deps.token_issuer.consumeEmailToken({ token: input.token, purpose: 'password_reset' });
     if (!user_id) {
       logger.warn({ reason: 'token_invalid' }, 'password reset rejected');
       throw new BadRequestError(INVALID_LINK_MESSAGE);
@@ -87,7 +87,7 @@ export class PasswordResetSvc implements PasswordResetSvcInterface {
 
     // Whoever holds an old session - possibly the reason for the reset - is logged
     // out on their next refresh.
-    const revoked_sessions = await this.deps.rt_repo.revokeAllForUser(user_id);
+    const revoked_sessions = await this.deps.rt_repo.revokeSessionsForUser(user_id);
 
     // Reading the link proves the address is theirs, which is all verification asks
     // for. `updated` predates this write, so an existing timestamp is left alone.

@@ -45,19 +45,19 @@ export class AdminNotesController {
   }
 
   private registerRoutes() {
-    this.router.post('/reindex', this.startReindex.bind(this));
+    this.router.post('/reindex', this.enqueueReindexJob.bind(this));
     this.router.get('/reindex', this.listReindexJobs.bind(this));
     this.router.get('/reindex/:job_id', this.getReindexJob.bind(this));
     this.router.post('/reindex/:job_id/cancel', this.cancelReindexJob.bind(this));
   }
 
   @validateRequest({ body: ReindexBodySchema })
-  private async startReindex(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async enqueueReindexJob(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const body = req.body as ReindexBody;
       const jobs_svc = await JobsSvc.getInstance();
 
-      const { job_id } = await jobs_svc.enqueue({
+      const { job_id } = await jobs_svc.enqueueJob({
         name: NotesJobName.NotesReindex,
         payload: {
           mode: body.mode,
@@ -69,7 +69,7 @@ export class AdminNotesController {
         // against an unrelated user's run. Set ONLY for a single-user selection;
         // a multi-user or unfiltered sweep stays system-wide and shares the key.
         user_id: body.user_ids?.length === 1 ? body.user_ids[0] : undefined,
-        dedup_key: JobDedupKey.build([NotesJobName.NotesReindex]),
+        dedup_key: JobDedupKey.buildDedupKey([NotesJobName.NotesReindex]),
         requested_by: req.auth!.user_id
       });
 
@@ -96,7 +96,7 @@ export class AdminNotesController {
   private async getReindexJob(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const { job_id } = req.params as { job_id: string };
-      const job = await this.findReindexJob(job_id);
+      const job = await this.requireReindexJob(job_id);
       res.status(200).json({ response: { job } });
     } catch (e) {
       next(e);
@@ -107,12 +107,12 @@ export class AdminNotesController {
   private async cancelReindexJob(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const { job_id } = req.params as { job_id: string };
-      const existing = await this.findReindexJob(job_id);
+      const existing = await this.requireReindexJob(job_id);
       const jobs_svc = await JobsSvc.getInstance();
 
       // A queued job cancels outright; a running one is flagged and its worker
       // notices on the next heartbeat, so this returns before the job has stopped.
-      const job = await jobs_svc.requestCancel(existing.id);
+      const job = await jobs_svc.requestJobCancellation(existing.id);
       res.status(202).json({ response: { job: job ?? existing } });
     } catch (e) {
       next(e);
@@ -120,7 +120,7 @@ export class AdminNotesController {
   }
 
   /** Scoped to this job name so the route cannot be used to read unrelated jobs. */
-  private async findReindexJob(job_id: string) {
+  private async requireReindexJob(job_id: string) {
     const jobs_svc = await JobsSvc.getInstance();
     const job = await jobs_svc.getJob(job_id);
     if (!job || job.name !== NotesJobName.NotesReindex) throw new NotFoundError('Job not found');

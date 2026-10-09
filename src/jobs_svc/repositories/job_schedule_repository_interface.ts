@@ -2,10 +2,10 @@ import type { JobSchedule } from '../types/job_schedule.types.js';
 
 export interface JobScheduleRepository {
   /** Insert or update by the caller-supplied id, so boot-time registration is idempotent. */
-  upsert(params: { schedule: JobSchedule }): Promise<JobSchedule>;
+  upsertSchedule(params: { schedule: JobSchedule }): Promise<JobSchedule>;
 
   /** Enabled schedules whose next firing has arrived. Candidates, not claims. */
-  listDue(params: { now: Date; limit: number }): Promise<JobSchedule[]>;
+  listDueSchedules(params: { now: Date; limit: number }): Promise<JobSchedule[]>;
 
   /**
    * Compare-and-swap on next_run_at: advances it only if it still holds the value
@@ -19,7 +19,7 @@ export interface JobScheduleRepository {
    * Advancing BEFORE the job is inserted is deliberate: a failed insert then skips
    * a run rather than retrying it forever, which is the safer direction to fail.
    */
-  claimDue(params: {
+  advanceDueSchedule(params: {
     id: string;
     expected_next_run_at: Date;
     next_run_at: Date;
@@ -27,10 +27,10 @@ export interface JobScheduleRepository {
   }): Promise<JobSchedule | null>;
 
   /** Records which job the tick spawned. Bookkeeping after the claim, not a lock. */
-  recordRun(params: { id: string; last_job_id: string }): Promise<void>;
+  recordScheduleRun(params: { id: string; last_job_id: string }): Promise<void>;
 
-  getById(id: string): Promise<JobSchedule | null>;
-  list(params?: { enabled?: boolean }): Promise<JobSchedule[]>;
-  setEnabled(params: { id: string; enabled: boolean; next_run_at?: Date }): Promise<JobSchedule | null>;
-  delete(id: string): Promise<boolean>;
+  getScheduleById(id: string): Promise<JobSchedule | null>;
+  listSchedules(params?: { enabled?: boolean }): Promise<JobSchedule[]>;
+  setScheduleEnabled(params: { id: string; enabled: boolean; next_run_at?: Date }): Promise<JobSchedule | null>;
+  deleteSchedule(id: string): Promise<boolean>;
 }

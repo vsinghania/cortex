@@ -11,7 +11,7 @@ export class MailJobResult {
    * whether a retry could succeed. Anything else - a missing user, a bug - is
    * rethrown for the worker's error policy.
    */
-  static async from(send: () => Promise<MailSendResult>): Promise<JobResult> {
+  static async fromDeliveryError(send: () => Promise<MailSendResult>): Promise<JobResult> {
     try {
       const { message_id } = await send();
       return { outcome: 'succeeded', summary: { message_id } };

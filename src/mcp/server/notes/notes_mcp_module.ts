@@ -275,7 +275,7 @@ export class NotesMcpModule extends McpModule {
           user_id,
           query: args.query,
           filter: NotesMcpModule.toNoteListFilter(args),
-          sort: NoteListSort.fromParts({ field: args.sort, order: args.order }),
+          sort: NoteListSort.fromFieldAndOrder({ field: args.sort, order: args.order }),
           limit: args.limit,
           offset: args.offset
         });
@@ -421,7 +421,7 @@ export class NotesMcpModule extends McpModule {
       },
       handler: async () => {
         const user_id = McpCallers.requireCallerUserId(caller);
-        const nodes = await this.requireFoldersSvc().listTree({ user_id });
+        const nodes = await this.requireFoldersSvc().listFolderTree({ user_id });
         const folders = nodes.map((n) => ({
           id: n.id,
           path: n.path.join(NoteFolderTree.PATH_SEPARATOR),
@@ -449,7 +449,7 @@ export class NotesMcpModule extends McpModule {
       handler: async (raw) => {
         const user_id = McpCallers.requireCallerUserId(caller);
         const { path } = zFolderCreateInput.parse(raw ?? {});
-        const ensured = await this.requireFoldersSvc().ensurePath({ user_id, path });
+        const ensured = await this.requireFoldersSvc().ensureFolderPath({ user_id, path });
         return NotesMcpModule.toStructuredToolResult({
           folder: { id: ensured.folder.id, path: ensured.path.join(NoteFolderTree.PATH_SEPARATOR) },
           created_count: ensured.created_count

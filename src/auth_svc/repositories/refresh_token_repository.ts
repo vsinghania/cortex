@@ -41,12 +41,12 @@ export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
     return MongooseUtils.toDomain<RefreshSession>(created);
   }
 
-  async findByTokenHash(token_hash: string): Promise<RefreshSession | null> {
+  async findSessionByTokenHash(token_hash: string): Promise<RefreshSession | null> {
     const found = await this.model.findOne({ token_hash }).lean();
     return found ? (MongooseUtils.toDomain<RefreshSession>(found) as RefreshSession) : null;
   }
 
-  async revokeByTokenHash(token_hash: string, opts?: { replaced_by?: string }): Promise<boolean> {
+  async revokeSessionByTokenHash(token_hash: string, opts?: { replaced_by?: string }): Promise<boolean> {
     const res = await this.model.updateOne(
       { token_hash, revoked_at: { $exists: false } },
       { $set: { revoked_at: new Date(), ...(opts?.replaced_by ? { replaced_by: opts.replaced_by } : {}) } }
@@ -78,7 +78,7 @@ export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
     return MongooseUtils.toDomain<RefreshSession>(created);
   }
 
-  async revokeAllForUser(user_id: string): Promise<number> {
+  async revokeSessionsForUser(user_id: string): Promise<number> {
     const res = await this.model.updateMany(
       { user_id, revoked_at: { $exists: false } },
       { $set: { revoked_at: new Date() } }
@@ -87,7 +87,7 @@ export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
   }
 
   /** Unscoped by design - see UserSessionActivity. */
-  async latestActivityByUser(user_ids: string[]): Promise<UserSessionActivity[]> {
+  async findLatestSessionActivityByUser(user_ids: string[]): Promise<UserSessionActivity[]> {
     if (user_ids.length === 0) return [];
     return this.model.aggregate<UserSessionActivity>([
       { $match: { user_id: { $in: user_ids } } },
@@ -96,7 +96,7 @@ export class MongooseRefreshTokenRepository implements IRefreshTokenRepository {
     ]);
   }
 
-  async pruneExpired(limit = 1000): Promise<number> {
+  async pruneExpiredSessions(limit = 1000): Promise<number> {
     const now = new Date();
     const toDelete = await this.model.find({ expires_at: { $lte: now } }).limit(limit).select({ token_hash: 1 }).lean();
     if (toDelete.length === 0) return 0;

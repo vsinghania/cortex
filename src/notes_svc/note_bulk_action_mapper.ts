@@ -7,7 +7,7 @@ export class NoteBulkActionMapper {
   private constructor() {}
 
   /** `delete` has no update form: it goes through the trash-snapshotting delete path instead. */
-  static toRepoUpdate(action: Exclude<NoteBulkAction, { action: 'delete' }>): NoteBulkUpdate {
+  static toRepositoryBulkUpdate(action: Exclude<NoteBulkAction, { action: 'delete' }>): NoteBulkUpdate {
     switch (action.action) {
       case 'move':
         return { kind: 'organize', fields: { folder_id: action.folder_id } };
@@ -27,7 +27,7 @@ export class NoteBulkActionMapper {
   }
 
   /** The archive state a bulk action leaves notes in, or undefined when it does not touch it. */
-  static archivedStateAfter(action: NoteBulkAction): boolean | undefined {
+  static getArchiveStateAfterAction(action: NoteBulkAction): boolean | undefined {
     if (action.action === 'archive') return true;
     if (action.action === 'unarchive') return false;
     return undefined;

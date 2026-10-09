@@ -14,7 +14,7 @@ NotesSvc ─┬─► NoteRepository ──────────────�
 
 ## 1. Notes
 
-`NotesSvc`: `listNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `deleteNotes` (batched), `bulkUpdate`, `deleteTag`, `searchNotes` (lexical), `retrieveChunks` (semantic), `suggestFiling` (AI), `revectorizeNote`. `NoteFoldersSvc` owns the folder tree.
+`NotesSvc`: `listNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `deleteNotes` (batched), `bulkUpdate`, `deleteTag`, `searchNotes` (lexical), `retrieveChunks` (semantic), `suggestNoteFiling` (AI), `revectorizeNote`. `NoteFoldersSvc` owns the folder tree.
 
 A note is markdown plus provenance — `body` is canonical markdown, `body_raw` keeps the original artifact (imported HTML, a voice transcript). Notes come in two flavours, which is what `NoteLocator` encodes:
 

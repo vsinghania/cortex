@@ -42,13 +42,13 @@ export class McpServerRegistry {
     if (McpServerRegistry.instance) return McpServerRegistry.instance;
     if (McpServerRegistry.in_flight) return McpServerRegistry.in_flight;
 
-    McpServerRegistry.in_flight = McpServerRegistry.loadInstance();
+    McpServerRegistry.in_flight = McpServerRegistry.loadMcpServerRegistryInstance();
     return McpServerRegistry.in_flight;
   }
 
-  private static async loadInstance(): Promise<McpServerRegistry> {
+  private static async loadMcpServerRegistryInstance(): Promise<McpServerRegistry> {
     try {
-      const inst = await McpServerRegistry.bootstrap();
+      const inst = await McpServerRegistry.bootstrapMcpServerRegistry();
       McpServerRegistry.instance = inst;
       return inst;
     } finally {
@@ -62,11 +62,11 @@ export class McpServerRegistry {
 
   static async create(repo: McpServerRepositoryInterface): Promise<McpServerRegistry> {
     const registry = new McpServerRegistry(repo);
-    await registry.refresh();
+    await registry.refreshMcpServers();
     return registry;
   }
 
-  private static async bootstrap(): Promise<McpServerRegistry> {
+  private static async bootstrapMcpServerRegistry(): Promise<McpServerRegistry> {
     logger.info('McpServerRegistry bootstrap started');
     const registry = await McpServerRegistry.create(await MongooseMcpServerRepository.create());
     logger.info({ server_count: registry.entries.size }, 'McpServerRegistry bootstrap complete');
@@ -78,21 +78,21 @@ export class McpServerRegistry {
    * holding it stay valid. Replaced and removed handles are closed only after
    * the swap, so resolveAll() never hands out a closed connection.
    */
-  async refresh(): Promise<void> {
+  async refreshMcpServers(): Promise<void> {
     const manifests = await this.repo.listEnabled();
     const next = new Map<string, RegistryEntry>();
     let reused_count = 0;
 
     for (const manifest of manifests) {
       const existing = this.entries.get(manifest.mcp_server_id);
-      if (existing && McpServerRegistry.isUnchanged(existing, manifest)) {
+      if (existing && McpServerRegistry.matchesStoredManifest(existing, manifest)) {
         next.set(manifest.mcp_server_id, existing);
         reused_count++;
         continue;
       }
       try {
-        const handle = await this.buildHandle(manifest);
-        if (handle) next.set(manifest.mcp_server_id, McpServerRegistry.toEntry(handle, manifest));
+        const handle = await this.createMcpServerHandle(manifest);
+        if (handle) next.set(manifest.mcp_server_id, McpServerRegistry.toRegistryEntry(handle, manifest));
       } catch (err) {
         logger.warn(
           { mcp_server_id: manifest.mcp_server_id, err },
@@ -101,16 +101,16 @@ export class McpServerRegistry {
       }
     }
 
-    const stale = this.entriesMissingFrom(next);
+    const stale = this.findReplacedEntries(next);
     this.entries = next;
-    await McpServerRegistry.closeEntries(stale);
+    await McpServerRegistry.closeEntryConnections(stale);
     logger.info(
       { count: next.size, reused_count, closed_count: stale.length },
       'McpServerRegistry loaded'
     );
   }
 
-  resolveAll(ids: string[]): McpServerHandle[] {
+  resolveMcpServerHandles(ids: string[]): McpServerHandle[] {
     const out: McpServerHandle[] = [];
     for (const id of ids) {
       const entry = this.entries.get(id);
@@ -123,22 +123,22 @@ export class McpServerRegistry {
     return out;
   }
 
-  list(): McpServerHandle[] {
+  listMcpServerHandles(): McpServerHandle[] {
     return Array.from(this.entries.values(), (entry) => entry.handle);
   }
 
-  async closeAll(): Promise<void> {
-    await McpServerRegistry.closeEntries(Array.from(this.entries.values()));
+  async closeMcpServerConnections(): Promise<void> {
+    await McpServerRegistry.closeEntryConnections(Array.from(this.entries.values()));
   }
 
-  private static isUnchanged(entry: RegistryEntry, manifest: McpServerManifest): boolean {
+  private static matchesStoredManifest(entry: RegistryEntry, manifest: McpServerManifest): boolean {
     return (
       entry.version === manifest.version &&
       entry.updated_at_ms === manifest.updated_at.getTime()
     );
   }
 
-  private static toEntry(handle: McpServerHandle, manifest: McpServerManifest): RegistryEntry {
+  private static toRegistryEntry(handle: McpServerHandle, manifest: McpServerManifest): RegistryEntry {
     return {
       handle,
       version: manifest.version,
@@ -146,13 +146,13 @@ export class McpServerRegistry {
     };
   }
 
-  private entriesMissingFrom(next: Map<string, RegistryEntry>): RegistryEntry[] {
+  private findReplacedEntries(next: Map<string, RegistryEntry>): RegistryEntry[] {
     return Array.from(this.entries.values()).filter(
       (entry) => next.get(entry.handle.id) !== entry
     );
   }
 
-  private static async closeEntries(entries: RegistryEntry[]): Promise<void> {
+  private static async closeEntryConnections(entries: RegistryEntry[]): Promise<void> {
     for (const { handle } of entries) {
       if (handle.mode !== McpServerMode.SelfHosted) continue;
       try {
@@ -166,18 +166,18 @@ export class McpServerRegistry {
     }
   }
 
-  private async buildHandle(
+  private async createMcpServerHandle(
     manifest: McpServerManifest
   ): Promise<McpServerHandle | null> {
-    const auth_token = this.resolveAuthToken(manifest);
-    const headers = this.buildHeaders(manifest, auth_token);
+    const auth_token = this.resolveServerAuthToken(manifest);
+    const headers = this.buildServerRequestHeaders(manifest, auth_token);
 
     if (manifest.mode === McpServerMode.SelfHosted) {
       const server = new MCPServerStreamableHttp({
         name: manifest.name,
         url: manifest.http.base_url,
         requestInit: headers ? { headers } : undefined,
-        fetch: this.contextAwareFetch.bind(this),
+        fetch: this.fetchWithTraceContext.bind(this),
       });
       await server.connect();
       logger.info(
@@ -211,7 +211,7 @@ export class McpServerRegistry {
     return null;
   }
 
-  private resolveAuthToken(manifest: McpServerManifest): string | undefined {
+  private resolveServerAuthToken(manifest: McpServerManifest): string | undefined {
     const env_name = manifest.http.auth_token_env;
     if (!env_name) return undefined;
     const value = process.env[env_name];
@@ -223,7 +223,7 @@ export class McpServerRegistry {
     return value;
   }
 
-  private async contextAwareFetch(
+  private async fetchWithTraceContext(
     url: string | URL,
     init?: RequestInit
   ): Promise<Response> {
@@ -239,7 +239,7 @@ export class McpServerRegistry {
     return fetch(url, { ...init, headers: merged });
   }
 
-  private buildHeaders(
+  private buildServerRequestHeaders(
     manifest: McpServerManifest,
     auth_token: string | undefined
   ): Record<string, string> | undefined {

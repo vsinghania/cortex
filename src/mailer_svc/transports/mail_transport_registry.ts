@@ -12,7 +12,7 @@ export class MailTransportRegistry {
     smtp: (config) => SmtpMailTransport.create(config.smtp)
   };
 
-  static build(config: MailerConfig): MailTransport {
+  static createTransport(config: MailerConfig): MailTransport {
     return MailTransportRegistry.factories[config.transport](config);
   }
 }

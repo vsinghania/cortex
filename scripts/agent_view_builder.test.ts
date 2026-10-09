@@ -27,12 +27,12 @@ function manifest(overrides: Partial<AgentManifest> = {}): AgentManifest {
 }
 
 function load(m: AgentManifest) {
-  return AgentFactory.forManifest({ manifest: m, tools: [] });
+  return AgentFactory.createAgentFromManifest({ manifest: m, tools: [] });
 }
 
 test('a loaded agent exposes the composed prompt it actually runs with', () => {
   const m = manifest();
-  const view = AgentViewBuilder.build(m, load(m));
+  const view = AgentViewBuilder.buildAgentView(m, load(m));
 
   assert.equal(view.status, AgentLoadStatus.Loaded);
   assert.equal(view.manifest.instructions, 'Recall the user\'s notes.');
@@ -45,24 +45,24 @@ test('a loaded agent exposes the composed prompt it actually runs with', () => {
 
 test('the runtime model falls back to the engine default when the manifest has none', () => {
   const m = manifest({ model: undefined });
-  const view = AgentViewBuilder.build(m, load(m));
+  const view = AgentViewBuilder.buildAgentView(m, load(m));
   assert.equal(view.runtime?.model, process.env.OPENAI_DEFAULT_MODEL ?? 'gpt-5.4-nano');
 });
 
 test('an enabled agent missing from the registry is not_loaded, with no runtime', () => {
-  const view = AgentViewBuilder.build(manifest(), undefined);
+  const view = AgentViewBuilder.buildAgentView(manifest(), undefined);
   assert.equal(view.status, AgentLoadStatus.NotLoaded);
   assert.equal(view.runtime, null);
 });
 
 test('a disabled agent missing from the registry is disabled', () => {
-  const view = AgentViewBuilder.build(manifest({ enabled: false }), undefined);
+  const view = AgentViewBuilder.buildAgentView(manifest({ enabled: false }), undefined);
   assert.equal(view.status, AgentLoadStatus.Disabled);
 });
 
 test('an agent still in the registry reports loaded even if its row was just disabled', () => {
   const served = load(manifest());
-  const view = AgentViewBuilder.build(manifest({ enabled: false, version: 4 }), served);
+  const view = AgentViewBuilder.buildAgentView(manifest({ enabled: false, version: 4 }), served);
   assert.equal(view.status, AgentLoadStatus.Loaded);
   assert.equal(view.runtime?.manifest_version, 3);
 });

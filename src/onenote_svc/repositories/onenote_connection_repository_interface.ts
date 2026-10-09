@@ -9,13 +9,13 @@ export interface OneNoteConnectionRepository {
   findByUserId(user_id: string): Promise<OneNoteConnection | null>;
 
   /** Connecting again replaces the stored account, keeping one connection per user. */
-  upsert(input: CreateOneNoteConnectionInput): Promise<OneNoteConnection>;
+  upsertConnection(input: CreateOneNoteConnectionInput): Promise<OneNoteConnection>;
 
   /** Written only when MSAL actually rotated something. */
   updateTokenCache(params: { user_id: string; token_cache_sealed: string }): Promise<void>;
 
   /** Connections the sweep should enqueue: connected, and with something chosen to sync. */
-  listSyncable(params: { limit: number }): Promise<OneNoteConnection[]>;
+  listSyncableConnections(params: { limit: number }): Promise<OneNoteConnection[]>;
 
   updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<OneNoteConnection | null>;
 

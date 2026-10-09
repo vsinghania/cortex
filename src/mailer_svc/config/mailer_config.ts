@@ -51,7 +51,7 @@ export class MailerConfigLoader {
       smtp: {
         host: parsed.SMTP_HOST,
         port,
-        secure: MailerConfigLoader.readBool(parsed.SMTP_SECURE, port === IMPLICIT_TLS_SMTP_PORT),
+        secure: MailerConfigLoader.parseBooleanSetting(parsed.SMTP_SECURE, port === IMPLICIT_TLS_SMTP_PORT),
         auth: parsed.SMTP_USER && parsed.SMTP_PASS ? { user: parsed.SMTP_USER, pass: parsed.SMTP_PASS } : undefined,
         connection_timeout_ms: Time.secondsToMs(10),
         greeting_timeout_ms: Time.secondsToMs(10),
@@ -62,7 +62,7 @@ export class MailerConfigLoader {
     };
   }
 
-  private static readBool(raw: string | undefined, fallback: boolean): boolean {
+  private static parseBooleanSetting(raw: string | undefined, fallback: boolean): boolean {
     if (raw === undefined || raw.trim() === '') return fallback;
     return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
   }

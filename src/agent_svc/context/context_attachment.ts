@@ -25,19 +25,19 @@ export class ContextAttachment {
    * Checked before the conversation exists, so a thread is never created anchored to a
    * document the user cannot read.
    */
-  static async requireRequested(params: { user_id?: string; ref?: ContextRef }): Promise<ContextDocument | null> {
+  static async requireRequestedDocument(params: { user_id?: string; ref?: ContextRef }): Promise<ContextDocument | null> {
     if (!params.ref) return null;
     if (!params.user_id) {
       throw new BadRequestError('context_ref requires an authenticated user');
     }
-    const doc = await ContextDocumentResolverRegistry.getInstance().resolve({ user_id: params.user_id, ref: params.ref });
+    const doc = await ContextDocumentResolverRegistry.getInstance().resolveContextDocument({ user_id: params.user_id, ref: params.ref });
     if (!doc) {
       throw new NotFoundError(`Context document not found: ${params.ref.document_id}`);
     }
     return doc;
   }
 
-  static async forConversation(params: {
+  static async resolveConversationAttachment(params: {
     user_id?: string;
     conversation: Conversation;
     requested_doc: ContextDocument | null;
@@ -45,23 +45,23 @@ export class ContextAttachment {
     const ref = params.conversation.context_ref;
     if (!ref || !params.user_id) return ContextAttachment.NONE;
 
-    const doc = ContextAttachment.matchesRef(params.requested_doc, ref)
+    const doc = ContextAttachment.matchesDocumentRef(params.requested_doc, ref)
       ? params.requested_doc
-      : await ContextAttachment.tryResolve(params.user_id, params.conversation.conversation_id, ref);
+      : await ContextAttachment.tryResolveContextDocument(params.user_id, params.conversation.conversation_id, ref);
     if (!doc) return ContextAttachment.NONE;
 
-    const { message, truncated } = ContextMessageBuilder.build(doc);
+    const { message, truncated } = ContextMessageBuilder.buildContextMessage(doc);
     return { context_messages: [message], attached: true, truncated };
   }
 
-  private static matchesRef(doc: ContextDocument | null, ref: ContextRef): doc is ContextDocument {
+  private static matchesDocumentRef(doc: ContextDocument | null, ref: ContextRef): doc is ContextDocument {
     return !!doc && doc.corpus === ref.corpus && doc.document_id === ref.document_id;
   }
 
   /** A deleted document should not break the thread; the run just proceeds without it. */
-  private static async tryResolve(user_id: string, conversation_id: string, ref: ContextRef): Promise<ContextDocument | null> {
+  private static async tryResolveContextDocument(user_id: string, conversation_id: string, ref: ContextRef): Promise<ContextDocument | null> {
     try {
-      const doc = await ContextDocumentResolverRegistry.getInstance().resolve({ user_id, ref });
+      const doc = await ContextDocumentResolverRegistry.getInstance().resolveContextDocument({ user_id, ref });
       if (!doc) {
         logger.warn({ conversation_id, corpus: ref.corpus, document_id: ref.document_id }, 'context document unavailable; running without it');
       }

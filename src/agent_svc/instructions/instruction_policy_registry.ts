@@ -17,7 +17,7 @@ export class InstructionPolicyRegistry {
   static getInstance(): InstructionPolicyRegistry {
     if (InstructionPolicyRegistry.instance) return InstructionPolicyRegistry.instance;
     const registry = new InstructionPolicyRegistry();
-    registry.registerBuiltins();
+    registry.registerBuiltinPolicies();
     InstructionPolicyRegistry.instance = registry;
     return registry;
   }
@@ -26,32 +26,32 @@ export class InstructionPolicyRegistry {
    * Returns the named policies in registration order, deduped, so the composed prompt is
    * the same however a manifest orders its names.
    */
-  resolveAll(names: string[]): InstructionPolicy[] {
+  resolveInstructionPolicies(names: string[]): InstructionPolicy[] {
     const missing = names.filter((name) => !this.policies.has(name));
     if (missing.length) {
       throw new NotFoundError(`Unknown instruction policy(s): ${missing.join(', ')}`);
     }
     const requested = new Set(names);
-    return this.list().filter((policy) => requested.has(policy.name));
+    return this.listInstructionPolicies().filter((policy) => requested.has(policy.name));
   }
 
-  list(): InstructionPolicy[] {
+  listInstructionPolicies(): InstructionPolicy[] {
     return Array.from(this.policies.values());
   }
 
-  private register(policy: InstructionPolicy): void {
+  private registerPolicy(policy: InstructionPolicy): void {
     if (this.policies.has(policy.name)) {
       throw new Error(`Instruction policy already registered: ${policy.name}`);
     }
     this.policies.set(policy.name, policy);
   }
 
-  private registerBuiltins(): void {
-    this.register(new OutputHygienePolicy());
-    this.register(new ConfidentialityPolicy());
-    this.register(new UntrustedContentPolicy());
-    this.register(new GroundingPolicy());
-    this.register(new CitationsPolicy());
-    this.register(new WriteSafetyPolicy());
+  private registerBuiltinPolicies(): void {
+    this.registerPolicy(new OutputHygienePolicy());
+    this.registerPolicy(new ConfidentialityPolicy());
+    this.registerPolicy(new UntrustedContentPolicy());
+    this.registerPolicy(new GroundingPolicy());
+    this.registerPolicy(new CitationsPolicy());
+    this.registerPolicy(new WriteSafetyPolicy());
   }
 }

@@ -111,7 +111,7 @@ export class AuthSvc implements AuthSvcInterface {
 
     // Only after the password check, so this answer cannot be used to probe which
     // emails have accounts.
-    if (AuthSvc.isAwaitingVerification(user)) {
+    if (AuthSvc.isAwaitingEmailVerification(user)) {
       logger.warn({ reason: 'email_unverified', user_id: user.user_id }, 'login rejected');
       throw new EmailNotVerifiedError('Confirm your email address to sign in. Check your inbox for the link.');
     }
@@ -119,7 +119,7 @@ export class AuthSvc implements AuthSvcInterface {
     // Update last_login_at (best effort)
     await user_repo.setLastLoginAt(user.user_id, new Date());
 
-    const result = await this.deps.session_issuer.issue(user, ctx);
+    const result = await this.deps.session_issuer.issueSessionTokens(user, ctx);
 
     logger.info(
       { user_id: user.user_id, duration_ms: Time.elapsedMs(start_ms) },
@@ -134,21 +134,21 @@ export class AuthSvc implements AuthSvcInterface {
    * navigations such as an OAuth callback, which carry the refresh cookie but no
    * bearer token. Null for a missing, revoked or expired session.
    */
-  async sessionUserId(refresh_token: string | undefined): Promise<string | null> {
+  async findSessionUserId(refresh_token: string | undefined): Promise<string | null> {
     if (!refresh_token) return null;
-    const session = await this.deps.rt_repo.findByTokenHash(TokenUtils.sha256Base64Url(refresh_token));
+    const session = await this.deps.rt_repo.findSessionByTokenHash(TokenUtils.sha256Base64Url(refresh_token));
     if (!session || session.revoked_at || session.expires_at.getTime() <= Date.now()) return null;
     return session.user_id;
   }
 
-  async refresh(refresh_token: string, ctx?: AuthContext): Promise<RefreshResult> {
+  async rotateRefreshSession(refresh_token: string, ctx?: AuthContext): Promise<RefreshResult> {
     if (!refresh_token || typeof refresh_token !== 'string') {
       throw new BadRequestError('Missing refresh token');
     }
 
     const token_hash = TokenUtils.sha256Base64Url(refresh_token);
     const rt_repo = this.deps.rt_repo;
-    const session = await rt_repo.findByTokenHash(token_hash);
+    const session = await rt_repo.findSessionByTokenHash(token_hash);
     if (!session) {
       logger.warn({ reason: 'session_not_found' }, 'refresh rejected');
       throw new UnauthorizedError('Invalid refresh token');
@@ -159,7 +159,7 @@ export class AuthSvc implements AuthSvcInterface {
     }
     if (session.expires_at.getTime() <= Date.now()) {
       // prune or mark as revoked for hygiene (best effort)
-      await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+      await rt_repo.revokeSessionByTokenHash(token_hash).catch(() => void 0);
       logger.warn({ reason: 'session_expired', user_id: session.user_id }, 'refresh rejected');
       throw new UnauthorizedError('Refresh token expired');
     }
@@ -169,7 +169,7 @@ export class AuthSvc implements AuthSvcInterface {
     const user = await user_repo.findByUserId(session.user_id);
     if (!user) {
       // Revoke session if user missing
-      await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+      await rt_repo.revokeSessionByTokenHash(token_hash).catch(() => void 0);
       logger.warn({ reason: 'user_missing', user_id: session.user_id }, 'refresh rejected');
       throw new NotFoundError('User not found for refresh token');
     }
@@ -188,12 +188,6 @@ export class AuthSvc implements AuthSvcInterface {
       throw new UnauthorizedError('Refresh token rotation failed');
     }
 
-    // Attach latest UA/IP (best effort)
-    // Not strictly required; skip write if not provided
-    if (ctx?.ip || ctx?.user_agent) {
-      // no-op for now; could patch created refresh doc if we want freshest ctx on the new token
-    }
-
     return {
       tokens: {
         access_token: new_access,
@@ -208,7 +202,7 @@ export class AuthSvc implements AuthSvcInterface {
     if (!refresh_token) return { success: true };
     const token_hash = TokenUtils.sha256Base64Url(refresh_token);
     const rt_repo = this.deps.rt_repo;
-    await rt_repo.revokeByTokenHash(token_hash).catch(() => void 0);
+    await rt_repo.revokeSessionByTokenHash(token_hash).catch(() => void 0);
     logger.info({}, 'user logged out');
     return { success: true };
   }
@@ -222,7 +216,7 @@ export class AuthSvc implements AuthSvcInterface {
     return SessionIssuer.toPublicUser(user);
   }
 
-  private static isAwaitingVerification(user: User): boolean {
+  private static isAwaitingEmailVerification(user: User): boolean {
     return user.email_verification_required === true && !user.email_verified_at;
   }
 

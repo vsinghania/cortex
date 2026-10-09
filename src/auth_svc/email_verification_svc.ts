@@ -20,7 +20,7 @@ const INVALID_LINK_MESSAGE = 'This link is invalid or has expired. Log in to sen
 type EmailVerificationSvcDeps = {
   user_repo: UserRepository;
   token_issuer: EmailTokenIssuer;
-  jobs: Pick<JobsSvcInterface, 'enqueue'>;
+  jobs: Pick<JobsSvcInterface, 'enqueueJob'>;
 };
 
 export class EmailVerificationSvc implements EmailVerificationSvcInterface {
@@ -40,7 +40,7 @@ export class EmailVerificationSvc implements EmailVerificationSvcInterface {
       logger.warn({ user_id, reason: 'user_not_found' }, 'email verification request ignored');
       return;
     }
-    await this.enqueueFor(user);
+    await this.enqueueVerificationEmailForUser(user);
   }
 
   async requestVerificationForEmail(email: string): Promise<void> {
@@ -49,13 +49,13 @@ export class EmailVerificationSvc implements EmailVerificationSvcInterface {
       logger.info({ reason: 'user_not_found' }, 'email verification request ignored');
       return;
     }
-    await this.enqueueFor(user);
+    await this.enqueueVerificationEmailForUser(user);
   }
 
-  async verify(token: string): Promise<void> {
+  async verifyEmailToken(token: string): Promise<void> {
     const start_ms = performance.now();
 
-    const user_id = await this.deps.token_issuer.consume({ token, purpose: 'email_verification' });
+    const user_id = await this.deps.token_issuer.consumeEmailToken({ token, purpose: 'email_verification' });
     if (!user_id) {
       logger.warn({ reason: 'token_invalid' }, 'email verification rejected');
       throw new BadRequestError(INVALID_LINK_MESSAGE);
@@ -70,7 +70,7 @@ export class EmailVerificationSvc implements EmailVerificationSvcInterface {
     logger.info({ user_id, duration_ms: Time.elapsedMs(start_ms) }, 'email verification completed');
   }
 
-  private async enqueueFor(user: User): Promise<void> {
+  private async enqueueVerificationEmailForUser(user: User): Promise<void> {
     const user_id = user.user_id;
     if (user.email_verified_at) {
       logger.info({ user_id, reason: 'already_verified' }, 'email verification request ignored');
@@ -78,11 +78,11 @@ export class EmailVerificationSvc implements EmailVerificationSvcInterface {
     }
 
     try {
-      const { job_id } = await this.deps.jobs.enqueue({
+      const { job_id } = await this.deps.jobs.enqueueJob({
         name: AuthJobName.EmailVerificationEmail,
         payload: { user_id },
         user_id,
-        dedup_key: JobDedupKey.build([AuthJobName.EmailVerificationEmail]),
+        dedup_key: JobDedupKey.buildDedupKey([AuthJobName.EmailVerificationEmail]),
         deadline_at: new Date(Date.now() + SEND_DEADLINE_MS),
         requested_by: user_id
       });

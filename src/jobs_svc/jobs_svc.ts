@@ -26,7 +26,7 @@ export class JobsSvc implements JobsSvcInterface {
   static async getInstance(): Promise<JobsSvc> {
     if (JobsSvc.instance) return JobsSvc.instance;
     if (JobsSvc.in_flight) return JobsSvc.in_flight;
-    JobsSvc.in_flight = JobsSvc.loadInstance();
+    JobsSvc.in_flight = JobsSvc.loadJobsSvcInstance();
     return JobsSvc.in_flight;
   }
 
@@ -34,7 +34,7 @@ export class JobsSvc implements JobsSvcInterface {
     return JobsSvc.instance;
   }
 
-  private static async loadInstance(): Promise<JobsSvc> {
+  private static async loadJobsSvcInstance(): Promise<JobsSvc> {
     try {
       const repo = await MongooseJobRepository.create();
       JobsSvc.instance = new JobsSvc(repo);
@@ -44,11 +44,11 @@ export class JobsSvc implements JobsSvcInterface {
     }
   }
 
-  async enqueue(input: EnqueueInput): Promise<EnqueueResult> {
+  async enqueueJob(input: EnqueueInput): Promise<EnqueueResult> {
     const now = new Date();
-    const job = JobsSvc.buildJob(input, now);
+    const job = JobsSvc.buildJobRecord(input, now);
 
-    const { job: stored, created, conflict_on } = await this.repo.enqueue({ job });
+    const { job: stored, created, conflict_on } = await this.repo.enqueueJob({ job });
 
     if (!created) {
       const reason =
@@ -74,19 +74,19 @@ export class JobsSvc implements JobsSvcInterface {
   }
 
   async getJob(job_id: string): Promise<Job | null> {
-    return this.repo.getById(job_id);
+    return this.repo.getJobById(job_id);
   }
 
   async listJobs(input: ListJobsInput): Promise<Job[]> {
-    return this.repo.list(input);
+    return this.repo.listJobs(input);
   }
 
-  async getStats(params?: { name?: JobName }): Promise<Record<JobStatus, number>> {
-    return this.repo.countByStatus(params);
+  async getJobCountsByStatus(params?: { name?: JobName }): Promise<Record<JobStatus, number>> {
+    return this.repo.countJobsByStatus(params);
   }
 
-  async requestCancel(job_id: string): Promise<Job | null> {
-    const cancelled = await this.repo.requestCancel({
+  async requestJobCancellation(job_id: string): Promise<Job | null> {
+    const cancelled = await this.repo.requestJobCancellation({
       job_id,
       now: new Date(),
       retention_sec: CANCELLED_RETENTION_SEC
@@ -103,7 +103,7 @@ export class JobsSvc implements JobsSvcInterface {
    * are snapshotted here so the worker can stitch its own logs back to the request
    * that queued the work (see JobWorker.runJob).
    */
-  private static buildJob(input: EnqueueInput, now: Date): Job {
+  private static buildJobRecord(input: EnqueueInput, now: Date): Job {
     const run_at = input.run_at ?? new Date(now.getTime() + (input.delay_ms ?? 0));
 
     return {
@@ -112,7 +112,7 @@ export class JobsSvc implements JobsSvcInterface {
       // Undefined keys are dropped rather than stored: BSON serializes undefined to
       // null, so leaving them in would hand handlers a null where their schema
       // expects an absent field.
-      payload: JobsSvc.stripUndefined(input.payload),
+      payload: JobsSvc.omitUndefinedPayloadFields(input.payload),
       user_id: input.user_id,
 
       status: JobStatus.Queued,
@@ -149,7 +149,7 @@ export class JobsSvc implements JobsSvcInterface {
     };
   }
 
-  private static stripUndefined(payload: JobPayload): JobPayload {
+  private static omitUndefinedPayloadFields(payload: JobPayload): JobPayload {
     return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
   }
 }

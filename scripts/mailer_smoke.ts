@@ -9,10 +9,10 @@ async function main(): Promise<void> {
   const to = process.argv[2] ?? DEFAULT_TO;
   const mailer = MailerSvc.getInstance();
 
-  await mailer.verify();
+  await mailer.verifyTransportConnection();
   console.log('  ok   transport verified');
 
-  const result = await mailer.send({
+  const result = await mailer.sendMail({
     to,
     template: 'mailer_smoke',
     subject: 'Cortex mailer smoke test',

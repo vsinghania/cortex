@@ -30,12 +30,12 @@ import { Time } from '../src/lib/time.js';
 class InMemoryEmailTokenRepo implements EmailTokenRepository {
   rows: EmailToken[] = [];
 
-  async replaceForUser(input: { user_id: string; purpose: EmailTokenPurpose; token_hash: string; expires_at: Date }) {
+  async replaceEmailTokenForUser(input: { user_id: string; purpose: EmailTokenPurpose; token_hash: string; expires_at: Date }) {
     this.rows = this.rows.filter((r) => !(r.user_id === input.user_id && r.purpose === input.purpose));
     this.rows.push({ ...input, created_at: new Date(), updated_at: new Date() });
   }
 
-  async consume(input: { token_hash: string; purpose: EmailTokenPurpose; now: Date }) {
+  async consumeEmailToken(input: { token_hash: string; purpose: EmailTokenPurpose; now: Date }) {
     const row = this.rows.find(
       (r) => r.token_hash === input.token_hash && r.purpose === input.purpose && !r.consumed_at && r.expires_at > input.now
     );
@@ -93,19 +93,19 @@ class RecordingMailer implements MailerSvcInterface {
   sent: MailMessage[] = [];
   constructor(private readonly failure?: MailDeliveryError) {}
 
-  async send(message: MailMessage) {
+  async sendMail(message: MailMessage) {
     if (this.failure) throw this.failure;
     this.sent.push(message);
     return { message_id: `<m${this.sent.length}@test>` };
   }
-  async verify() {}
+  async verifyTransportConnection() {}
 }
 
 class RecordingJobs {
   enqueued: EnqueueInput[] = [];
   constructor(private readonly conflict = false) {}
 
-  async enqueue(input: EnqueueInput) {
+  async enqueueJob(input: EnqueueInput) {
     if (this.conflict) throw new ConflictError('An email_verification_email job is already active');
     this.enqueued.push(input);
     return { job_id: `job-${this.enqueued.length}`, created: true };
@@ -218,10 +218,10 @@ test('the full flow marks the user verified, and the link works once', async () 
   await deliverQueued(h);
   const token = tokenFromLastEmail(h);
 
-  await h.svc.verify(token);
+  await h.svc.verifyEmailToken(token);
 
   assert.ok(h.user.email_verified_at);
-  await assert.rejects(h.svc.verify(token), BadRequestError);
+  await assert.rejects(h.svc.verifyEmailToken(token), BadRequestError);
 });
 
 test('a newer email invalidates the older link', async () => {
@@ -232,30 +232,30 @@ test('a newer email invalidates the older link', async () => {
   await deliverQueued(h);
   const second = tokenFromLastEmail(h);
 
-  await assert.rejects(h.svc.verify(first), BadRequestError);
-  await assert.doesNotReject(h.svc.verify(second));
+  await assert.rejects(h.svc.verifyEmailToken(first), BadRequestError);
+  await assert.doesNotReject(h.svc.verifyEmailToken(second));
 });
 
 test('an expired token is rejected even if the TTL reaper has not removed it yet', async () => {
   const h = await buildHarness();
-  const issued_at = new Date(Date.now() - EmailTokenIssuer.ttlMs('email_verification') - Time.secondsToMs(1));
-  const { token } = await h.token_issuer.issue({ user_id: 'user-1', purpose: 'email_verification', now: issued_at });
+  const issued_at = new Date(Date.now() - EmailTokenIssuer.getTokenTtlMs('email_verification') - Time.secondsToMs(1));
+  const { token } = await h.token_issuer.issueEmailToken({ user_id: 'user-1', purpose: 'email_verification', now: issued_at });
 
-  await assert.rejects(h.svc.verify(token), BadRequestError);
+  await assert.rejects(h.svc.verifyEmailToken(token), BadRequestError);
   assert.equal(h.user.email_verified_at, undefined);
 });
 
 test('a reset token cannot be redeemed as a verification token', async () => {
   const h = await buildHarness();
-  const { token } = await h.token_issuer.issue({ user_id: 'user-1', purpose: 'password_reset' });
+  const { token } = await h.token_issuer.issueEmailToken({ user_id: 'user-1', purpose: 'password_reset' });
 
-  await assert.rejects(h.svc.verify(token), BadRequestError);
+  await assert.rejects(h.svc.verifyEmailToken(token), BadRequestError);
   assert.equal(h.user.email_verified_at, undefined);
 });
 
 test('a garbage token is rejected without verifying anyone', async () => {
   const h = await buildHarness();
-  await assert.rejects(h.svc.verify('not-a-token'), BadRequestError);
+  await assert.rejects(h.svc.verifyEmailToken('not-a-token'), BadRequestError);
   assert.equal(h.user.email_verified_at, undefined);
 });
 

@@ -38,7 +38,7 @@ export class GoogleOAuthAdapter implements GoogleOAuthAdapterInterface {
     });
   }
 
-  async exchangeCode(params: { code: string; code_verifier: string }): Promise<GoogleIdentity> {
+  async exchangeAuthorizationCode(params: { code: string; code_verifier: string }): Promise<GoogleIdentity> {
     const { tokens } = await this.client.getToken({ code: params.code, codeVerifier: params.code_verifier });
     if (!tokens.id_token) {
       throw new UnauthorizedError('Google did not return an ID token');

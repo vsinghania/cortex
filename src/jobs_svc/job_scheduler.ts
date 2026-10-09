@@ -46,7 +46,7 @@ export class JobScheduler {
       this.tick_in_flight = true;
       TraceContext.enterBackground('job-scheduler');
       try {
-        await this.tick();
+        await this.enqueueDueSchedules();
       } catch (err) {
         logger.warn({ err }, 'job scheduler tick failed');
       } finally {
@@ -67,7 +67,7 @@ export class JobScheduler {
 
   /** Registers or updates a schedule. Idempotent on `id`, so it is safe at boot. */
   async upsertSchedule(input: UpsertScheduleInput): Promise<JobSchedule> {
-    JobScheduler.assertSchedulable(input);
+    JobScheduler.validateScheduleInput(input);
 
     const now = new Date();
     const schedule: JobSchedule = {
@@ -89,7 +89,7 @@ export class JobScheduler {
       updated_at: now
     };
 
-    const saved = await this.repo.upsert({ schedule });
+    const saved = await this.repo.upsertSchedule({ schedule });
     logger.info(
       { schedule_id: saved.id, job_name: saved.name, kind: saved.schedule.kind, next_run_at: saved.next_run_at },
       'job schedule registered'
@@ -107,7 +107,7 @@ export class JobScheduler {
    *    at the moment someone created the schedule;
    *  - an interval under the tick interval cannot fire more often than the ticker.
    */
-  private static assertSchedulable(input: UpsertScheduleInput): void {
+  private static validateScheduleInput(input: UpsertScheduleInput): void {
     // ScheduleClock stays HTTP-agnostic - it is a pure domain helper - so its
     // plain Error is translated here rather than there. Without this, a bad cron
     // expression from a request body surfaces as a 500 instead of a 400.
@@ -123,36 +123,25 @@ export class JobScheduler {
       );
     }
 
-    const handler = JobHandlerRegistry.getInstance().get(input.name);
-    if (!handler) {
-      throw new BadRequestError(
-        `Unknown job name: ${input.name}. Registered: ${JobHandlerRegistry.getInstance().registeredNames().join(', ') || '(none)'}`
-      );
-    }
-
-    try {
-      handler.parsePayload(input.payload);
-    } catch (err) {
-      throw new BadRequestError(`Payload is invalid for job ${input.name}`, { cause: err });
-    }
+    JobHandlerRegistry.getInstance().validateJobPayload(input.name, input.payload);
   }
 
   async getSchedule(id: string): Promise<JobSchedule | null> {
-    return this.repo.getById(id);
+    return this.repo.getScheduleById(id);
   }
 
   async deleteSchedule(id: string): Promise<boolean> {
-    const deleted = await this.repo.delete(id);
+    const deleted = await this.repo.deleteSchedule(id);
     if (deleted) logger.info({ schedule_id: id }, 'job schedule deleted');
     return deleted;
   }
 
   async listSchedules(params?: { enabled?: boolean }): Promise<JobSchedule[]> {
-    return this.repo.list(params);
+    return this.repo.listSchedules(params);
   }
 
   async setScheduleEnabled(params: { id: string; enabled: boolean }): Promise<JobSchedule | null> {
-    const existing = await this.repo.getById(params.id);
+    const existing = await this.repo.getScheduleById(params.id);
     if (!existing) return null;
 
     // A schedule disabled for a week would otherwise fire the instant it returns.
@@ -160,16 +149,16 @@ export class JobScheduler {
       ? ScheduleClock.nextRunAt({ schedule: existing.schedule, from: new Date() })
       : undefined;
 
-    return this.repo.setEnabled({ ...params, next_run_at });
+    return this.repo.setScheduleEnabled({ ...params, next_run_at });
   }
 
   /** One pass over everything due. Exposed for tests and smoke scripts. */
-  async tick(now: Date = new Date()): Promise<number> {
-    const due = await this.repo.listDue({ now, limit: DUE_BATCH_LIMIT });
+  async enqueueDueSchedules(now: Date = new Date()): Promise<number> {
+    const due = await this.repo.listDueSchedules({ now, limit: DUE_BATCH_LIMIT });
     let spawned = 0;
 
     for (const schedule of due) {
-      if (await this.materialize(schedule, now)) spawned++;
+      if (await this.enqueueScheduleWindow(schedule, now)) spawned++;
     }
     return spawned;
   }
@@ -187,13 +176,13 @@ export class JobScheduler {
    * is a question about the moment work starts, so it travels on the job as
    * `deadline_at` and the worker answers it.
    */
-  private async materialize(schedule: JobSchedule, now: Date): Promise<boolean> {
+  private async enqueueScheduleWindow(schedule: JobSchedule, now: Date): Promise<boolean> {
     const window = schedule.next_run_at;
     const next_run_at = ScheduleClock.nextRunAt({ schedule: schedule.schedule, from: now });
 
     let job_id: string | null = null;
     try {
-      const result = await this.jobs_svc.enqueue({
+      const result = await this.jobs_svc.enqueueJob({
         name: schedule.name,
         payload: schedule.payload,
         user_id: schedule.user_id,
@@ -222,7 +211,7 @@ export class JobScheduler {
       );
     }
 
-    const advanced = await this.repo.claimDue({
+    const advanced = await this.repo.advanceDueSchedule({
       id: schedule.id,
       expected_next_run_at: window,
       next_run_at,
@@ -231,7 +220,7 @@ export class JobScheduler {
     if (!advanced) return false;
 
     if (job_id) {
-      await this.repo.recordRun({ id: schedule.id, last_job_id: job_id });
+      await this.repo.recordScheduleRun({ id: schedule.id, last_job_id: job_id });
       logger.info(
         { schedule_id: schedule.id, job_name: schedule.name, job_id, scheduled_for: window },
         'job schedule fired'

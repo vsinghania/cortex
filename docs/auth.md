@@ -2,7 +2,7 @@
 
 Registration, login (password or Google), session refresh, logout, password reset. Issues the JWT every other route trusts, and owns the rotating refresh sessions behind it.
 
-Source: [src/auth_svc/](../src/auth_svc/) (flows + session store) and [src/user/](../src/user/) (the `User` entity). Contract: `AuthSvcInterface` — `register`, `login`, `refresh`, `logout`, `getMe`; the ones that start or rotate a session take an optional `{ ip, user_agent }` recorded on it. Password reset is `PasswordResetSvcInterface` — `requestReset`, `resetPassword`. Email verification is `EmailVerificationSvcInterface` — `requestVerification`, `requestVerificationForEmail`, `verify`. Google sign-in is `GoogleAuthSvcInterface` — `startAuthorization`, `completeAuthorization`.
+Source: [src/auth_svc/](../src/auth_svc/) (flows + session store) and [src/user/](../src/user/) (the `User` entity). Contract: `AuthSvcInterface` — `register`, `login`, `rotateRefreshSession`, `logout`, `getMe`; the ones that start or rotate a session take an optional `{ ip, user_agent }` recorded on it. Password reset is `PasswordResetSvcInterface` — `requestPasswordReset`, `resetPassword`. Email verification is `EmailVerificationSvcInterface` — `requestVerification`, `requestVerificationForEmail`, `verifyEmailToken`. Google sign-in is `GoogleAuthSvcInterface` — `startAuthorization`, `completeAuthorization`.
 
 ---
 
@@ -21,7 +21,7 @@ Two tokens with deliberately different properties:
 - **The refresh token never appears in a response body.** The controller sets the cookie and returns only the access token, so the plaintext exists solely in the cookie while the database holds a hash — a database leak yields no usable sessions.
 - **Every refresh rotates both tokens.** `rotateSession` swaps the stored hash atomically; a rotation that matches nothing throws `UnauthorizedError`, which is the reuse-detection seam.
 - **Login failures are indistinguishable.** Unknown email and bad password both return `Invalid credentials`.
-- **`SessionIssuer.toPublicUser` strips `password_hash` and `google_sub`** on every path out of the service. `SessionIssuer.issue` is the one place a session is started, whether the user proved themselves with a password or with Google.
+- **`SessionIssuer.toPublicUser` strips `password_hash` and `google_sub`** on every path out of the service. `SessionIssuer.issueSessionTokens` is the one place a session is started, whether the user proved themselves with a password or with Google.
 
 ## 2. How the rest of the system consumes it
 
@@ -35,7 +35,7 @@ Third-party access (ChatGPT, Claude) does not use these tokens at all: it gets i
 
 ```
 POST /auth/password/forgot {email}                                         → 202, always
-  └► PasswordResetSvc.requestReset ─► enqueue password_reset_email { user_id }
+  └► PasswordResetSvc.requestPasswordReset ─► enqueue password_reset_email { user_id }
                                                    │ worker
      PasswordResetEmailJobHandler ─► issue token ─► render ─► MailerSvc ─► email: /reset-password#token=…
 
@@ -45,9 +45,9 @@ POST /auth/password/reset {token, password}                                → 2
 
 - **`forgot` answers 202 whether or not the account exists**, and the SPA words its confirmation for both cases, so the endpoint cannot be used to learn which emails are registered. It sits behind a second, stricter limiter (`EMAIL_SEND_RATE_LIMIT_*`, default 5 per 15 min per IP) on top of the auth one.
 - **The token never touches a job row.** Admins can list job payloads, so the job carries `{ user_id }` only and the handler mints the token at send time. A retry after a failed send mints a new one — harmless, since the failed email never arrived.
-- **Tokens are hashed, single-use and short-lived.** `email_tokens` (auth db) stores the SHA-256, never the token; rows expire after 30 minutes and a TTL index reaps them. `consume` is one conditional update, so a link cannot be used twice even by two simultaneous submissions. Issuing deletes the user's previous token, so only the newest email works.
+- **Tokens are hashed, single-use and short-lived.** `email_tokens` (auth db) stores the SHA-256, never the token; rows expire after 30 minutes and a TTL index reaps them. `consumeEmailToken` is one conditional update, so a link cannot be used twice even by two simultaneous submissions. Issuing deletes the user's previous token, so only the newest email works.
 - **One send in flight per user.** The job's dedup key turns a second `forgot` while one is queued into a no-op, rather than a second email whose token would invalidate the first. `deadline_at` drops a send the worker cannot start within 30 minutes.
-- **A reset logs out every session** (`revokeAllForUser`) and clears the browser's refresh cookie. Access tokens already issued keep working until they expire (≤ 15 min), because verification is stateless (§2).
+- **A reset logs out every session** (`revokeSessionsForUser`) and clears the browser's refresh cookie. Access tokens already issued keep working until they expire (≤ 15 min), because verification is stateless (§2).
 - **Links need `APP_PUBLIC_URL`**, the SPA origin. The token travels in the URL fragment, which browsers never send to a server, so it stays out of CloudFront and ALB logs and out of Referer headers; the reset page strips it from the address bar once read.
 
 Delivery mechanics — transport, retries, what never gets logged — are in [mailer_svc.md](mailer_svc.md).
@@ -70,7 +70,7 @@ POST /auth/email/verify {token}                                            → 2
   └► consume token ─► set User.email_verified_at
 ```
 
-Reuses every piece of the reset machinery in §3 — the same `email_tokens` collection, hashing, single-use `consume`, dedup key and fragment-borne link — with `purpose: 'email_verification'` telling them apart. A token minted for one purpose cannot be redeemed for the other.
+Reuses every piece of the reset machinery in §3 — the same `email_tokens` collection, hashing, single-use `consumeEmailToken`, dedup key and fragment-borne link — with `purpose: 'email_verification'` telling them apart. A token minted for one purpose cannot be redeemed for the other.
 
 - **Mandatory for new password accounts.** `register` sets `User.email_verification_required` and starts no session: no access token, no `rt` cookie. `login` checks the password first and only then refuses an account that is required but not yet verified with `403 email_not_verified`, so the answer reveals nothing a wrong password would not. The SPA shows a "check your inbox" panel with a resend button for both cases. With no session there is nothing else to gate: every API route, OAuth consent and so every MCP grant sits behind a session.
 - **Older accounts are grandfathered.** Accounts from before verification was mandatory have no `email_verification_required`, keep signing in unverified, and see the soft banner with its Resend button instead. Google-created accounts are verified at creation, so the flag never applies to them.
@@ -91,7 +91,7 @@ GET /auth/google/start?return_to=/notes                                    → 3
 
 GET /auth/google/callback?code&state                                       → 302 SPA
   └► state == cookie? ─► exchange code (with verifier) ─► verify ID token
-     ─► resolve user ─► SessionIssuer.issue ─► set rt cookie ─► APP_PUBLIC_URL + return_to
+     ─► resolve user ─► SessionIssuer.issueSessionTokens ─► set rt cookie ─► APP_PUBLIC_URL + return_to
          │ on load, the SPA's bootstrapSession() turns the cookie into a session
 ```
 
@@ -102,7 +102,7 @@ Resolving the user, in order:
 
 - **Both routes are browser navigations, so they never return a problem document.** Every failure redirects to `/login#error=google_failed` (or `google_cancelled`, `google_unavailable`), and the login page shows a message.
 - **`return_to` is only ever a same-origin path** (`GoogleAuthSvc.sanitizeReturnTo`); anything else becomes `/notes`, so the callback cannot be used as an open redirect.
-- **Linking an unverified account discards the access nobody proved.** Until someone clicks a link sent to the address, whoever set the password may not own it: anyone can register a victim's email and wait for the victim to sign in with Google, which would otherwise verify the account with the squatter's password still on it. So `linkUser` calls `UserRepository.removePassword` and `revokeAllForUser` before linking, and logs `unverified account access discarded on google link` at `warn`. The cost falls on a genuine owner who never verified: their password stops working and forgot-password sets a new one. A verified account keeps its password and sessions.
+- **Linking an unverified account discards the access nobody proved.** Until someone clicks a link sent to the address, whoever set the password may not own it: anyone can register a victim's email and wait for the victim to sign in with Google, which would otherwise verify the account with the squatter's password still on it. So `linkGoogleAccountToUser` calls `UserRepository.removePassword` and `revokeSessionsForUser` before linking, and logs `unverified account access discarded on google link` at `warn`. The cost falls on a genuine owner who never verified: their password stops working and forgot-password sets a new one. A verified account keeps its password and sessions.
 - **Google-only users have no password.** Password login fails with the usual `Invalid credentials` (logged as `no_password_set`); forgot-password works and gives them one.
 - **Config:** `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` enable it (unset → disabled), and `GOOGLE_OAUTH_REDIRECT_URI` must match an authorized redirect URI on the Google "Web application" client. Local: `http://localhost:3000/api/v1/auth/google/callback`; prod: `https://api.cortexapp.me/api/v1/auth/google/callback`.
 - **The adapter** ([google_oauth_adapter.ts](../src/auth_svc/adapters/google_oauth_adapter.ts)) wraps `google-auth-library` and Zod-validates the ID token claims. Logs carry `user_id` and `outcome` (`existing` / `linked` / `created`), never the Google claims.

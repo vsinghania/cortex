@@ -9,11 +9,11 @@ export class NotePatchKind {
    * Chunks and vectors are derived from the body alone; titles are joined live at
    * retrieval, so a rename never needs re-embedding.
    */
-  static touchesBody(patch: NotePatchFields): boolean {
+  static changesNoteBody(patch: NotePatchFields): boolean {
     return patch.body !== undefined;
   }
 
-  static touchesArchive(patch: NotePatchFields): boolean {
+  static changesArchiveState(patch: NotePatchFields): boolean {
     return patch.is_archived !== undefined;
   }
 

@@ -16,7 +16,7 @@ export class ContextDocumentResolverRegistry {
     return ContextDocumentResolverRegistry.instance;
   }
 
-  register(resolver: ContextDocumentResolverInterface): void {
+  registerDocumentResolver(resolver: ContextDocumentResolverInterface): void {
     if (this.resolvers.has(resolver.corpus)) {
       throw new Error(`Context document resolver already registered: ${resolver.corpus}`);
     }
@@ -27,11 +27,11 @@ export class ContextDocumentResolverRegistry {
     return Array.from(this.resolvers.keys());
   }
 
-  async resolve(params: { user_id: string; ref: ContextRef }): Promise<ContextDocument | null> {
+  async resolveContextDocument(params: { user_id: string; ref: ContextRef }): Promise<ContextDocument | null> {
     const resolver = this.resolvers.get(params.ref.corpus);
     if (!resolver) {
       throw new BadRequestError(`Unsupported context corpus: ${params.ref.corpus}`);
     }
-    return resolver.resolve({ user_id: params.user_id, document_id: params.ref.document_id });
+    return resolver.resolveContextDocument({ user_id: params.user_id, document_id: params.ref.document_id });
   }
 }

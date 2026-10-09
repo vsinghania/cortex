@@ -5,7 +5,7 @@ import { JobsSvc } from '../../jobs_svc/jobs_svc.js';
 import { JobScheduler } from '../../jobs_svc/job_scheduler.js';
 import { JobHandlerRegistry } from '../../jobs_svc/handlers/job_handler_registry.js';
 import { JobStatus } from '../../jobs_svc/types/job.types.js';
-import { BadRequestError, NotFoundError } from '../../common/errors.js';
+import { NotFoundError } from '../../common/errors.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -110,7 +110,7 @@ export class AdminJobsController {
     this.router.patch('/schedules/:id', this.setScheduleEnabled.bind(this));
     this.router.delete('/schedules/:id', this.deleteSchedule.bind(this));
 
-    this.router.get('/stats', this.getStats.bind(this));
+    this.router.get('/stats', this.getJobCountsByStatus.bind(this));
 
     this.router.post('/', this.enqueueJob.bind(this));
     this.router.get('/', this.listJobs.bind(this));
@@ -130,10 +130,10 @@ export class AdminJobsController {
   private async enqueueJob(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const body = req.body as EnqueueBody;
-      AdminJobsController.assertRunnable(body.name, body.payload ?? {});
+      JobHandlerRegistry.getInstance().validateJobPayload(body.name, body.payload ?? {});
 
       const jobs_svc = await JobsSvc.getInstance();
-      const { job_id } = await jobs_svc.enqueue({
+      const { job_id } = await jobs_svc.enqueueJob({
         ...body,
         payload: body.payload ?? {},
         requested_by: req.auth!.user_id
@@ -167,18 +167,18 @@ export class AdminJobsController {
 
   /** Queue depth by status - the counterpart to a name with no registered handler. */
   @validateRequest({ query: JobStatsQuerySchema })
-  private async getStats(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async getJobCountsByStatus(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const q = req.query as Record<string, string | undefined>;
       const jobs_svc = await JobsSvc.getInstance();
 
-      const counts = await jobs_svc.getStats({ name: q.name });
+      const counts = await jobs_svc.getJobCountsByStatus({ name: q.name });
       res.status(200).json({
         response: {
           counts,
           // Queued rows under a name nothing handles are claimed and released on
           // a loop, so surfacing what IS handled makes that diagnosable.
-          registered_names: JobHandlerRegistry.getInstance().registeredNames()
+          registered_names: JobHandlerRegistry.getInstance().listRegisteredJobNames()
         }
       });
     } catch (e) {
@@ -212,7 +212,7 @@ export class AdminJobsController {
       const existing = await jobs_svc.getJob(job_id);
       if (!existing) throw new NotFoundError('Job not found');
 
-      const job = await jobs_svc.requestCancel(job_id);
+      const job = await jobs_svc.requestJobCancellation(job_id);
       res.status(202).json({ response: { job: job ?? existing } });
     } catch (e) {
       next(e);
@@ -302,27 +302,6 @@ export class AdminJobsController {
       res.status(204).send();
     } catch (e) {
       next(e);
-    }
-  }
-
-  /**
-   * Refuses work that could only fail later: an unregistered name spawns jobs no
-   * worker can run (claimed and released on a loop rather than failing visibly),
-   * and a payload the handler's own schema rejects would fail on the worker
-   * rather than at the request that created it.
-   */
-  private static assertRunnable(name: string, payload: Record<string, unknown>): void {
-    const registry = JobHandlerRegistry.getInstance();
-    const handler = registry.get(name);
-    if (!handler) {
-      throw new BadRequestError(
-        `Unknown job name: ${name}. Registered: ${registry.registeredNames().join(', ') || '(none)'}`
-      );
-    }
-    try {
-      handler.parsePayload(payload);
-    } catch (err) {
-      throw new BadRequestError(`Payload is invalid for job ${name}`, { cause: err });
     }
   }
 }

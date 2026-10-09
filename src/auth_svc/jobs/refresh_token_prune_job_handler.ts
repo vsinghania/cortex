@@ -43,7 +43,7 @@ export class RefreshTokenPruneJobHandler implements JobHandler<RefreshTokenPrune
     for (;;) {
       if (ctx.signal.aborted) break;
 
-      const batch = await this.repo.pruneExpired(payload.batch_limit);
+      const batch = await this.repo.pruneExpiredSessions(payload.batch_limit);
       deleted += batch;
       ctx.reportProgress({ processed: deleted, succeeded: deleted, failed: 0 });
       if (batch < payload.batch_limit) break;

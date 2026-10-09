@@ -19,18 +19,18 @@ export interface JobsSvcInterface {
    * Throws ConflictError when `dedup_key` collides with an active job of the
    * same (name, user_id).
    */
-  enqueue(input: EnqueueInput): Promise<EnqueueResult>;
+  enqueueJob(input: EnqueueInput): Promise<EnqueueResult>;
 
   getJob(job_id: string): Promise<Job | null>;
   listJobs(input: ListJobsInput): Promise<Job[]>;
 
   /** Cancels a queued job outright; flags a running one for its worker to notice. */
-  requestCancel(job_id: string): Promise<Job | null>;
+  requestJobCancellation(job_id: string): Promise<Job | null>;
 
   /**
    * Queue depth by status. A name with queued rows and no registered handler is
    * the signal to watch: those jobs are being claimed and released unrun on a
    * loop, which looks healthy from the outside.
    */
-  getStats(params?: { name?: JobName }): Promise<Record<JobStatus, number>>;
+  getJobCountsByStatus(params?: { name?: JobName }): Promise<Record<JobStatus, number>>;
 }

@@ -12,7 +12,7 @@ const DOC = {
 };
 
 function textOf(doc: typeof DOC, max_tokens?: number): { text: string; truncated: boolean; role: string } {
-  const { message, truncated } = ContextMessageBuilder.build(doc, max_tokens);
+  const { message, truncated } = ContextMessageBuilder.buildContextMessage(doc, max_tokens);
   return { text: MessageContent.toText(message.content), truncated, role: message.role };
 }
 
@@ -40,7 +40,7 @@ test('a body cannot close the document block early', () => {
 
 test('teaches no citation marker for the attached document', () => {
   const { text } = textOf(DOC);
-  assert.ok(!text.includes(CitationExtractor.markerFor('')));
+  assert.ok(!text.includes(CitationExtractor.buildCitationMarker('')));
 });
 
 test('falls back to Untitled for an empty title', () => {

@@ -6,7 +6,7 @@ import { Time } from '../src/lib/time.js';
 const NOW = new Date('2026-09-09T12:00:00.000Z');
 
 test('expiryAt offsets from the injected clock', () => {
-  const expiry = JobLease.expiryAt({ now: NOW, lease_ms: Time.minutesToMs(2) });
+  const expiry = JobLease.calculateLeaseExpiry({ now: NOW, lease_ms: Time.minutesToMs(2) });
   assert.equal(expiry.toISOString(), '2026-09-09T12:02:00.000Z');
 });
 
@@ -29,14 +29,14 @@ test('a terminal job (null visible_at) is never expired', () => {
 });
 
 test('heartbeat is lease/3 when that is under the progress flush interval', () => {
-  assert.equal(JobLease.heartbeatIntervalMs(Time.secondsToMs(15)), 5000);
+  assert.equal(JobLease.calculateHeartbeatIntervalMs(Time.secondsToMs(15)), 5000);
 });
 
 test('heartbeat is capped by the progress flush interval on long leases', () => {
   // lease/3 would be 100s at a 5-minute lease, which would freeze the polling UI.
-  assert.equal(JobLease.heartbeatIntervalMs(Time.minutesToMs(5)), 10_000);
+  assert.equal(JobLease.calculateHeartbeatIntervalMs(Time.minutesToMs(5)), 10_000);
 });
 
 test('heartbeat never returns zero', () => {
-  assert.ok(JobLease.heartbeatIntervalMs(1) >= 1);
+  assert.ok(JobLease.calculateHeartbeatIntervalMs(1) >= 1);
 });

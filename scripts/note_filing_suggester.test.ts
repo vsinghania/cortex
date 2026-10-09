@@ -20,22 +20,22 @@ const FOLDERS: NoteFolderNode[] = [
 const TAGS = [{ tag: 'Meetings', count: 4 }, { tag: 'ideas', count: 1 }];
 
 test('keeps a known folder with its path and drops an invented one', () => {
-  const known = NoteFilingSuggester.sanitize({ title: null, folder_match: 'clear', folder_id: 'f-clients', tags: [] }, { folders: FOLDERS, tags: TAGS });
+  const known = NoteFilingSuggester.sanitizeFilingSuggestion({ title: null, folder_match: 'clear', folder_id: 'f-clients', tags: [] }, { folders: FOLDERS, tags: TAGS });
   assert.deepEqual(known.folder, { id: 'f-clients', path: ['Work', 'Clients'] });
 
-  const invented = NoteFilingSuggester.sanitize({ title: null, folder_match: 'clear', folder_id: 'f-made-up', tags: [] }, { folders: FOLDERS, tags: TAGS });
+  const invented = NoteFilingSuggester.sanitizeFilingSuggestion({ title: null, folder_match: 'clear', folder_id: 'f-made-up', tags: [] }, { folders: FOLDERS, tags: TAGS });
   assert.equal(invented.folder, null);
 });
 
 test('drops a folder unless the model calls it a clear match', () => {
   for (const folder_match of ['loose', 'none'] as const) {
-    const result = NoteFilingSuggester.sanitize({ title: null, folder_match, folder_id: 'f-clients', tags: [] }, { folders: FOLDERS, tags: TAGS });
+    const result = NoteFilingSuggester.sanitizeFilingSuggestion({ title: null, folder_match, folder_id: 'f-clients', tags: [] }, { folders: FOLDERS, tags: TAGS });
     assert.equal(result.folder, null, `folder_match ${folder_match}`);
   }
 });
 
 test('snaps tags to existing spelling, dedupes by case and caps the count', () => {
-  const result = NoteFilingSuggester.sanitize(
+  const result = NoteFilingSuggester.sanitizeFilingSuggestion(
     { title: null, folder_match: 'none', folder_id: null, tags: ['meetings', 'MEETINGS', ' Ideas ', '', 'a', 'b', 'c', 'd'] },
     { folders: FOLDERS, tags: TAGS }
   );
@@ -44,13 +44,13 @@ test('snaps tags to existing spelling, dedupes by case and caps the count', () =
 });
 
 test('suggests a title only when the note has none', () => {
-  const untitled = NoteFilingSuggester.sanitize(
+  const untitled = NoteFilingSuggester.sanitizeFilingSuggestion(
     { title: '  Quarterly   Planning Notes ', folder_match: 'none', folder_id: null, tags: [] },
     { title: '   ', folders: FOLDERS, tags: TAGS }
   );
   assert.equal(untitled.title, 'Quarterly Planning Notes');
 
-  const titled = NoteFilingSuggester.sanitize(
+  const titled = NoteFilingSuggester.sanitizeFilingSuggestion(
     { title: 'Something Else', folder_match: 'none', folder_id: null, tags: [] },
     { title: 'My title', folders: FOLDERS, tags: TAGS }
   );
@@ -58,10 +58,10 @@ test('suggests a title only when the note has none', () => {
 });
 
 test('a blank or overlong suggested title is cleaned up', () => {
-  const blank = NoteFilingSuggester.sanitize({ title: '   ', folder_match: 'none', folder_id: null, tags: [] }, { folders: FOLDERS, tags: TAGS });
+  const blank = NoteFilingSuggester.sanitizeFilingSuggestion({ title: '   ', folder_match: 'none', folder_id: null, tags: [] }, { folders: FOLDERS, tags: TAGS });
   assert.equal(blank.title, null);
 
-  const long = NoteFilingSuggester.sanitize(
+  const long = NoteFilingSuggester.sanitizeFilingSuggestion(
     { title: 'x'.repeat(NoteFilingSuggester.MAX_TITLE_CHARS + 50), folder_match: 'none', folder_id: null, tags: [] },
     { folders: FOLDERS, tags: TAGS }
   );

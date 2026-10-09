@@ -9,5 +9,5 @@ export interface ContextDocumentResolverInterface {
   readonly corpus: string;
 
   /** User-scoped: returns null for a document the user does not own or that no longer exists. */
-  resolve(params: { user_id: string; document_id: string }): Promise<ContextDocument | null>;
+  resolveContextDocument(params: { user_id: string; document_id: string }): Promise<ContextDocument | null>;
 }

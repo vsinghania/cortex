@@ -58,10 +58,10 @@ class NotesOrganizationSmoke {
 
   private static async checkFolders(folders_svc: NoteFoldersSvc): Promise<void> {
     const user_id = NotesOrganizationSmoke.USER_ID;
-    const first = await folders_svc.ensurePath({ user_id, path: 'Work/Clients/Acme' });
+    const first = await folders_svc.ensureFolderPath({ user_id, path: 'Work/Clients/Acme' });
     NotesOrganizationSmoke.assert(first.created_count === 3, 'ensurePath creates every missing segment');
 
-    const again = await folders_svc.ensurePath({ user_id, path: 'work / CLIENTS/acme' });
+    const again = await folders_svc.ensureFolderPath({ user_id, path: 'work / CLIENTS/acme' });
     NotesOrganizationSmoke.assert(again.created_count === 0, 'ensurePath is idempotent and ignores case');
     NotesOrganizationSmoke.assert(again.folder.id === first.folder.id, 'ensurePath resolves the same leaf');
     NotesOrganizationSmoke.assert(again.path.join('/') === 'Work/Clients/Acme', 'ensurePath returns stored casing');
@@ -72,7 +72,7 @@ class NotesOrganizationSmoke {
       'sibling names are unique ignoring case'
     );
 
-    const tree = await folders_svc.listTree({ user_id });
+    const tree = await folders_svc.listFolderTree({ user_id });
     const work = tree.find((f) => f.path.join('/') === 'Work')!;
     const clients = tree.find((f) => f.path.join('/') === 'Work/Clients')!;
     const acme = tree.find((f) => f.path.join('/') === 'Work/Clients/Acme')!;
@@ -84,7 +84,7 @@ class NotesOrganizationSmoke {
     );
 
     await folders_svc.updateFolder({ user_id, folder_id: clients.id, parent_id: null, name: 'Clients Top' });
-    const moved_tree = await folders_svc.listTree({ user_id });
+    const moved_tree = await folders_svc.listFolderTree({ user_id });
     const moved_acme = moved_tree.find((f) => f.id === acme.id)!;
     NotesOrganizationSmoke.assert(
       moved_acme.path.join('/') === 'Clients Top/Acme' && moved_acme.ancestor_ids.join() === clients.id,
@@ -97,7 +97,7 @@ class NotesOrganizationSmoke {
 
   private static async checkFolderFilters(notes_svc: NotesSvc, folders_svc: NoteFoldersSvc): Promise<void> {
     const user_id = NotesOrganizationSmoke.USER_ID;
-    const tree = await folders_svc.listTree({ user_id });
+    const tree = await folders_svc.listFolderTree({ user_id });
     const work = tree.find((f) => f.path.join('/') === 'Work')!;
     const acme = tree.find((f) => f.path.join('/') === 'Work/Clients/Acme')!;
 
@@ -114,7 +114,7 @@ class NotesOrganizationSmoke {
     const none = await notes_svc.listNotes({ user_id, filter: { folder: { folder_id: null } } });
     NotesOrganizationSmoke.assertIds(none.items, [unfiled.id], 'unfiled filter lists notes outside folders');
 
-    const counts = await folders_svc.listTree({ user_id });
+    const counts = await folders_svc.listFolderTree({ user_id });
     NotesOrganizationSmoke.assert(counts.find((f) => f.id === acme.id)!.note_count === 1, 'folder tree carries note counts');
 
     const refiled = await notes_svc.updateNote(user_id, { id: in_acme.id }, { folder_id: null });
@@ -243,7 +243,7 @@ class NotesOrganizationSmoke {
 
   private static async checkFolderCascadeDelete(notes_svc: NotesSvc, folders_svc: NoteFoldersSvc): Promise<void> {
     const user_id = NotesOrganizationSmoke.USER_ID;
-    const tree = await folders_svc.listTree({ user_id });
+    const tree = await folders_svc.listFolderTree({ user_id });
     const work = tree.find((f) => f.path.join('/') === 'Work')!;
     const acme = tree.find((f) => f.path.join('/') === 'Work/Clients/Acme')!;
     const keeper_folder = await folders_svc.createFolder({ user_id, name: 'Personal' });
@@ -262,7 +262,7 @@ class NotesOrganizationSmoke {
     const trashed = await NotesOrganizationSmoke.countInTrash([doomed_top.id, doomed_deep.id]);
     NotesOrganizationSmoke.assert(trashed === 2, `cascade-deleted notes are snapshotted to trash, got ${trashed}`);
 
-    const tree_after = await folders_svc.listTree({ user_id });
+    const tree_after = await folders_svc.listFolderTree({ user_id });
     NotesOrganizationSmoke.assert(tree_after.map((f) => f.name).join() === 'Personal', 'only the unrelated folder remains');
 
     await folders_svc.deleteFolder({ user_id, folder_id: keeper_folder.id });
@@ -307,22 +307,22 @@ class NotesOrganizationSmoke {
       const foreign = await store.setPinnedForUser({ conversation_id: conversation.conversation_id, user_id: `${user_id}-other`, is_pinned: false });
       NotesOrganizationSmoke.assert(foreign === null, 'only the owner can pin a conversation');
 
-      const pinned_list = await store.listForUser({ user_id, pinned: true });
-      const unpinned_list = await store.listForUser({ user_id, pinned: false });
+      const pinned_list = await store.listConversationsForUser({ user_id, pinned: true });
+      const unpinned_list = await store.listConversationsForUser({ user_id, pinned: false });
       NotesOrganizationSmoke.assert(pinned_list.length === 1 && unpinned_list.length === 0, 'pinned filter splits the list');
     } finally {
-      await store.deleteForUser({ conversation_id: conversation.conversation_id, user_id });
+      await store.deleteConversationForUser({ conversation_id: conversation.conversation_id, user_id });
     }
     NotesOrganizationSmoke.pass('pinned conversations');
   }
 
   private static async checkFilingSuggestion(notes_svc: NotesSvc, folders_svc: NoteFoldersSvc): Promise<void> {
     const user_id = NotesOrganizationSmoke.USER_ID;
-    const recipes = await folders_svc.ensurePath({ user_id, path: 'Home/Recipes' });
-    await folders_svc.ensurePath({ user_id, path: 'Work/Meetings' });
+    const recipes = await folders_svc.ensureFolderPath({ user_id, path: 'Home/Recipes' });
+    await folders_svc.ensureFolderPath({ user_id, path: 'Work/Meetings' });
     const tagged = await NotesOrganizationSmoke.createNote(notes_svc, 'Pasta', { tags: ['Cooking'] });
 
-    const suggestion = await notes_svc.suggestFiling({
+    const suggestion = await notes_svc.suggestNoteFiling({
       user_id,
       body: 'Slow-cooked tomato sauce: simmer garlic, olive oil and crushed tomatoes for two hours, finish with basil.'
     });
@@ -330,7 +330,7 @@ class NotesOrganizationSmoke {
     NotesOrganizationSmoke.assert(suggestion.title !== null, 'a title is suggested for an untitled note');
     NotesOrganizationSmoke.assert(suggestion.folder?.id === recipes.folder.id, 'the recipes folder is suggested');
 
-    const titled = await notes_svc.suggestFiling({ user_id, title: 'Sauce', body: 'tomato sauce recipe' });
+    const titled = await notes_svc.suggestNoteFiling({ user_id, title: 'Sauce', body: 'tomato sauce recipe' });
     NotesOrganizationSmoke.assert(titled.title === null, 'no title is suggested when one exists');
 
     await notes_svc.deleteNotes({ user_id, ids: [tagged.id] });
@@ -341,7 +341,7 @@ class NotesOrganizationSmoke {
     const user_id = NotesOrganizationSmoke.USER_ID;
     const { items } = await notes_svc.listNotes({ user_id, filter: { archived: 'include' }, limit: 100 });
     await notes_svc.deleteNotes({ user_id, ids: items.map((n) => n.id) });
-    const folders = await folders_svc.listTree({ user_id });
+    const folders = await folders_svc.listFolderTree({ user_id });
     for (const top of folders.filter((f) => f.parent_id === null)) {
       await folders_svc.deleteFolder({ user_id, folder_id: top.id });
     }

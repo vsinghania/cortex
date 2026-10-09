@@ -2,7 +2,7 @@ import type { EmailToken, EmailTokenPurpose } from '../types/email_token.types.j
 
 export interface EmailTokenRepository {
   /** Deletes the user's existing tokens for this purpose, then stores this one: the latest link wins. */
-  replaceForUser(input: {
+  replaceEmailTokenForUser(input: {
     user_id: string;
     purpose: EmailTokenPurpose;
     token_hash: string;
@@ -10,5 +10,5 @@ export interface EmailTokenRepository {
   }): Promise<void>;
 
   /** Marks an unconsumed, unexpired token consumed in one write; null when there is none. */
-  consume(input: { token_hash: string; purpose: EmailTokenPurpose; now: Date }): Promise<EmailToken | null>;
+  consumeEmailToken(input: { token_hash: string; purpose: EmailTokenPurpose; now: Date }): Promise<EmailToken | null>;
 }

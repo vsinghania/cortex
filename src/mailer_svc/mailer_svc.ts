@@ -32,15 +32,15 @@ export class MailerSvc implements MailerSvcInterface {
   }
 
   static create(params: { config: MailerConfig; transport?: MailTransport }): MailerSvc {
-    const transport = params.transport ?? MailTransportRegistry.build(params.config);
+    const transport = params.transport ?? MailTransportRegistry.createTransport(params.config);
     logger.info({ transport: transport.kind }, 'Mailer loaded');
     return new MailerSvc(transport, params.config.from);
   }
 
-  async send(message: MailMessage): Promise<MailSendResult> {
+  async sendMail(message: MailMessage): Promise<MailSendResult> {
     const start_ms = performance.now();
     try {
-      const result = await this.transport.send({ ...message, from: this.from });
+      const result = await this.transport.sendMail({ ...message, from: this.from });
       logger.info(
         {
           template: message.template,
@@ -52,7 +52,7 @@ export class MailerSvc implements MailerSvcInterface {
       );
       return result;
     } catch (err) {
-      const delivery_err = MailerSvc.toDeliveryError(err);
+      const delivery_err = MailerSvc.toMailDeliveryError(err);
       logger.error(
         {
           err: delivery_err,
@@ -67,15 +67,15 @@ export class MailerSvc implements MailerSvcInterface {
     }
   }
 
-  async verify(): Promise<void> {
-    await this.transport.verify();
+  async verifyTransportConnection(): Promise<void> {
+    await this.transport.verifyTransportConnection();
   }
 
   /**
    * Transports only throw MailDeliveryError, so anything else is a bug. It is not
    * logged as-is because its message could quote the recipient.
    */
-  private static toDeliveryError(err: unknown): MailDeliveryError {
+  private static toMailDeliveryError(err: unknown): MailDeliveryError {
     if (err instanceof MailDeliveryError) return err;
     const error_code = err instanceof Error ? `unexpected_${err.name}` : 'unexpected';
     return new MailDeliveryError({ error_code, retryable: true });

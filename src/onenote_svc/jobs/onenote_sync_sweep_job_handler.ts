@@ -50,7 +50,7 @@ export class OneNoteSyncSweepJobHandler implements JobHandler<OneNoteSyncSweepPa
 
   async handle(_payload: OneNoteSyncSweepPayload, ctx: JobContext): Promise<JobResult> {
     const start_ms = performance.now();
-    const connections = await this.connection_repo.listSyncable({ limit: MAX_CONNECTIONS_PER_SWEEP });
+    const connections = await this.connection_repo.listSyncableConnections({ limit: MAX_CONNECTIONS_PER_SWEEP });
     const jobs_svc = this.jobs_svc ?? (await JobsSvc.getInstance());
 
     let enqueued = 0;
@@ -59,7 +59,7 @@ export class OneNoteSyncSweepJobHandler implements JobHandler<OneNoteSyncSweepPa
     for (const connection of connections) {
       if (ctx.signal.aborted) break;
       try {
-        await jobs_svc.enqueue({
+        await jobs_svc.enqueueJob({
           name: OneNoteJobName.OneNoteSync,
           user_id: connection.user_id,
           payload: { user_id: connection.user_id, mode: 'incremental', reason: 'scheduled' },

@@ -40,10 +40,10 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
 
   async handle(payload: OneNoteSyncPayload, ctx: JobContext): Promise<JobResult> {
     const start_ms = performance.now();
-    const resume = OneNoteSyncJobHandler.resumeFrom(payload, ctx);
+    const resume = OneNoteSyncJobHandler.resolveResumeCheckpoint(payload, ctx);
 
     try {
-      const result = await this.sync_svc.run({
+      const result = await this.sync_svc.runSyncPass({
         user_id: payload.user_id,
         mode: payload.mode,
         notebook_ids: payload.notebook_ids ?? undefined,
@@ -68,13 +68,13 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
       }
 
       if (result.checkpoint) ctx.setCheckpoint(result.checkpoint as Record<string, unknown>);
-      await this.enqueueContinuation(payload, result.checkpoint);
+      await this.enqueueSyncContinuation(payload, result.checkpoint);
       return {
         outcome: 'succeeded',
         summary: { ...result.stats, partial: true, duration_ms: Time.elapsedMs(start_ms) }
       };
     } catch (err) {
-      return OneNoteSyncJobHandler.toFailure(err, payload);
+      return OneNoteSyncJobHandler.toSyncJobFailure(err, payload);
     }
   }
 
@@ -82,7 +82,7 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
    * The same-job checkpoint wins: it exists only on a retry of this job, which is newer
    * than whatever the payload was created with.
    */
-  private static resumeFrom(payload: OneNoteSyncPayload, ctx: JobContext): OneNoteSyncCheckpoint | undefined {
+  private static resolveResumeCheckpoint(payload: OneNoteSyncPayload, ctx: JobContext): OneNoteSyncCheckpoint | undefined {
     if (ctx.checkpoint) return ctx.checkpoint as OneNoteSyncCheckpoint;
     if (!payload.resume) return undefined;
     return {
@@ -98,10 +98,10 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
    * with the job that is creating it, since that one holds the key until it completes.
    * One continuation per paused pass, so this cannot pile up.
    */
-  private async enqueueContinuation(payload: OneNoteSyncPayload, checkpoint?: OneNoteSyncCheckpoint): Promise<void> {
+  private async enqueueSyncContinuation(payload: OneNoteSyncPayload, checkpoint?: OneNoteSyncCheckpoint): Promise<void> {
     try {
       const jobs_svc = this.jobs_svc ?? (await JobsSvc.getInstance());
-      await jobs_svc.enqueue({
+      await jobs_svc.enqueueJob({
         name: OneNoteJobName.OneNoteSync,
         user_id: payload.user_id,
         payload: {
@@ -121,7 +121,7 @@ export class OneNoteSyncJobHandler implements JobHandler<OneNoteSyncPayload> {
     }
   }
 
-  private static toFailure(err: unknown, payload: OneNoteSyncPayload): JobResult {
+  private static toSyncJobFailure(err: unknown, payload: OneNoteSyncPayload): JobResult {
     if (err instanceof OneNoteReauthRequiredError) {
       // The connection is already parked as needs_reauth; only the user can fix it.
       logger.warn({ user_id: payload.user_id, reason: 'reauth_required' }, 'onenote sync stopped');

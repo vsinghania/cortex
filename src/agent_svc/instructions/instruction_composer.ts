@@ -13,14 +13,14 @@ export class InstructionComposer {
   private constructor() {}
 
   /** Throws NotFoundError when the manifest names an unknown policy. */
-  static forManifest(manifest: AgentManifest): string {
-    const policies = InstructionPolicyRegistry.getInstance().resolveAll(
+  static composeManifestInstructions(manifest: AgentManifest): string {
+    const policies = InstructionPolicyRegistry.getInstance().resolveInstructionPolicies(
       manifest.instruction_policy_names
     );
-    return InstructionComposer.compose({ instructions: manifest.instructions, policies });
+    return InstructionComposer.composeInstructions({ instructions: manifest.instructions, policies });
   }
 
-  static compose(params: { instructions: string; policies: InstructionPolicy[] }): string {
+  static composeInstructions(params: { instructions: string; policies: InstructionPolicy[] }): string {
     if (params.policies.length === 0) return params.instructions;
     const sections = params.policies.map((policy) => `## ${policy.title}\n\n${policy.body()}`);
     return [params.instructions.trimEnd(), InstructionComposer.RULES_PREAMBLE, ...sections].join('\n\n');

@@ -32,7 +32,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
    * every call site, where a missing one reads as `undefined.length` and takes the page
    * down with it.
    */
-  private static toConnection(doc: unknown): OneNoteConnection {
+  private static toDomainConnection(doc: unknown): OneNoteConnection {
     const connection = MongooseUtils.toDomain<OneNoteConnection>(doc);
     return {
       ...connection,
@@ -44,7 +44,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
 
   async findByUserId(user_id: string): Promise<OneNoteConnection | null> {
     const found = await this.model.findOne({ user_id }).lean();
-    return found ? MongooseOneNoteConnectionRepository.toConnection(found) : null;
+    return found ? MongooseOneNoteConnectionRepository.toDomainConnection(found) : null;
   }
 
   /** Projected at the query, so the sealed grant never leaves the database on this path. */
@@ -56,7 +56,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
       .lean<OneNoteConnectionSummary[]>();
   }
 
-  async upsert(input: CreateOneNoteConnectionInput): Promise<OneNoteConnection> {
+  async upsertConnection(input: CreateOneNoteConnectionInput): Promise<OneNoteConnection> {
     const updated = await this.model
       .findOneAndUpdate(
         { user_id: input.user_id },
@@ -77,7 +77,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
       )
       .lean();
 
-    return MongooseOneNoteConnectionRepository.toConnection(updated);
+    return MongooseOneNoteConnectionRepository.toDomainConnection(updated);
   }
 
   async updateTokenCache(params: { user_id: string; token_cache_sealed: string }): Promise<void> {
@@ -87,7 +87,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
     );
   }
 
-  async listSyncable(params: { limit: number }): Promise<OneNoteConnection[]> {
+  async listSyncableConnections(params: { limit: number }): Promise<OneNoteConnection[]> {
     const docs = await this.model
       .find({
         status: OneNoteConnectionStatus.Connected,
@@ -95,7 +95,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
       })
       .limit(params.limit)
       .lean();
-    return docs.map((d) => MongooseOneNoteConnectionRepository.toConnection(d));
+    return docs.map((d) => MongooseOneNoteConnectionRepository.toDomainConnection(d));
   }
 
   async updateSelectedNotebooks(params: { user_id: string; notebook_ids: string[] }): Promise<OneNoteConnection | null> {
@@ -106,7 +106,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
         { new: true }
       )
       .lean();
-    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
+    return updated ? MongooseOneNoteConnectionRepository.toDomainConnection(updated) : null;
   }
 
   async cacheNotebooks(params: {
@@ -134,7 +134,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
         { new: true }
       )
       .lean();
-    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
+    return updated ? MongooseOneNoteConnectionRepository.toDomainConnection(updated) : null;
   }
 
   async updateNotebookSyncState(params: {
@@ -157,7 +157,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
         { new: true, arrayFilters: [{ 'nb.id': params.notebook_id }] }
       )
       .lean();
-    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
+    return updated ? MongooseOneNoteConnectionRepository.toDomainConnection(updated) : null;
   }
 
   async recordNotebookFailure(params: {
@@ -176,7 +176,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
         { new: true, arrayFilters: [{ 'nb.id': params.notebook_id }] }
       )
       .lean();
-    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
+    return updated ? MongooseOneNoteConnectionRepository.toDomainConnection(updated) : null;
   }
 
   async updateSyncState(params: {
@@ -190,7 +190,7 @@ export class MongooseOneNoteConnectionRepository implements OneNoteConnectionRep
     if (Object.keys(set).length === 0) return this.findByUserId(params.user_id);
 
     const updated = await this.model.findOneAndUpdate({ user_id: params.user_id }, { $set: set }, { new: true }).lean();
-    return updated ? MongooseOneNoteConnectionRepository.toConnection(updated) : null;
+    return updated ? MongooseOneNoteConnectionRepository.toDomainConnection(updated) : null;
   }
 
   async updateStatus(params: {

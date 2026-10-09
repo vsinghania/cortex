@@ -7,7 +7,7 @@ import { NotesSvc } from '../../notes_svc/notes_svc.js';
 export class NotesContextDocumentResolver implements ContextDocumentResolverInterface {
   readonly corpus = Corpus.Notes;
 
-  async resolve(params: { user_id: string; document_id: string }): Promise<ContextDocument | null> {
+  async resolveContextDocument(params: { user_id: string; document_id: string }): Promise<ContextDocument | null> {
     // NotesSvc is per-request by convention, so it is built here rather than held as state.
     const notes_svc = await NotesSvc.create();
     const note = await notes_svc.getNote(params.user_id, { id: params.document_id });

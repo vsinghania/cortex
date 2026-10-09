@@ -59,10 +59,10 @@ AgentSvc ──► AgentRegistry ──► BaseAgent (OpenAiAgent)
 - **`BaseAgent` instances are shared across requests.** Never store per-call state on `this`.
 - **Two MCP modes.** `SelfHosted` — we open the streamable-HTTP connection and own its lifecycle. `PublicHosted` — registered as a hosted MCP tool, no connection from us. Auth comes from `http.auth_token_env` read at refresh time; a missing env var skips that server with a warning.
 - **Cross-engine sub-agents are not supported** — mismatched engines are skipped with a warning.
-- **Conversation continuity rides on `previous_response_id`.** `appendTurn` stores the user and assistant messages plus the response id that the next call replays. A new conversation also gets a title from [ai_svc](ai_svc.md).
+- **Conversation continuity rides on `previous_response_id`.** `appendConversationTurn` stores the user and assistant messages plus the response id that the next call replays. A new conversation also gets a title from [ai_svc](ai_svc.md).
 - **Tool results are normalized on the way in.** `OpenAiSdkUtils.toToolContent` parses the result once and stores it as a `{type:'json'}` content part, because the agents SDK discards MCP `structuredContent` and hands back a stringified blob (see [mcp.md](mcp.md)). Consumers read the payload; they do not re-parse strings.
 - **A conversation can be anchored to a document.** `runByAgentId` accepts `context_ref: { corpus, document_id }` when a thread starts; it is stored on the conversation and wins over any later request, so a thread continued from anywhere keeps its document. Each run re-resolves the document (user-scoped) through `ContextDocumentResolverRegistry` and `ContextMessageBuilder` turns it into one system message placed just before the latest input — capped at `MAX_DOCUMENT_TOKENS`, sent to the model, never persisted, so the model always reads the current version. Resolvers are registered from the composition root ([context_document_resolver_bootstrap.ts](../src/web-server/bootstrap/context_document_resolver_bootstrap.ts)) because agent_svc cannot import notes_svc. A missing document on a new thread is a `NotFoundError`; on an existing thread the run proceeds without it. `listConversations` filters by `context_ref`. The note page's chat panel is the one caller today.
-- **Citations are extracted here but owned elsewhere.** `runByAgentId` hands this turn's tool payloads and the answer text to [citation_svc](citation_svc.md), persists the returned ids on the assistant message, and resolves them before returning. `getConversation` resolves the whole transcript in one pass. The boundary is plain data — `AgentSvc.toolPayloads` does the message-shape work — so agent_svc stays free of any domain module, an invariant [scripts/layering.test.ts](../scripts/layering.test.ts) enforces.
+- **Citations are extracted here but owned elsewhere.** `runByAgentId` hands this turn's tool payloads and the answer text to [citation_svc](citation_svc.md), persists the returned ids on the assistant message, and resolves them before returning. `getConversation` resolves the whole transcript in one pass. The boundary is plain data — `AgentSvc.extractToolResultPayloads` does the message-shape work — so agent_svc stays free of any domain module, an invariant [scripts/layering.test.ts](../scripts/layering.test.ts) enforces.
 
 ## 4. Tools
 
@@ -83,7 +83,7 @@ Rules every agent needs — no raw JSON or internal ids in answers, don't reveal
 | `citations` | teaches the `[c:<chunk_id>]` marker, built from `CitationExtractor.MARKER_SYNTAX` |
 | `write_safety` | write only on request, resolve the target, confirm deletes and bulk changes |
 
-`AgentFactory.forManifest` composes the effective prompt via `InstructionComposer`: the manifest's `instructions`, then one `# Response rules` section holding the named policies in **registry order** (manifest order and duplicates don't matter). The composed string lives on `BaseAgent.instructions`; `manifest.instructions` stays exactly what is stored. An unknown name throws, so — like an unknown tool — the agent is skipped rather than built without its gates.
+`AgentFactory.createAgentFromManifest` composes the effective prompt via `InstructionComposer`: the manifest's `instructions`, then one `# Response rules` section holding the named policies in **registry order** (manifest order and duplicates don't matter). The composed string lives on `BaseAgent.instructions`; `manifest.instructions` stays exactly what is stored. An unknown name throws, so — like an unknown tool — the agent is skipped rather than built without its gates.
 
 Keep the manifest prompt agent-specific (what the agent does, which tool when); anything that would be true of every agent belongs in a policy.
 
@@ -98,7 +98,7 @@ Keep the manifest prompt agent-specific (what the agent does, which tool when); 
 ## 7. Extending
 
 - **New tool** → implement `Tool`, register in `ToolRegistry`, add its name to a manifest.
-- **New instruction policy** → add an `InstructionPolicyName`, implement `InstructionPolicy` in `instructions/policies/`, register it in `InstructionPolicyRegistry.registerBuiltins()` (its position there is its position in the prompt), add its name to a manifest's `instruction_policy_names`.
+- **New instruction policy** → add an `InstructionPolicyName`, implement `InstructionPolicy` in `instructions/policies/`, register it in `InstructionPolicyRegistry.registerBuiltinPolicies()` (its position there is its position in the prompt), add its name to a manifest's `instruction_policy_names`.
 - **New agent** → insert a manifest row, or `POST /api/v1/agent` as admin.
 - **New MCP server** → insert an `McpServerManifest`, add its id to a manifest.
 - **New engine** → add an `AgentEngine` value, subclass `BaseAgent` (`onCompile`/`onRun`), extend the switch in [agent_factory.ts](../src/agent_svc/factory/agent_factory.ts).

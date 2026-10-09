@@ -49,7 +49,7 @@ export class GoogleAuthSvc implements GoogleAuthSvcInterface {
       user_repo: overrides?.user_repo ?? (await MongooseUserRepository.create({ db: DbNameResolver.resolve('user') })),
       rt_repo,
       session_issuer: overrides?.session_issuer ?? (await SessionIssuer.create(rt_repo)),
-      google: overrides?.google ?? GoogleAuthSvc.createAdapter()
+      google: overrides?.google ?? GoogleAuthSvc.createGoogleOAuthAdapter()
     });
   }
 
@@ -61,7 +61,7 @@ export class GoogleAuthSvc implements GoogleAuthSvcInterface {
     return return_to;
   }
 
-  private static createAdapter(): GoogleOAuthAdapterInterface {
+  private static createGoogleOAuthAdapter(): GoogleOAuthAdapterInterface {
     const config = GoogleOAuthConfigLoader.fromEnv();
     if (!config) {
       throw new ServiceUnavailableError('Google sign-in is not configured');
@@ -86,13 +86,13 @@ export class GoogleAuthSvc implements GoogleAuthSvcInterface {
       throw new UnauthorizedError('Google sign-in state mismatch');
     }
 
-    const identity = await this.deps.google.exchangeCode({
+    const identity = await this.deps.google.exchangeAuthorizationCode({
       code: input.code,
       code_verifier: input.pending.code_verifier
     });
-    const { user, outcome } = await this.resolveUser(identity);
+    const { user, outcome } = await this.resolveGoogleAccountUser(identity);
     await this.deps.user_repo.setLastLoginAt(user.user_id, new Date());
-    const result = await this.deps.session_issuer.issue(user, ctx);
+    const result = await this.deps.session_issuer.issueSessionTokens(user, ctx);
 
     logger.info(
       { user_id: user.user_id, outcome, duration_ms: Time.elapsedMs(start_ms) },
@@ -101,21 +101,21 @@ export class GoogleAuthSvc implements GoogleAuthSvcInterface {
     return { ...result, return_to: GoogleAuthSvc.sanitizeReturnTo(input.pending.return_to) };
   }
 
-  private async resolveUser(identity: GoogleIdentity): Promise<ResolvedUser> {
-    const resolved = await this.findExistingUser(identity);
+  private async resolveGoogleAccountUser(identity: GoogleIdentity): Promise<ResolvedUser> {
+    const resolved = await this.findExistingGoogleAccountUser(identity);
     if (resolved) return resolved;
 
     try {
-      return { user: await this.createUser(identity), outcome: 'created' };
+      return { user: await this.createUserFromGoogleIdentity(identity), outcome: 'created' };
     } catch (err) {
       // Two callbacks for the same new account can race; the loser finds the winner's row.
-      const raced = await this.findExistingUser(identity);
+      const raced = await this.findExistingGoogleAccountUser(identity);
       if (raced) return raced;
       throw err;
     }
   }
 
-  private async findExistingUser(identity: GoogleIdentity): Promise<ResolvedUser | null> {
+  private async findExistingGoogleAccountUser(identity: GoogleIdentity): Promise<ResolvedUser | null> {
     const by_sub = await this.deps.user_repo.findByGoogleSub(identity.sub);
     if (by_sub) return { user: by_sub, outcome: 'existing' };
 
@@ -133,12 +133,12 @@ export class GoogleAuthSvc implements GoogleAuthSvcInterface {
       throw new UnauthorizedError('This account is linked to a different Google account');
     }
 
-    return { user: await this.linkUser(by_email, identity.sub), outcome: 'linked' };
+    return { user: await this.linkGoogleAccountToUser(by_email, identity.sub), outcome: 'linked' };
   }
 
-  private async linkUser(user: User, google_sub: string): Promise<User> {
+  private async linkGoogleAccountToUser(user: User, google_sub: string): Promise<User> {
     const user_repo = this.deps.user_repo;
-    if (!user.email_verified_at) await this.discardUnprovenAccess(user);
+    if (!user.email_verified_at) await this.discardUnverifiedAccountAccess(user);
     let linked = (await user_repo.linkGoogleAccount(user.user_id, google_sub)) ?? user;
     if (!linked.email_verified_at) {
       linked = (await user_repo.setEmailVerifiedAt(user.user_id, new Date())) ?? linked;
@@ -152,17 +152,17 @@ export class GoogleAuthSvc implements GoogleAuthSvcInterface {
    * sign in with Google, which would otherwise verify the account with the squatter's
    * password still on it. The owner can set a password of their own through forgot-password.
    */
-  private async discardUnprovenAccess(user: User): Promise<void> {
+  private async discardUnverifiedAccountAccess(user: User): Promise<void> {
     const had_password = !!user.password_hash;
     if (had_password) await this.deps.user_repo.removePassword(user.user_id);
-    const revoked_sessions = await this.deps.rt_repo.revokeAllForUser(user.user_id);
+    const revoked_sessions = await this.deps.rt_repo.revokeSessionsForUser(user.user_id);
     logger.warn(
       { user_id: user.user_id, had_password, revoked_sessions },
       'unverified account access discarded on google link'
     );
   }
 
-  private async createUser(identity: GoogleIdentity): Promise<User> {
+  private async createUserFromGoogleIdentity(identity: GoogleIdentity): Promise<User> {
     if (!identity.email_verified) {
       logger.warn({ reason: 'email_unverified' }, 'google login rejected');
       throw new UnauthorizedError('This Google account email is not verified');

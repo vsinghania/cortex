@@ -61,7 +61,7 @@ from a sibling subdomain, or XSS). If that person then consents, their OneNote w
 into the planter's account, and neither the `state` check nor the seal would notice,
 because the planter controls both halves and nothing was forged. So the callback reads
 the browser's refresh cookie — `SameSite=lax`, so it rides along on the navigation back
-from Microsoft — resolves it with `AuthSvc.sessionUserId` (a lookup that doesn't rotate
+from Microsoft — resolves it with `AuthSvc.findSessionUserId` (a lookup that doesn't rotate
 the token), and rejects unless it matches the sealed `user_id`. A browser signed in as
 nobody is rejected too.
 
@@ -155,7 +155,7 @@ sync only ever runs when someone presses "Sync now".
   would surprise. Nothing is ever written back to OneNote.
 - **`.lean()` reads skip Mongoose defaults**, so a document written before a field existed
   comes back without it — which once took the settings page down via `undefined.length`.
-  `MongooseOneNoteConnectionRepository.toConnection` normalises array fields on every read;
+  `MongooseOneNoteConnectionRepository.toDomainConnection` normalises array fields on every read;
   a new non-optional field needs the same, or a backfill.
 - **Deleted OneNote pages are not detectable yet.** Graph reports no deletions and there is
   no delta query, so a page deleted in OneNote leaves its Cortex note behind until the

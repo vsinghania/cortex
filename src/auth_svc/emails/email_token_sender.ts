@@ -43,7 +43,7 @@ export class EmailTokenSender {
    * Issues a fresh token, then mails it. Issuing replaces any earlier link, so a
    * retry after a failed send only replaces a token that never reached anyone.
    */
-  async send(params: { user_id: string; purpose: EmailTokenPurpose }): Promise<MailSendResult> {
+  async sendTokenEmail(params: { user_id: string; purpose: EmailTokenPurpose }): Promise<MailSendResult> {
     const user = await this.deps.user_repo.findByUserId(params.user_id);
     if (!user) {
       // Its only callers are job handlers, so this is phrased in the queue's terms:
@@ -51,14 +51,14 @@ export class EmailTokenSender {
       throw new PermanentJobError('user not found', { error_code: 'user_not_found' });
     }
 
-    const { token } = await this.deps.token_issuer.issue({ user_id: user.user_id, purpose: params.purpose });
-    return this.deps.mailer().send(this.compose(params.purpose, user, token));
+    const { token } = await this.deps.token_issuer.issueEmailToken({ user_id: user.user_id, purpose: params.purpose });
+    return this.deps.mailer().sendMail(this.composeTokenEmail(params.purpose, user, token));
   }
 
-  private compose(purpose: EmailTokenPurpose, user: User, token: string): MailMessage {
+  private composeTokenEmail(purpose: EmailTokenPurpose, user: User, token: string): MailMessage {
     // Each case phrases its own expiry: the TTLs differ by orders of magnitude,
     // and "1440 minutes" is not what a reader wants to see.
-    const ttl_ms = EmailTokenIssuer.ttlMs(purpose);
+    const ttl_ms = EmailTokenIssuer.getTokenTtlMs(purpose);
     switch (purpose) {
       case 'password_reset':
         return {
@@ -66,7 +66,7 @@ export class EmailTokenSender {
           template: PasswordResetEmail.template,
           ...PasswordResetEmail.render({
             name: user.name,
-            link: this.deps.links().passwordReset(token),
+            link: this.deps.links().buildPasswordResetUrl(token),
             expires_in_min: Time.msToMinutes(ttl_ms)
           })
         };
@@ -76,7 +76,7 @@ export class EmailTokenSender {
           template: EmailVerificationEmail.template,
           ...EmailVerificationEmail.render({
             name: user.name,
-            link: this.deps.links().verifyEmail(token),
+            link: this.deps.links().buildEmailVerificationUrl(token),
             expires_in_hours: Time.msToHours(ttl_ms)
           })
         };

@@ -1,5 +1,5 @@
 /**
- * The only error MailerSvc.send throws. Callers decide whether to retry from
+ * The only error MailerSvc.sendMail throws. Callers decide whether to retry from
  * `retryable` alone - mailer_svc deliberately knows nothing about jobs_svc.
  *
  * The message is built from codes only, never from the vendor's error text: SMTP

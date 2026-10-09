@@ -24,11 +24,11 @@ export class CitationExtractor {
   private static readonly MARKER_PATTERN = /\[c:([^\]\s]+)\]/g;
 
   /** How agents are taught to write a marker; must stay parseable by MARKER_PATTERN. */
-  static readonly MARKER_SYNTAX = CitationExtractor.markerFor('<chunk_id>');
+  static readonly MARKER_SYNTAX = CitationExtractor.buildCitationMarker('<chunk_id>');
 
   private constructor() {}
 
-  static markerFor(chunk_id: string): string {
+  static buildCitationMarker(chunk_id: string): string {
     return `[c:${chunk_id}]`;
   }
 
@@ -39,10 +39,10 @@ export class CitationExtractor {
    * `tool_payloads` are already-parsed tool results, not messages - keeping this input
    * corpus- and transport-neutral is what stops citation_svc depending on agent_svc.
    */
-  static extract(params: { tool_payloads: unknown[]; answer_text?: string }): Citation[] {
+  static extractCitations(params: { tool_payloads: unknown[]; answer_text?: string }): Citation[] {
     if (!params.answer_text) return [];
 
-    const cited_ids = CitationExtractor.citedChunkIds(params.answer_text);
+    const cited_ids = CitationExtractor.extractCitedChunkIds(params.answer_text);
     if (cited_ids.length === 0) return [];
 
     const chunks_by_id = CitationExtractor.indexRetrievedChunks(params.tool_payloads);
@@ -65,7 +65,7 @@ export class CitationExtractor {
   }
 
   /** Chunk ids in order of first appearance, deduped. */
-  private static citedChunkIds(answer_text: string): string[] {
+  private static extractCitedChunkIds(answer_text: string): string[] {
     const seen = new Set<string>();
     const ids: string[] = [];
     for (const match of answer_text.matchAll(CitationExtractor.MARKER_PATTERN)) {

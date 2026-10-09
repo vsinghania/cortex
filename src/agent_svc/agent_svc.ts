@@ -61,7 +61,7 @@ export class AgentSvc implements AgentSvcInterface {
   async createAgent(input: CreateAgentInput): Promise<AgentManifest> {
     const repo = await MongooseAgentRepository.create();
     const agent_id = await AgentSvc.resolveCreateAgentId(input, repo);
-    const manifest = AgentSvc.buildCreateManifest(agent_id, input);
+    const manifest = AgentSvc.buildAgentManifest(agent_id, input);
     const created = await repo.create(manifest);
     await this.refreshAgentRegistry();
 
@@ -81,7 +81,7 @@ export class AgentSvc implements AgentSvcInterface {
   }
 
   async updateAgent(input: UpdateAgentInput): Promise<AgentManifest> {
-    const patch = AgentSvc.compactUpdatePatch(input.patch);
+    const patch = AgentSvc.omitUndefinedUpdateFields(input.patch);
     if (Object.keys(patch).length === 0) {
       throw new BadRequestError('At least one agent field is required');
     }
@@ -111,7 +111,7 @@ export class AgentSvc implements AgentSvcInterface {
     const agent_registry = await AgentRegistry.getInstance();
     const conversation_store = await ConversationStore.getInstance();
 
-    const agent = agent_registry.resolve(input.agent_id);
+    const agent = agent_registry.requireAgent(input.agent_id);
 
     logger.info(
       {
@@ -122,7 +122,7 @@ export class AgentSvc implements AgentSvcInterface {
       'agent run started'
     );
 
-    const requested_doc = await ContextAttachment.requireRequested({
+    const requested_doc = await ContextAttachment.requireRequestedDocument({
       user_id: input.user_id,
       ref: input.context_ref,
     });
@@ -134,17 +134,17 @@ export class AgentSvc implements AgentSvcInterface {
       context_ref: input.context_ref,
     });
 
-    const attachment = await ContextAttachment.forConversation({
+    const attachment = await ContextAttachment.resolveConversationAttachment({
       user_id: input.user_id,
       conversation,
       requested_doc,
     });
 
     const title_promise = created
-      ? this.generateAndPersistTitle(conversation.conversation_id, input.input)
+      ? this.generateAndPersistConversationTitle(conversation.conversation_id, input.input)
       : Promise.resolve();
 
-    const message_history = await conversation_store.loadHistory(conversation.conversation_id);
+    const message_history = await conversation_store.loadConversationHistory(conversation.conversation_id);
 
     logger.debug(
       {
@@ -170,12 +170,12 @@ export class AgentSvc implements AgentSvcInterface {
     const response = await agent.run(req);
     const duration_ms = Time.elapsedMs(start_ms);
 
-    const citations = CitationSvc.extract({
-      tool_payloads: AgentSvc.toolPayloads(AgentSvc.diffNewMessages(req, response)),
+    const citations = CitationSvc.extractCitations({
+      tool_payloads: AgentSvc.extractToolResultPayloads(AgentSvc.findNewConversationMessages(req, response)),
       answer_text: response.final_output_text,
     });
 
-    await this.persistTurn(agent, req, response, citations);
+    await this.persistConversationTurn(agent, req, response, citations);
     response.citations = await AgentSvc.resolveCitations(input.user_id, citations);
     await title_promise;
 
@@ -204,7 +204,7 @@ export class AgentSvc implements AgentSvcInterface {
     const agent_registry = await AgentRegistry.getInstance();
     const manifests = await repo.listAll();
     return manifests.map((manifest) =>
-      AgentViewBuilder.build(manifest, agent_registry.tryResolve(manifest.agent_id))
+      AgentViewBuilder.buildAgentView(manifest, agent_registry.findAgent(manifest.agent_id))
     );
   }
 
@@ -215,7 +215,7 @@ export class AgentSvc implements AgentSvcInterface {
       throw new NotFoundError(`Agent not found: ${input.agent_id}`);
     }
     const agent_registry = await AgentRegistry.getInstance();
-    return AgentViewBuilder.build(manifest, agent_registry.tryResolve(manifest.agent_id));
+    return AgentViewBuilder.buildAgentView(manifest, agent_registry.findAgent(manifest.agent_id));
   }
 
   /**
@@ -224,7 +224,7 @@ export class AgentSvc implements AgentSvcInterface {
    */
   async runAdHoc(input: RunAdHocInput): Promise<AgentRunResponse> {
     const start_ms = performance.now();
-    const agent = AgentFactory.forManifest({ manifest: input.manifest, tools: input.tools });
+    const agent = AgentFactory.createAgentFromManifest({ manifest: input.manifest, tools: input.tools });
     agent.compile();
     const response = await agent.run(input.request);
     logger.info(
@@ -243,7 +243,7 @@ export class AgentSvc implements AgentSvcInterface {
 
   async listConversations(input: ListConversationsInput): Promise<Conversation[]> {
     const conversation_store = await ConversationStore.getInstance();
-    const result = await conversation_store.listForUser({
+    const result = await conversation_store.listConversationsForUser({
       user_id: input.user_id,
       limit: input.limit,
       before_updated_at: input.before_updated_at,
@@ -265,7 +265,7 @@ export class AgentSvc implements AgentSvcInterface {
 
   async getConversation(input: GetConversationInput): Promise<ConversationWithMessages> {
     const conversation_store = await ConversationStore.getInstance();
-    const conversation = await conversation_store.getForUser({
+    const conversation = await conversation_store.findConversationForUser({
       conversation_id: input.conversation_id,
       user_id: input.user_id,
     });
@@ -287,7 +287,7 @@ export class AgentSvc implements AgentSvcInterface {
 
   async deleteConversation(input: DeleteConversationInput): Promise<void> {
     const conversation_store = await ConversationStore.getInstance();
-    const result = await conversation_store.deleteForUser({
+    const result = await conversation_store.deleteConversationForUser({
       conversation_id: input.conversation_id,
       user_id: input.user_id,
     });
@@ -302,7 +302,7 @@ export class AgentSvc implements AgentSvcInterface {
 
   async updateConversation(input: UpdateConversationInput): Promise<Conversation> {
     const conversation_store = await ConversationStore.getInstance();
-    const conversation = await conversation_store.updateForUser(input);
+    const conversation = await conversation_store.updateConversationForUser(input);
     if (!conversation) {
       throw new NotFoundError(`Conversation not found: ${input.conversation_id}`);
     }
@@ -313,7 +313,7 @@ export class AgentSvc implements AgentSvcInterface {
     return conversation;
   }
 
-  private async generateAndPersistTitle(
+  private async generateAndPersistConversationTitle(
     conversation_id: string,
     input: string | Message[]
   ): Promise<void> {
@@ -333,7 +333,7 @@ export class AgentSvc implements AgentSvcInterface {
     }
   }
 
-  private async persistTurn(
+  private async persistConversationTurn(
     agent: BaseAgent,
     req: AgentRunRequest,
     response: AgentRunResponse,
@@ -341,15 +341,15 @@ export class AgentSvc implements AgentSvcInterface {
   ): Promise<void> {
     if (!response.conversation_id) return;
 
-    const new_messages = AgentSvc.withCitations(
-      AgentSvc.diffNewMessages(req, response),
+    const new_messages = AgentSvc.attachMessageCitations(
+      AgentSvc.findNewConversationMessages(req, response),
       citations
     );
     if (!new_messages.length) return;
 
     try {
       const conversation_store = await ConversationStore.getInstance();
-      await conversation_store.appendTurn({
+      await conversation_store.appendConversationTurn({
         conversation_id: response.conversation_id,
         user_id: req.user_id,
         agent_id: agent.manifest.agent_id,
@@ -371,7 +371,7 @@ export class AgentSvc implements AgentSvcInterface {
    * The agent returns the full transcript; persistence only writes the new
    * tail to avoid duplicating prior turns.
    */
-  private static diffNewMessages(
+  private static findNewConversationMessages(
     req: AgentRunRequest,
     response: AgentRunResponse
   ): Message[] {
@@ -386,7 +386,7 @@ export class AgentSvc implements AgentSvcInterface {
    * Tool results are normalized to a single JSON part by OpenAiSdkUtils.toToolContent; the
    * text branch covers non-JSON output and transcripts written before that normalization.
    */
-  private static toolPayloads(messages: Message[]): unknown[] {
+  private static extractToolResultPayloads(messages: Message[]): unknown[] {
     const out: unknown[] = [];
     for (const message of messages) {
       if (message.role !== Role.Tool) continue;
@@ -423,23 +423,23 @@ export class AgentSvc implements AgentSvcInterface {
       (m): m is ConversationMessage & { citations: Citation[] } =>
         m.role === Role.Assistant && !!m.citations?.length
     );
-    if (carriers.length === 0) return messages.map((m) => AgentSvc.stripCitations(m));
+    if (carriers.length === 0) return messages.map((m) => AgentSvc.omitStoredCitations(m));
 
     const citation_svc = await CitationSvc.getInstance();
-    const resolved = await citation_svc.resolveGroups({
+    const resolved = await citation_svc.resolveCitationGroups({
       user_id,
       groups: carriers.map((m) => m.citations),
     });
 
-    const views_by_message = new Map(carriers.map((m, i) => [m, resolved[i]]));
+    const views_by_message = new Map<ConversationMessage, CitationView[]>(carriers.map((m, i) => [m, resolved[i]]));
     return messages.map((message) => {
-      const views = views_by_message.get(message as never);
-      const stripped = AgentSvc.stripCitations(message);
+      const views = views_by_message.get(message);
+      const stripped = AgentSvc.omitStoredCitations(message);
       return views ? { ...stripped, citations: views } : stripped;
     });
   }
 
-  private static stripCitations(message: ConversationMessage): ConversationMessageView {
+  private static omitStoredCitations(message: ConversationMessage): ConversationMessageView {
     if (message.role !== Role.Assistant) return message;
     const { citations: _stored, ...rest } = message;
     return rest;
@@ -453,7 +453,7 @@ export class AgentSvc implements AgentSvcInterface {
     if (!user_id) return undefined;
     if (citations.length === 0) return [];
     const citation_svc = await CitationSvc.getInstance();
-    return citation_svc.resolve({ user_id, citations });
+    return citation_svc.resolveCitations({ user_id, citations });
   }
 
   /**
@@ -461,7 +461,7 @@ export class AgentSvc implements AgentSvcInterface {
    * conversation renders them without re-parsing tool output. Returns a new array;
    * the response's own message_history is left untouched.
    */
-  private static withCitations(messages: Message[], citations?: Citation[]): Message[] {
+  private static attachMessageCitations(messages: Message[], citations?: Citation[]): Message[] {
     if (!citations?.length) return messages;
 
     const target_index = AgentSvc.findLastAssistantTextIndex(messages);
@@ -500,7 +500,7 @@ export class AgentSvc implements AgentSvcInterface {
     });
   }
 
-  private static buildCreateManifest(
+  private static buildAgentManifest(
     agent_id: string,
     input: CreateAgentInput
   ): Omit<AgentManifest, 'created_at' | 'updated_at'> {
@@ -521,7 +521,7 @@ export class AgentSvc implements AgentSvcInterface {
     };
   }
 
-  private static compactUpdatePatch(patch: AgentUpdatePatch): AgentUpdatePatch {
+  private static omitUndefinedUpdateFields(patch: AgentUpdatePatch): AgentUpdatePatch {
     const out: AgentUpdatePatch = {};
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) continue;
@@ -533,7 +533,7 @@ export class AgentSvc implements AgentSvcInterface {
 
   private async refreshAgentRegistry(): Promise<void> {
     const agent_registry = await AgentRegistry.getInstance();
-    await agent_registry.refresh();
+    await agent_registry.refreshAgents();
   }
 
 }

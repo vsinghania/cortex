@@ -10,17 +10,17 @@ import { NotFoundError } from '../src/common/errors.js';
 const registry = InstructionPolicyRegistry.getInstance();
 
 test('every policy name in the enum is registered', () => {
-  const registered = registry.list().map((p) => p.name).sort();
+  const registered = registry.listInstructionPolicies().map((p) => p.name).sort();
   assert.deepEqual(registered, Object.values(InstructionPolicyName).sort());
 });
 
 test('compose with no policies returns the instructions unchanged', () => {
-  const composed = InstructionComposer.compose({ instructions: 'Be helpful.\n', policies: [] });
+  const composed = InstructionComposer.composeInstructions({ instructions: 'Be helpful.\n', policies: [] });
   assert.equal(composed, 'Be helpful.\n');
 });
 
 test('resolves policies in canonical order regardless of manifest order, deduped', () => {
-  const policies = registry.resolveAll([
+  const policies = registry.resolveInstructionPolicies([
     InstructionPolicyName.WriteSafety,
     InstructionPolicyName.OutputHygiene,
     InstructionPolicyName.WriteSafety,
@@ -33,15 +33,15 @@ test('resolves policies in canonical order regardless of manifest order, deduped
 
 test('an unknown policy name throws so the agent is skipped, not built ungated', () => {
   assert.throws(
-    () => registry.resolveAll([InstructionPolicyName.Grounding, 'output_hygeine']),
+    () => registry.resolveInstructionPolicies([InstructionPolicyName.Grounding, 'output_hygeine']),
     (err: unknown) => err instanceof NotFoundError && /output_hygeine/.test(err.message)
   );
 });
 
 test('appends policies after the agent instructions under one rules heading', () => {
-  const composed = InstructionComposer.compose({
+  const composed = InstructionComposer.composeInstructions({
     instructions: 'You are a recall assistant.',
-    policies: registry.resolveAll([InstructionPolicyName.Grounding, InstructionPolicyName.Confidentiality]),
+    policies: registry.resolveInstructionPolicies([InstructionPolicyName.Grounding, InstructionPolicyName.Confidentiality]),
   });
   assert.ok(composed.startsWith('You are a recall assistant.\n\n---\n# Response rules'));
   assert.equal(composed.match(/# Response rules/g)?.length, 1);
@@ -49,12 +49,12 @@ test('appends policies after the agent instructions under one rules heading', ()
 });
 
 test('the citations policy teaches a marker the extractor can parse', () => {
-  const [citations] = registry.resolveAll([InstructionPolicyName.Citations]);
+  const [citations] = registry.resolveInstructionPolicies([InstructionPolicyName.Citations]);
   assert.ok(citations.body().includes(CitationExtractor.MARKER_SYNTAX));
 
-  const extracted = CitationExtractor.extract({
+  const extracted = CitationExtractor.extractCitations({
     tool_payloads: [{ chunks: [{ chunk_id: 'chunk-a', document_id: 'note-1', corpus: Corpus.Notes }] }],
-    answer_text: `We dropped Redis. ${CitationExtractor.markerFor('chunk-a')}`,
+    answer_text: `We dropped Redis. ${CitationExtractor.buildCitationMarker('chunk-a')}`,
   });
   assert.equal(extracted.length, 1);
   assert.equal(extracted[0].chunk_id, 'chunk-a');

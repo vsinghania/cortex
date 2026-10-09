@@ -82,7 +82,7 @@ export class MongooseNoteRepository implements NoteRepository {
 
     const use_text = !!params.query && !!params.query.trim();
     const filter = MongooseNoteRepository.buildListFilter({ ...params, use_text });
-    const resolved_sort = NoteListSort.resolve({ sort: params.sort, has_query: use_text });
+    const resolved_sort = NoteListSort.resolveDatabaseSort({ sort: params.sort, has_query: use_text });
 
     let cursor = this.model.find(filter);
     if (resolved_sort.by_relevance) {
@@ -94,11 +94,11 @@ export class MongooseNoteRepository implements NoteRepository {
     // comparison only, so $text with a non-simple collation cannot use one. The text path
     // gets tag case-insensitivity from anchored regexes instead, and a title sort there
     // falls back to binary order.
-    const collation = use_text ? undefined : MongooseNoteRepository.collationFor(params.filter, resolved_sort);
+    const collation = use_text ? undefined : MongooseNoteRepository.getSortCollation(params.filter, resolved_sort);
     if (collation) cursor = cursor.collation(collation);
 
     const [items, total] = await Promise.all([
-      MongooseNoteRepository.isCountOnly(limit) ? [] : cursor.skip(offset).limit(limit).lean(),
+      MongooseNoteRepository.isCountOnlyQuery(limit) ? [] : cursor.skip(offset).limit(limit).lean(),
       // Must carry the same collation as the find, or total disagrees with items.
       collation ? this.model.countDocuments(filter, { collation }) : this.model.countDocuments(filter)
     ]);
@@ -148,7 +148,7 @@ export class MongooseNoteRepository implements NoteRepository {
         $match: {
           user_id: params.user_id,
           folder_id: { $exists: true, $type: 'string' },
-          ...MongooseNoteRepository.archivedClause('exclude')
+          ...MongooseNoteRepository.buildArchiveFilter('exclude')
         }
       },
       { $group: { _id: '$folder_id', count: { $sum: 1 } } },
@@ -225,7 +225,7 @@ export class MongooseNoteRepository implements NoteRepository {
 
     const deleted_at = new Date();
     await this.trash_model.insertMany(
-      snapshots.map((snapshot: Record<string, unknown>) => MongooseNoteRepository.toTrashDoc(snapshot, deleted_at))
+      snapshots.map((snapshot: Record<string, unknown>) => MongooseNoteRepository.toNoteTrashDocument(snapshot, deleted_at))
     );
 
     const snapshot_ids = snapshots.map((snapshot: { id: string }) => snapshot.id);
@@ -247,11 +247,11 @@ export class MongooseNoteRepository implements NoteRepository {
     const filter: Record<string, unknown> = {
       user_id: params.user_id,
       $text: { $search: params.query.trim() },
-      ...MongooseNoteRepository.archivedClause(params.archived)
+      ...MongooseNoteRepository.buildArchiveFilter(params.archived)
     };
 
     const [items, total] = await Promise.all([
-      MongooseNoteRepository.isCountOnly(limit)
+      MongooseNoteRepository.isCountOnlyQuery(limit)
         ? []
         : this.model.find(filter)
           .select({ score: { $meta: 'textScore' } })
@@ -341,7 +341,7 @@ export class MongooseNoteRepository implements NoteRepository {
     const snapshot = await this.model.findOne(filter).lean();
     if (!snapshot) return false;
 
-    await this.trash_model.create(MongooseNoteRepository.toTrashDoc(snapshot, new Date()));
+    await this.trash_model.create(MongooseNoteRepository.toNoteTrashDocument(snapshot, new Date()));
 
     try {
       await this.model.deleteOne(filter);
@@ -356,7 +356,7 @@ export class MongooseNoteRepository implements NoteRepository {
     return true;
   }
 
-  private static toTrashDoc(snapshot: Record<string, unknown>, deleted_at: Date): Record<string, unknown> {
+  private static toNoteTrashDocument(snapshot: Record<string, unknown>, deleted_at: Date): Record<string, unknown> {
     const trash_doc = { ...snapshot, deleted_at };
     Reflect.deleteProperty(trash_doc, '_id');
     Reflect.deleteProperty(trash_doc, '__v');
@@ -366,7 +366,7 @@ export class MongooseNoteRepository implements NoteRepository {
   private static buildListFilter(params: NoteListParams & { use_text: boolean }): Record<string, unknown> {
     const filter: Record<string, unknown> = {
       user_id: params.user_id,
-      ...MongooseNoteRepository.archivedClause(params.filter?.archived)
+      ...MongooseNoteRepository.buildArchiveFilter(params.filter?.archived)
     };
 
     if (params.filter?.pinned !== undefined) {
@@ -394,7 +394,7 @@ export class MongooseNoteRepository implements NoteRepository {
   }
 
   /** `$ne: true` rather than `false` so notes written before the flag existed still match. */
-  private static archivedClause(archived: NoteArchivedFilter | undefined): Record<string, unknown> {
+  private static buildArchiveFilter(archived: NoteArchivedFilter | undefined): Record<string, unknown> {
     switch (archived ?? 'exclude') {
       case 'only':
         return { is_archived: true };
@@ -409,7 +409,7 @@ export class MongooseNoteRepository implements NoteRepository {
    * Tag filters and title sorts share one case-insensitive collation; it is only requested
    * when one of them is in play, since a collated query can only use a collated index.
    */
-  private static collationFor(filter: NoteListFilter | undefined, sort: ResolvedNoteSort) {
+  private static getSortCollation(filter: NoteListFilter | undefined, sort: ResolvedNoteSort) {
     const filters_tags = MongooseNoteRepository.normalizeTags(filter?.tags).length > 0;
     return filters_tags || sort.needs_case_insensitive_collation
       ? NoteModelFactory.CASE_INSENSITIVE_COLLATION
@@ -435,7 +435,7 @@ export class MongooseNoteRepository implements NoteRepository {
   }
 
   /** A zero limit means "total only"; it must skip the find, since Mongo reads `.limit(0)` as unlimited. */
-  private static isCountOnly(limit: number): boolean {
+  private static isCountOnlyQuery(limit: number): boolean {
     return limit === 0;
   }
 

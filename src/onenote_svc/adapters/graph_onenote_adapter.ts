@@ -47,9 +47,6 @@ const PageSchema = z.object({
   links: z.object({ oneNoteWebUrl: z.object({ href: z.string() }).nullish() }).nullish()
 });
 
-const ListSchema = <T extends z.ZodTypeAny>(item: T) =>
-  z.object({ value: z.array(item).default([]), '@odata.nextLink': z.string().nullish() });
-
 export type GraphOneNoteAdapterDeps = {
   /** Fetches a current access token per request, so a long sync survives expiry. */
   accessToken: () => Promise<string>;
@@ -63,8 +60,8 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
   }
 
   async listNotebooks(params: { signal?: AbortSignal } = {}): Promise<GraphNotebook[]> {
-    const body = await this.getJson('/me/onenote/notebooks?$select=id,displayName', params.signal);
-    const parsed = ListSchema(NotebookSchema).parse(body);
+    const body = await this.fetchGraphJson('/me/onenote/notebooks?$select=id,displayName', params.signal);
+    const parsed = GraphOneNoteAdapter.buildListResponseSchema(NotebookSchema).parse(body);
     return parsed.value.map((n) => ({ id: n.id, display_name: n.displayName }));
   }
 
@@ -77,8 +74,8 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
     const sections: GraphSection[] = [];
     let next: string | undefined = path;
     while (next) {
-      const body: unknown = await this.getJson(next, params.signal);
-      const parsed = ListSchema(SectionSchema).parse(body);
+      const body: unknown = await this.fetchGraphJson(next, params.signal);
+      const parsed = GraphOneNoteAdapter.buildListResponseSchema(SectionSchema).parse(body);
       for (const s of parsed.value) {
         sections.push({
           id: s.id,
@@ -95,22 +92,22 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
   }
 
   async listPages(params: ListPagesParams): Promise<GraphPageBatch> {
-    const body = await this.getJson(params.next_link ?? GraphOneNoteAdapter.pagesPath(params), params.signal);
-    const parsed = ListSchema(PageSchema).parse(body);
+    const body = await this.fetchGraphJson(params.next_link ?? GraphOneNoteAdapter.buildPagesRequestPath(params), params.signal);
+    const parsed = GraphOneNoteAdapter.buildListResponseSchema(PageSchema).parse(body);
 
     return {
-      pages: parsed.value.map((p) => GraphOneNoteAdapter.toPage(p)),
+      pages: parsed.value.map((p) => GraphOneNoteAdapter.toGraphPage(p)),
       next_link: parsed['@odata.nextLink'] ?? undefined
     };
   }
 
   async getPageContent(params: { page_id: string; signal?: AbortSignal }): Promise<string> {
     const path = `/me/onenote/pages/${encodeURIComponent(params.page_id)}/content?includeIDs=true`;
-    const resp = await this.request(path, params.signal);
+    const resp = await this.fetchGraphResponse(path, params.signal);
     return resp.text();
   }
 
-  private static pagesPath(params: ListPagesParams): string {
+  private static buildPagesRequestPath(params: ListPagesParams): string {
     const query = [
       '$select=id,title,createdDateTime,lastModifiedDateTime,links',
       '$orderby=lastModifiedDateTime asc',
@@ -122,24 +119,22 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
     return `/me/onenote/sections/${encodeURIComponent(params.section_id)}/pages?${query.join('&')}`;
   }
 
-  private static toPage(raw: z.infer<typeof PageSchema>): GraphPage {
+  private static toGraphPage(raw: z.infer<typeof PageSchema>): GraphPage {
     return {
       id: raw.id,
       title: raw.title?.trim() || '(untitled)',
-      created_at: GraphOneNoteAdapter.toDate(raw.createdDateTime),
-      modified_at: GraphOneNoteAdapter.toDate(raw.lastModifiedDateTime),
+      created_at: Time.parseOptionalDate(raw.createdDateTime),
+      modified_at: Time.parseOptionalDate(raw.lastModifiedDateTime),
       web_url: raw.links?.oneNoteWebUrl?.href ?? undefined
     };
   }
 
-  private static toDate(raw: string | null | undefined): Date | undefined {
-    if (!raw) return undefined;
-    const at = new Date(raw);
-    return Number.isNaN(at.getTime()) ? undefined : at;
+  private static buildListResponseSchema<T extends z.ZodType>(item: T) {
+    return z.object({ value: z.array(item).default([]), '@odata.nextLink': z.string().nullish() });
   }
 
-  private async getJson(path_or_url: string, signal?: AbortSignal): Promise<unknown> {
-    const resp = await this.request(path_or_url, signal);
+  private async fetchGraphJson(path_or_url: string, signal?: AbortSignal): Promise<unknown> {
+    const resp = await this.fetchGraphResponse(path_or_url, signal);
     return resp.json();
   }
 
@@ -147,17 +142,17 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
    * Retries throttles in place while that is cheap, then hands the wait back to the job
    * queue rather than holding a worker slot through a long Retry-After.
    */
-  private async request(path_or_url: string, signal?: AbortSignal): Promise<Response> {
+  private async fetchGraphResponse(path_or_url: string, signal?: AbortSignal): Promise<Response> {
     const url = path_or_url.startsWith('http') ? path_or_url : `${GRAPH_BASE_URL}${path_or_url}`;
     let attempt = 0;
     let waited_ms = 0;
 
     for (;;) {
       attempt += 1;
-      const resp = await this.fetchOnce(url, signal);
+      const resp = await this.fetchGraphResponseOnce(url, signal);
       if (resp.ok) return resp;
 
-      const decision = GraphRetryPolicy.decide({
+      const decision = GraphRetryPolicy.decideRequestRetry({
         status: resp.status,
         retry_after_header: resp.headers.get('retry-after'),
         attempt,
@@ -165,10 +160,10 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
       });
 
       // Read the body before deciding what to throw; it is the only diagnostic Graph gives.
-      const excerpt = (await resp.text().catch(() => '')).slice(0, BODY_EXCERPT_CHARS);
+      const excerpt = await GraphOneNoteAdapter.readErrorBodyExcerpt(resp);
 
       if (decision.outcome === 'permanent') {
-        const graph = GraphOneNoteAdapter.errorFrom(excerpt);
+        const graph = GraphOneNoteAdapter.parseGraphError(excerpt);
         // 401 is the grant; 403 is this resource. Conflating them turns a locked section
         // into a bogus "reconnect your account".
         if (resp.status === 401) {
@@ -193,8 +188,16 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
     }
   }
 
+  private static async readErrorBodyExcerpt(response: Response): Promise<string> {
+    try {
+      return (await response.text()).slice(0, BODY_EXCERPT_CHARS);
+    } catch {
+      return '';
+    }
+  }
+
   /** Graph puts a machine-readable code beside its message; keep it for diagnosis. */
-  private static errorFrom(body: string): { code?: string; message?: string } {
+  private static parseGraphError(body: string): { code?: string; message?: string } {
     try {
       const parsed = JSON.parse(body) as { error?: { code?: string; message?: string } };
       return { code: parsed.error?.code, message: parsed.error?.message };
@@ -203,7 +206,7 @@ export class GraphOneNoteAdapter implements GraphOneNoteAdapterInterface {
     }
   }
 
-  private async fetchOnce(url: string, signal?: AbortSignal): Promise<Response> {
+  private async fetchGraphResponseOnce(url: string, signal?: AbortSignal): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     const onAbort = () => controller.abort(signal?.reason);

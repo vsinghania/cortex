@@ -24,6 +24,6 @@ export class PasswordResetEmailJobHandler implements JobHandler<AuthEmailPayload
   }
 
   async handle(payload: AuthEmailPayload): Promise<JobResult> {
-    return MailJobResult.from(() => this.sender.send({ user_id: payload.user_id, purpose: 'password_reset' }));
+    return MailJobResult.fromDeliveryError(() => this.sender.sendTokenEmail({ user_id: payload.user_id, purpose: 'password_reset' }));
   }
 }

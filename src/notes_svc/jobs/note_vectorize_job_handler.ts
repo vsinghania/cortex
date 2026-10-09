@@ -47,7 +47,7 @@ export class NoteVectorizeJobHandler implements JobHandler<NoteVectorizePayload>
 
   async handle(payload: NoteVectorizePayload, ctx: JobContext): Promise<JobResult> {
     const start_ms = performance.now();
-    let note = await this.loadNote(payload);
+    let note = await this.findLiveNote(payload);
     if (!note) {
       logger.info({ note_id: payload.note_id, reason: 'note_gone' }, 'note vectorize skipped');
       return { outcome: 'succeeded', summary: { skipped: true } };
@@ -58,7 +58,7 @@ export class NoteVectorizeJobHandler implements JobHandler<NoteVectorizePayload>
       while (note && passes < MAX_VECTORIZE_PASSES && !ctx.signal.aborted) {
         passes++;
         await this.vectorization_svc.vectorizeNote(note);
-        note = await this.changedSince(note, payload);
+        note = await this.findNoteChangedSinceVectorization(note, payload);
       }
     } catch (err) {
       logger.error({ err, note_id: payload.note_id, passes }, 'note vectorize failed');
@@ -75,7 +75,7 @@ export class NoteVectorizeJobHandler implements JobHandler<NoteVectorizePayload>
     return { outcome: 'succeeded', summary: { passes } };
   }
 
-  private async loadNote(payload: NoteVectorizePayload): Promise<Note | null> {
+  private async findLiveNote(payload: NoteVectorizePayload): Promise<Note | null> {
     const note = await this.notes_repo.getNoteById({ user_id: payload.user_id, id: payload.note_id });
     return note && !note.is_deleted ? note : null;
   }
@@ -84,8 +84,8 @@ export class NoteVectorizeJobHandler implements JobHandler<NoteVectorizePayload>
    * Compares bodies rather than updated_at: persisting the vectorization status is
    * itself a write that bumps the timestamp.
    */
-  private async changedSince(vectorized: Note, payload: NoteVectorizePayload): Promise<Note | null> {
-    const latest = await this.loadNote(payload);
+  private async findNoteChangedSinceVectorization(vectorized: Note, payload: NoteVectorizePayload): Promise<Note | null> {
+    const latest = await this.findLiveNote(payload);
     return latest && latest.body !== vectorized.body ? latest : null;
   }
 }
