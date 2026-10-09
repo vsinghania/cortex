@@ -7,15 +7,15 @@ export class OAuthRedirects {
    * Exact match, except that a loopback redirect may use any port (RFC 8252 §7.3):
    * native apps and CLIs bind whatever port the OS hands them.
    */
-  static matchesRegistered(requested: string, registered: readonly string[]): boolean {
-    return registered.some((candidate) => candidate === requested || OAuthRedirects.sameLoopbackTarget(requested, candidate));
+  static matchesRegisteredRedirectUri(requested: string, registered: readonly string[]): boolean {
+    return registered.some((candidate) => candidate === requested || OAuthRedirects.matchesLoopbackRedirectTarget(requested, candidate));
   }
 
   /**
    * The authorization response back to the client. Always carries `iss` (RFC 9207), so a
    * client talking to several authorization servers can tell which one answered.
    */
-  static authorizationResponse(input: {
+  static buildAuthorizationResponseRedirect(input: {
     redirect_uri: string;
     issuer: string;
     state?: string;
@@ -28,7 +28,7 @@ export class OAuthRedirects {
     return url.toString();
   }
 
-  private static sameLoopbackTarget(requested: string, registered: string): boolean {
+  private static matchesLoopbackRedirectTarget(requested: string, registered: string): boolean {
     let req: URL;
     let reg: URL;
     try {

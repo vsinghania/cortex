@@ -3,7 +3,7 @@ import { OAUTH_AUTHORIZATION_REQUEST_TTL_SEC, OAuthTokenIssuer } from './oauth_t
 import type { OAuthAuthorizationRequestRepository } from './repositories/oauth_authorization_request_repository_interface.js';
 import type { CreateOAuthAuthorizationRequestInput, OAuthAuthorizationRequest } from './types/oauth.types.js';
 
-export type ParkOAuthAuthorizationRequestInput = Omit<CreateOAuthAuthorizationRequestInput, 'request_id' | 'expires_at'> & {
+export type CreateOAuthRequestInput = Omit<CreateOAuthAuthorizationRequestInput, 'request_id' | 'expires_at'> & {
   now: Date;
 };
 
@@ -12,23 +12,23 @@ export class OAuthAuthorizationRequests {
   constructor(private readonly repo: OAuthAuthorizationRequestRepository) {}
 
   /** Returns the id the consent page carries in place of the request itself. */
-  async park(input: ParkOAuthAuthorizationRequestInput): Promise<string> {
+  async createAuthorizationRequest(input: CreateOAuthRequestInput): Promise<string> {
     const { now, ...request } = input;
     const request_id = Id.generateRandom(32);
-    await this.repo.create({
+    await this.repo.createAuthorizationRequest({
       ...request,
       request_id,
-      expires_at: OAuthTokenIssuer.expiresAfter(now, OAUTH_AUTHORIZATION_REQUEST_TTL_SEC)
+      expires_at: OAuthTokenIssuer.calculateExpiryDate(now, OAUTH_AUTHORIZATION_REQUEST_TTL_SEC)
     });
     return request_id;
   }
 
-  findActive(input: { request_id: string; now: Date }): Promise<OAuthAuthorizationRequest | null> {
-    return this.repo.findActive(input);
+  findActiveAuthorizationRequest(input: { request_id: string; now: Date }): Promise<OAuthAuthorizationRequest | null> {
+    return this.repo.findActiveAuthorizationRequest(input);
   }
 
   /** Single use: approving or denying removes it, so a consent link cannot be replayed. */
-  consume(input: { request_id: string; now: Date }): Promise<OAuthAuthorizationRequest | null> {
-    return this.repo.consume(input);
+  consumeAuthorizationRequest(input: { request_id: string; now: Date }): Promise<OAuthAuthorizationRequest | null> {
+    return this.repo.consumeAuthorizationRequest(input);
   }
 }

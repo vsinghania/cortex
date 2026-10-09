@@ -16,5 +16,5 @@ export type VerifiedMcpToken = {
 
 export interface McpTokenVerifier {
   /** Null for a token that is unknown, expired or revoked. Throws only when verification itself cannot run. */
-  verify(access_token: string): Promise<VerifiedMcpToken | null>;
+  verifyAccessToken(access_token: string): Promise<VerifiedMcpToken | null>;
 }

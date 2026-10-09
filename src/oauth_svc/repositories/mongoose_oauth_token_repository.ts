@@ -16,24 +16,24 @@ export class MongooseOAuthTokenRepository implements OAuthTokenRepository {
     return new MongooseOAuthTokenRepository(this.factory.getModel(conn));
   }
 
-  async insertMany(tokens: CreateOAuthTokenInput[]): Promise<void> {
+  async insertTokenRecords(tokens: CreateOAuthTokenInput[]): Promise<void> {
     await this.model.insertMany(tokens);
   }
 
-  async findActiveAccess(input: { token_hash: string; now: Date }): Promise<OAuthTokenRecord | null> {
+  async findActiveAccessToken(input: { token_hash: string; now: Date }): Promise<OAuthTokenRecord | null> {
     const found = await this.model
       .findOne({ token_hash: input.token_hash, type: 'access', revoked_at: { $exists: false }, expires_at: { $gt: input.now } })
       .lean();
     return found ? MongooseUtils.toDomain<OAuthTokenRecord>(found) : null;
   }
 
-  async findRefresh(input: { token_hash: string; client_id: string }): Promise<OAuthTokenRecord | null> {
+  async findRefreshToken(input: { token_hash: string; client_id: string }): Promise<OAuthTokenRecord | null> {
     const found = await this.model.findOne({ token_hash: input.token_hash, client_id: input.client_id, type: 'refresh' }).lean();
     return found ? MongooseUtils.toDomain<OAuthTokenRecord>(found) : null;
   }
 
-  async claimForRotation(input: { token_hash: string; client_id: string; now: Date }): Promise<OAuthTokenRecord | null> {
-    const claimed = await this.model
+  async consumeRefreshTokenForRotation(input: { token_hash: string; client_id: string; now: Date }): Promise<OAuthTokenRecord | null> {
+    const consumed = await this.model
       .findOneAndUpdate(
         {
           token_hash: input.token_hash,
@@ -47,21 +47,21 @@ export class MongooseOAuthTokenRepository implements OAuthTokenRepository {
         { new: true }
       )
       .lean();
-    return claimed ? MongooseUtils.toDomain<OAuthTokenRecord>(claimed) : null;
+    return consumed ? MongooseUtils.toDomain<OAuthTokenRecord>(consumed) : null;
   }
 
-  async revokeFamily(input: { family_id: string; now: Date }): Promise<void> {
+  async revokeTokenFamily(input: { family_id: string; now: Date }): Promise<void> {
     await this.model.updateMany({ family_id: input.family_id, revoked_at: { $exists: false } }, { $set: { revoked_at: input.now } });
   }
 
-  async revokeByHash(input: { token_hash: string; client_id: string; now: Date }): Promise<boolean> {
+  async revokeTokenFamilyByTokenHash(input: { token_hash: string; client_id: string; now: Date }): Promise<boolean> {
     const token = await this.model.findOne({ token_hash: input.token_hash, client_id: input.client_id }).lean();
     if (!token) return false;
-    await this.revokeFamily({ family_id: token.family_id, now: input.now });
+    await this.revokeTokenFamily({ family_id: token.family_id, now: input.now });
     return true;
   }
 
-  async deleteByGrant(grant_id: string): Promise<void> {
+  async deleteTokensForGrant(grant_id: string): Promise<void> {
     await this.model.deleteMany({ grant_id });
   }
 }

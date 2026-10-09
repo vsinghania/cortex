@@ -18,16 +18,16 @@ export class NoteLinks {
     return parsed.success ? new NoteLinks(parsed.data) : null;
   }
 
-  home(): string {
+  buildHomeUrl(): string {
     return new URL('/', this.base_url).toString();
   }
 
-  note(note_id: string): string {
+  buildNoteUrl(note_id: string): string {
     return new URL(`/notes/${encodeURIComponent(note_id)}`, this.base_url).toString();
   }
 
-  chunk(note_id: string, chunk_id: string): string {
-    const url = new URL(this.note(note_id));
+  buildChunkUrl(note_id: string, chunk_id: string): string {
+    const url = new URL(this.buildNoteUrl(note_id));
     url.searchParams.set('chunk', chunk_id);
     return url.toString();
   }

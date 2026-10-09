@@ -60,7 +60,7 @@ test('tool schemas are full zod objects, as SDK v2 requires', () => {
 });
 
 test('authInfo carries an internal caller to the server factory and nothing else becomes one', () => {
-  assert.deepEqual(McpCallers.fromAuthInfo(McpCallers.toAuthInfo({ kind: 'internal', user_id: 'u-1' })), { kind: 'internal', user_id: 'u-1' });
-  assert.equal(McpCallers.fromAuthInfo(undefined), null);
-  assert.equal(McpCallers.fromAuthInfo({ token: 't', clientId: 'c', scopes: [] }), null);
+  assert.deepEqual(McpCallers.fromSdkAuthInfo(McpCallers.toSdkAuthInfo({ kind: 'internal', user_id: 'u-1' })), { kind: 'internal', user_id: 'u-1' });
+  assert.equal(McpCallers.fromSdkAuthInfo(undefined), null);
+  assert.equal(McpCallers.fromSdkAuthInfo({ token: 't', clientId: 'c', scopes: [] }), null);
 });

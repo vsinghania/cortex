@@ -28,18 +28,18 @@ export class OAuthController {
   }
 
   private registerRoutes() {
-    this.router.get('/requests/:request_id', RequireAuthMiddleware.requireAuth, this.describeRequest.bind(this));
-    this.router.post('/requests/:request_id/approve', RequireAuthMiddleware.requireAuth, this.approve.bind(this));
-    this.router.post('/requests/:request_id/deny', RequireAuthMiddleware.requireAuth, this.deny.bind(this));
-    this.router.get('/grants', RequireAuthMiddleware.requireAuth, this.listGrants.bind(this));
-    this.router.delete('/grants/:grant_id', RequireAuthMiddleware.requireAuth, this.revokeGrant.bind(this));
+    this.router.get('/requests/:request_id', RequireAuthMiddleware.requireAuth, this.describeAuthorizationRequest.bind(this));
+    this.router.post('/requests/:request_id/approve', RequireAuthMiddleware.requireAuth, this.approveAuthorizationRequest.bind(this));
+    this.router.post('/requests/:request_id/deny', RequireAuthMiddleware.requireAuth, this.denyAuthorizationRequest.bind(this));
+    this.router.get('/grants', RequireAuthMiddleware.requireAuth, this.listConnectedAppGrants.bind(this));
+    this.router.delete('/grants/:grant_id', RequireAuthMiddleware.requireAuth, this.revokeConnectedAppGrant.bind(this));
   }
 
   @validateRequest({ params: RequestParamsSchema })
-  private async describeRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async describeAuthorizationRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const oauth_svc = await OAuthController.requireSvc();
-      const request = await oauth_svc.describeRequest(String(req.params.request_id));
+      const oauth_svc = await OAuthController.requireOAuthSvc();
+      const request = await oauth_svc.describeAuthorizationRequest(String(req.params.request_id));
       res.status(200).json({ response: { request } });
     } catch (e) {
       next(e);
@@ -51,11 +51,11 @@ export class OAuthController {
    * token, and the SPA navigates to the client's redirect_uri itself.
    */
   @validateRequest({ params: RequestParamsSchema, body: ApproveBodySchema })
-  private async approve(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async approveAuthorizationRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const oauth_svc = await OAuthController.requireSvc();
+      const oauth_svc = await OAuthController.requireOAuthSvc();
       const { access } = req.body as { access: McpAccess };
-      const result = await oauth_svc.approve({
+      const result = await oauth_svc.approveAuthorizationRequest({
         request_id: String(req.params.request_id),
         user_id: req.auth!.user_id,
         access
@@ -67,10 +67,10 @@ export class OAuthController {
   }
 
   @validateRequest({ params: RequestParamsSchema })
-  private async deny(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async denyAuthorizationRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const oauth_svc = await OAuthController.requireSvc();
-      const result = await oauth_svc.deny({ request_id: String(req.params.request_id), user_id: req.auth!.user_id });
+      const oauth_svc = await OAuthController.requireOAuthSvc();
+      const result = await oauth_svc.denyAuthorizationRequest({ request_id: String(req.params.request_id), user_id: req.auth!.user_id });
       res.status(200).json({ response: result });
     } catch (e) {
       next(e);
@@ -78,32 +78,32 @@ export class OAuthController {
   }
 
   /** Answers even when unconfigured, so Settings can hide the card instead of erroring. */
-  private async listGrants(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async listConnectedAppGrants(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       if (!OAuthSvc.isConfigured()) {
         res.status(200).json({ response: { available: false, resources: [], grants: [] } });
         return;
       }
       const oauth_svc = await OAuthSvc.create();
-      const grants = await oauth_svc.listGrants(req.auth!.user_id);
-      res.status(200).json({ response: { available: true, resources: oauth_svc.listResources(), grants } });
+      const grants = await oauth_svc.listConnectedAppGrants(req.auth!.user_id);
+      res.status(200).json({ response: { available: true, resources: oauth_svc.listMcpResources(), grants } });
     } catch (e) {
       next(e);
     }
   }
 
   @validateRequest({ params: GrantParamsSchema })
-  private async revokeGrant(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async revokeConnectedAppGrant(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
-      const oauth_svc = await OAuthController.requireSvc();
-      await oauth_svc.revokeGrant({ user_id: req.auth!.user_id, grant_id: String(req.params.grant_id) });
+      const oauth_svc = await OAuthController.requireOAuthSvc();
+      await oauth_svc.revokeConnectedAppGrant({ user_id: req.auth!.user_id, grant_id: String(req.params.grant_id) });
       res.status(204).end();
     } catch (e) {
       next(e);
     }
   }
 
-  private static async requireSvc(): Promise<OAuthSvc> {
+  private static async requireOAuthSvc(): Promise<OAuthSvc> {
     if (!OAuthSvc.isConfigured()) {
       throw new ServiceUnavailableError('Connecting external assistants is not configured');
     }

@@ -33,27 +33,27 @@ export class OAuthServerController {
     const any_origin = cors({ origin: '*' });
     const form = express.urlencoded({ extended: false, limit: '16kb' });
 
-    this.router.options(OAuthAuthorizationServer.metadataPathOf(this.config), any_origin);
-    this.router.get(OAuthAuthorizationServer.metadataPathOf(this.config), any_origin, this.metadata.bind(this));
+    this.router.options(OAuthAuthorizationServer.getMetadataEndpointPath(this.config), any_origin);
+    this.router.get(OAuthAuthorizationServer.getMetadataEndpointPath(this.config), any_origin, this.serveAuthorizationServerMetadata.bind(this));
 
     this.router.all(
-      OAuthAuthorizationServer.endpointPathOf(this.config, 'authorize'),
-      OAuthServerController.limiter(Time.minutesToMs(15), AUTHORIZE_REQUESTS_PER_15_MIN),
+      OAuthAuthorizationServer.getOAuthEndpointPath(this.config, 'authorize'),
+      OAuthServerController.createRequestRateLimiter(Time.minutesToMs(15), AUTHORIZE_REQUESTS_PER_15_MIN),
       form,
-      this.authorize.bind(this)
+      this.handleAuthorizationRequest.bind(this)
     );
 
-    const token_path = OAuthAuthorizationServer.endpointPathOf(this.config, 'token');
+    const token_path = OAuthAuthorizationServer.getOAuthEndpointPath(this.config, 'token');
     this.router.options(token_path, any_origin);
-    this.router.post(token_path, any_origin, OAuthServerController.limiter(Time.minutesToMs(1), TOKEN_REQUESTS_PER_MINUTE), form, this.token.bind(this));
+    this.router.post(token_path, any_origin, OAuthServerController.createRequestRateLimiter(Time.minutesToMs(1), TOKEN_REQUESTS_PER_MINUTE), form, this.handleTokenExchange.bind(this));
 
-    const revoke_path = OAuthAuthorizationServer.endpointPathOf(this.config, 'revoke');
+    const revoke_path = OAuthAuthorizationServer.getOAuthEndpointPath(this.config, 'revoke');
     this.router.options(revoke_path, any_origin);
-    this.router.post(revoke_path, any_origin, OAuthServerController.limiter(Time.minutesToMs(1), TOKEN_REQUESTS_PER_MINUTE), form, this.revoke.bind(this));
+    this.router.post(revoke_path, any_origin, OAuthServerController.createRequestRateLimiter(Time.minutesToMs(1), TOKEN_REQUESTS_PER_MINUTE), form, this.handleTokenRevocation.bind(this));
   }
 
-  private metadata(_req: express.Request, res: express.Response) {
-    res.json(this.server.metadata());
+  private serveAuthorizationServerMetadata(_req: express.Request, res: express.Response) {
+    res.json(this.server.getAuthorizationServerMetadata());
   }
 
   /**
@@ -61,43 +61,43 @@ export class OAuthServerController {
    * errors about the client or the redirect_uri itself are shown here, because sending a
    * browser to an unverified address is exactly what must not happen.
    */
-  private async authorize(req: express.Request, res: express.Response) {
+  private async handleAuthorizationRequest(req: express.Request, res: express.Response) {
     res.setHeader('Cache-Control', 'no-store');
     if (req.method !== 'GET' && req.method !== 'POST') {
       res.status(405).end();
       return;
     }
     try {
-      res.redirect(302, await this.server.authorize(OAuthServerController.params(req.method === 'POST' ? req.body : req.query)));
+      res.redirect(302, await this.server.beginAuthorizationRequest(OAuthServerController.parseOAuthRequestParams(req.method === 'POST' ? req.body : req.query)));
     } catch (err) {
-      const failure = OAuthServerController.asProtocolError(err, 'oauth authorize failed');
-      res.status(failure.status).type('html').send(OAuthServerController.errorPage(failure));
+      const failure = OAuthServerController.toOAuthProtocolError(err, 'oauth authorize failed');
+      res.status(failure.status).type('html').send(OAuthServerController.renderAuthorizationErrorPage(failure));
     }
   }
 
-  private async token(req: express.Request, res: express.Response) {
+  private async handleTokenExchange(req: express.Request, res: express.Response) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Pragma', 'no-cache');
     try {
-      res.json(await this.server.token(OAuthServerController.params(req.body)));
+      res.json(await this.server.exchangeTokenGrant(OAuthServerController.parseOAuthRequestParams(req.body)));
     } catch (err) {
-      const failure = OAuthServerController.asProtocolError(err, 'oauth token request failed');
-      res.status(failure.status).json(failure.toResponse());
+      const failure = OAuthServerController.toOAuthProtocolError(err, 'oauth token request failed');
+      res.status(failure.status).json(failure.toOAuthErrorResponse());
     }
   }
 
-  private async revoke(req: express.Request, res: express.Response) {
+  private async handleTokenRevocation(req: express.Request, res: express.Response) {
     try {
-      await this.server.revoke(OAuthServerController.params(req.body));
+      await this.server.revokeTokenFamilyForToken(OAuthServerController.parseOAuthRequestParams(req.body));
       res.status(200).end();
     } catch (err) {
-      const failure = OAuthServerController.asProtocolError(err, 'oauth revoke failed');
-      res.status(failure.status).json(failure.toResponse());
+      const failure = OAuthServerController.toOAuthProtocolError(err, 'oauth revoke failed');
+      res.status(failure.status).json(failure.toOAuthErrorResponse());
     }
   }
 
   /** Only single string values: a repeated parameter is ambiguous, so it counts as absent. */
-  private static params(source: unknown): OAuthParams {
+  private static parseOAuthRequestParams(source: unknown): OAuthParams {
     const out: OAuthParams = {};
     if (!source || typeof source !== 'object') return out;
     for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
@@ -106,17 +106,17 @@ export class OAuthServerController {
     return out;
   }
 
-  private static asProtocolError(err: unknown, log_message: string): OAuthProtocolError {
+  private static toOAuthProtocolError(err: unknown, log_message: string): OAuthProtocolError {
     if (err instanceof OAuthProtocolError) return err;
     logger.error({ err }, log_message);
     return new OAuthProtocolError('server_error', 'Something went wrong. Try again.', 500);
   }
 
-  private static limiter(window_ms: number, max: number): express.RequestHandler {
+  private static createRequestRateLimiter(window_ms: number, max: number): express.RequestHandler {
     return RateLimitMiddleware.createRateLimiter({ windowMs: window_ms, max, message: 'Too many requests, please try again later.' });
   }
 
-  private static errorPage(failure: OAuthProtocolError): string {
+  private static renderAuthorizationErrorPage(failure: OAuthProtocolError): string {
     const text = OAuthServerController.escapeHtml(failure.description);
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cortex: can't connect</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5"><h1 style="font-size:1.25rem">This app can't connect to Cortex</h1><p>${text}</p><p>Go back to the app you came from and try again, or contact its developer.</p></body></html>`;
   }

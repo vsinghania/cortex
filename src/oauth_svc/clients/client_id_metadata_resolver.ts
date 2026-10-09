@@ -38,14 +38,14 @@ export class ClientIdMetadataResolver {
   constructor(private readonly fetcher: SafeFetcher = new SafeFetcher()) {}
 
   /** Throws invalid_client for anything that is not a usable, valid metadata document. */
-  async resolve(client_id: string): Promise<OAuthClient> {
-    const url = ClientIdMetadataResolver.validClientIdUrl(client_id);
+  async resolveClientMetadata(client_id: string): Promise<OAuthClient> {
+    const url = ClientIdMetadataResolver.parseClientIdUrl(client_id);
     const cached = this.cache.get(client_id);
     if (cached) return cached;
 
-    const { json, cache_control } = await this.fetch(client_id);
-    const client = ClientIdMetadataResolver.toClient(client_id, url, json);
-    const ttl_ms = ClientIdMetadataResolver.cacheTtlMs(cache_control);
+    const { json, cache_control } = await this.fetchClientMetadataDocument(client_id);
+    const client = ClientIdMetadataResolver.parseClientMetadataDocument(client_id, url, json);
+    const ttl_ms = ClientIdMetadataResolver.calculateMetadataCacheTtlMs(cache_control);
     if (ttl_ms > 0) this.cache.set(client_id, client, ttl_ms);
 
     logger.info({ client_id, client_name: client.client_name, redirect_count: client.redirect_uris.length }, 'oauth client metadata resolved');
@@ -56,7 +56,7 @@ export class ClientIdMetadataResolver {
    * draft-ietf-oauth-client-id-metadata-document §3: https, a path, and nothing that
    * would make two spellings name one client (fragments, credentials, dot segments).
    */
-  private static validClientIdUrl(client_id: string): URL {
+  private static parseClientIdUrl(client_id: string): URL {
     let url: URL;
     try {
       url = new URL(client_id);
@@ -71,9 +71,9 @@ export class ClientIdMetadataResolver {
     return url;
   }
 
-  private async fetch(client_id: string): Promise<{ json: unknown; cache_control?: string }> {
+  private async fetchClientMetadataDocument(client_id: string): Promise<{ json: unknown; cache_control?: string }> {
     try {
-      return await this.fetcher.getJson(client_id);
+      return await this.fetcher.fetchJsonDocument(client_id);
     } catch (err) {
       const reason = err instanceof SafeFetchError ? err.reason : 'unknown';
       logger.warn({ client_id, reason }, 'oauth client metadata fetch refused');
@@ -81,7 +81,7 @@ export class ClientIdMetadataResolver {
     }
   }
 
-  private static toClient(client_id: string, url: URL, json: unknown): OAuthClient {
+  private static parseClientMetadataDocument(client_id: string, url: URL, json: unknown): OAuthClient {
     const parsed = MetadataDocumentSchema.safeParse(json);
     if (!parsed.success) throw new OAuthProtocolError('invalid_client', 'The client metadata document is missing required fields');
     const doc = parsed.data;
@@ -95,7 +95,7 @@ export class ClientIdMetadataResolver {
     if (doc.grant_types && !doc.grant_types.includes('authorization_code')) {
       throw new OAuthProtocolError('invalid_client', 'The client does not use the authorization_code grant');
     }
-    if (doc.redirect_uris.some((uri) => !OAuthRedirectUriPolicy.isAllowed(uri))) {
+    if (doc.redirect_uris.some((uri) => !OAuthRedirectUriPolicy.isAllowedRedirectUri(uri))) {
       throw new OAuthProtocolError('invalid_client', 'The client declares a redirect_uri that is not allowed');
     }
 
@@ -119,7 +119,7 @@ export class ClientIdMetadataResolver {
   }
 
   /** Respects the document's own Cache-Control, within bounds that keep both abuse and staleness in check. */
-  private static cacheTtlMs(cache_control: string | undefined): number {
+  private static calculateMetadataCacheTtlMs(cache_control: string | undefined): number {
     if (!cache_control) return DEFAULT_CACHE_TTL_MS;
     if (/\b(no-store|no-cache)\b/i.test(cache_control)) return 0;
     const max_age = /\bmax-age=(\d+)/i.exec(cache_control);

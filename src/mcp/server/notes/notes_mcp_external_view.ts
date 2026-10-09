@@ -17,7 +17,7 @@ export type ExternalChunk = RetrievedChunk & { url?: string };
 export class NotesMcpExternalView {
   private constructor() {}
 
-  static note(note: Note, links: NoteLinks | null): ExternalNote {
+  static toExternalNoteView(note: Note, links: NoteLinks | null): ExternalNote {
     return {
       id: note.id,
       title: note.title,
@@ -29,11 +29,11 @@ export class NotesMcpExternalView {
       is_pinned: note.is_pinned,
       edited_at: note.edited_at,
       created_at: note.created_at,
-      ...(links ? { url: links.note(note.id) } : {})
+      ...(links ? { url: links.buildNoteUrl(note.id) } : {})
     };
   }
 
-  static chunk(chunk: RetrievedChunk, links: NoteLinks | null): ExternalChunk {
-    return links ? { ...chunk, url: links.chunk(chunk.document_id, chunk.chunk_id) } : chunk;
+  static toExternalChunkView(chunk: RetrievedChunk, links: NoteLinks | null): ExternalChunk {
+    return links ? { ...chunk, url: links.buildChunkUrl(chunk.document_id, chunk.chunk_id) } : chunk;
   }
 }

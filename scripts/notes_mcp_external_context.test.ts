@@ -159,8 +159,8 @@ test('only external callers are told about links in tool descriptions', async ()
 });
 
 test('instructions match the grant and never prescribe a citation syntax', () => {
-  const read_only = NotesMcpInstructions.forExternal({ can_write: false });
-  const full = NotesMcpInstructions.forExternal({ can_write: true });
+  const read_only = NotesMcpInstructions.buildExternalCallerInstructions({ can_write: false });
+  const full = NotesMcpInstructions.buildExternalCallerInstructions({ can_write: true });
   assert.match(read_only, /read-only/);
   assert.doesNotMatch(full, /read-only/);
   assert.match(full, /`url`/);

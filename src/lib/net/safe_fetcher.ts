@@ -94,7 +94,7 @@ const USER_AGENT = 'Cortex-OAuth/1.0 (+https://cortexapp.me)';
  * no redirects followed, a hard timeout, a size cap, and JSON only.
  */
 export class SafeFetcher {
-  private static readonly blocklist = SafeFetcher.buildBlocklist();
+  private static readonly blocklist = SafeFetcher.buildBlockedAddressList();
 
   private readonly timeout_ms: number;
   private readonly max_bytes: number;
@@ -104,8 +104,8 @@ export class SafeFetcher {
   constructor(opts: SafeFetcherOptions = {}) {
     this.timeout_ms = opts.timeout_ms ?? DEFAULT_TIMEOUT_MS;
     this.max_bytes = opts.max_bytes ?? DEFAULT_MAX_BYTES;
-    this.resolve = opts.resolve ?? SafeFetcher.resolveAll;
-    this.send = opts.send ?? SafeFetcher.httpsGet;
+    this.resolve = opts.resolve ?? SafeFetcher.lookupAllHostAddresses;
+    this.send = opts.send ?? SafeFetcher.fetchHttpsResponse;
   }
 
   static isBlockedAddress(address: string): boolean {
@@ -114,9 +114,9 @@ export class SafeFetcher {
     return SafeFetcher.blocklist.check(address, family === 4 ? 'ipv4' : 'ipv6');
   }
 
-  async getJson(raw_url: string): Promise<{ json: unknown; cache_control?: string }> {
-    const url = SafeFetcher.parseUrl(raw_url);
-    const address = await this.vettedAddress(url.hostname);
+  async fetchJsonDocument(raw_url: string): Promise<{ json: unknown; cache_control?: string }> {
+    const url = SafeFetcher.parseFetchUrl(raw_url);
+    const address = await this.resolvePublicAddress(url.hostname);
     const response = await this.send({
       hostname: url.hostname,
       address,
@@ -131,19 +131,19 @@ export class SafeFetcher {
     if (response.status !== 200) throw new SafeFetchError('bad_status', `Unexpected status ${response.status}`);
     if (Buffer.byteLength(response.body) > this.max_bytes) throw new SafeFetchError('too_large', 'Response is too large');
 
-    const content_type = SafeFetcher.header(response, 'content-type') ?? '';
+    const content_type = SafeFetcher.getResponseHeader(response, 'content-type') ?? '';
     if (!/^application\/([\w.+-]+\+)?json\b/i.test(content_type)) {
       throw new SafeFetchError('not_json', 'Response is not JSON');
     }
 
     try {
-      return { json: JSON.parse(response.body), cache_control: SafeFetcher.header(response, 'cache-control') };
+      return { json: JSON.parse(response.body), cache_control: SafeFetcher.getResponseHeader(response, 'cache-control') };
     } catch {
       throw new SafeFetchError('not_json', 'Response is not valid JSON');
     }
   }
 
-  private static parseUrl(raw_url: string): URL {
+  private static parseFetchUrl(raw_url: string): URL {
     let url: URL;
     try {
       url = new URL(raw_url);
@@ -157,11 +157,11 @@ export class SafeFetcher {
   }
 
   /** Any blocked record refuses the whole host, so a mixed public/private answer cannot slip through. */
-  private async vettedAddress(hostname: string): Promise<ResolvedAddress> {
+  private async resolvePublicAddress(hostname: string): Promise<ResolvedAddress> {
     const literal = hostname.replace(/^\[|\]$/g, '');
     const literal_family = isIP(literal);
     const addresses: ResolvedAddress[] =
-      literal_family !== 0 ? [{ address: literal, family: literal_family as 4 | 6 }] : await this.resolveSafely(hostname);
+      literal_family !== 0 ? [{ address: literal, family: literal_family as 4 | 6 }] : await this.resolveHostAddresses(hostname);
 
     if (addresses.length === 0) throw new SafeFetchError('unresolvable', 'Host did not resolve');
     if (addresses.some((a) => SafeFetcher.isBlockedAddress(a.address))) {
@@ -170,7 +170,7 @@ export class SafeFetcher {
     return addresses[0];
   }
 
-  private async resolveSafely(hostname: string): Promise<ResolvedAddress[]> {
+  private async resolveHostAddresses(hostname: string): Promise<ResolvedAddress[]> {
     try {
       return await this.resolve(hostname);
     } catch {
@@ -178,12 +178,12 @@ export class SafeFetcher {
     }
   }
 
-  private static async resolveAll(hostname: string): Promise<ResolvedAddress[]> {
+  private static async lookupAllHostAddresses(hostname: string): Promise<ResolvedAddress[]> {
     const records = await lookup(hostname, { all: true, verbatim: true });
     return records.map((r) => ({ address: r.address, family: r.family as 4 | 6 }));
   }
 
-  private static httpsGet(target: SafeFetchTarget): Promise<SafeFetchResponse> {
+  private static fetchHttpsResponse(target: SafeFetchTarget): Promise<SafeFetchResponse> {
     return new Promise((resolve, reject) => {
       // Connects to the vetted address while TLS still verifies the certificate for the hostname.
       const pinned_lookup: LookupFunction = (_hostname, options, callback) => {
@@ -215,24 +215,24 @@ export class SafeFetcher {
             chunks.push(chunk);
           });
           res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
-          res.on('error', (err) => reject(SafeFetcher.asFetchError(err)));
+          res.on('error', (err) => reject(SafeFetcher.toSafeFetchError(err)));
         }
       );
       req.on('timeout', () => req.destroy(new SafeFetchError('timeout', 'Request timed out')));
-      req.on('error', (err) => reject(SafeFetcher.asFetchError(err)));
+      req.on('error', (err) => reject(SafeFetcher.toSafeFetchError(err)));
     });
   }
 
-  private static asFetchError(err: unknown): SafeFetchError {
+  private static toSafeFetchError(err: unknown): SafeFetchError {
     return err instanceof SafeFetchError ? err : new SafeFetchError('network', (err as Error)?.message ?? 'Network error');
   }
 
-  private static header(response: SafeFetchResponse, name: string): string | undefined {
+  private static getResponseHeader(response: SafeFetchResponse, name: string): string | undefined {
     const value = response.headers[name];
     return Array.isArray(value) ? value[0] : value;
   }
 
-  private static buildBlocklist(): BlockList {
+  private static buildBlockedAddressList(): BlockList {
     const list = new BlockList();
     for (const [network, prefix, type] of BLOCKED_SUBNETS) list.addSubnet(network, prefix, type);
     return list;

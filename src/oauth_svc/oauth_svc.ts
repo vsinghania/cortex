@@ -32,32 +32,32 @@ export class OAuthSvc implements OAuthSvcInterface {
   }
 
   static async create(overrides?: Partial<OAuthSvcDeps>): Promise<OAuthSvc> {
-    const config = overrides?.config ?? OAuthSvc.requireConfig();
+    const config = overrides?.config ?? OAuthSvc.requireOAuthConfig();
     return new OAuthSvc({
-      stores: overrides?.stores ?? (await OAuthStoresLoader.get()),
+      stores: overrides?.stores ?? (await OAuthStoresLoader.getStores()),
       config,
       resources: overrides?.resources ?? McpResourceCatalog.fromEnv(),
       now: overrides?.now
     });
   }
 
-  private static requireConfig(): OAuthConfig {
+  private static requireOAuthConfig(): OAuthConfig {
     const config = OAuthConfigLoader.fromEnv();
     if (!config) throw new ServiceUnavailableError('Connecting external assistants is not configured');
     return config;
   }
 
-  async describeRequest(request_id: string): Promise<OAuthConsentRequestView> {
-    const request = await this.deps.stores.requests.findActive({ request_id, now: this.now() });
-    if (!request) throw OAuthSvc.requestGone();
-    const resource = this.requireResource(request.resource);
-    const access_options = OAuthSvc.accessOptions(resource, request.requested_scopes);
+  async describeAuthorizationRequest(request_id: string): Promise<OAuthConsentRequestView> {
+    const request = await this.deps.stores.requests.findActiveAuthorizationRequest({ request_id, now: this.getCurrentTime() });
+    if (!request) throw OAuthSvc.createAuthorizationRequestGoneError();
+    const resource = this.requireMcpResource(request.resource);
+    const access_options = OAuthSvc.buildConsentAccessOptions(resource, request.requested_scopes);
 
     return {
       request_id,
       client_name: request.client_name,
       client_host: request.client_host,
-      redirect_host: OAuthSvc.hostOf(request.redirect_uri),
+      redirect_host: OAuthSvc.getUriHost(request.redirect_uri),
       resource: { id: resource.id, name: resource.display_name },
       requested_scopes: request.requested_scopes,
       access_options,
@@ -66,14 +66,14 @@ export class OAuthSvc implements OAuthSvcInterface {
   }
 
   /** Records the user's consent as the grant, then hands the client a one-minute code tied to it. */
-  async approve(input: ApproveOAuthRequestInput): Promise<{ redirect_url: string }> {
-    const now = this.now();
-    const request = await this.consumeRequest(input.request_id, now);
-    const resource = this.requireResource(request.resource);
-    const scopes = McpResourceCatalog.scopesFor(resource, input.access, request.requested_scopes);
+  async approveAuthorizationRequest(input: ApproveOAuthRequestInput): Promise<{ redirect_url: string }> {
+    const now = this.getCurrentTime();
+    const request = await this.consumeAuthorizationRequest(input.request_id, now);
+    const resource = this.requireMcpResource(request.resource);
+    const scopes = McpResourceCatalog.resolveScopesForResourceAccess(resource, input.access, request.requested_scopes);
     if (scopes.length === 0) throw new BadRequestError('The app did not ask for that level of access');
 
-    const grant = await this.deps.stores.grants.upsert({
+    const grant = await this.deps.stores.grants.upsertGrant({
       user_id: input.user_id,
       client_id: request.client_id,
       client_name: request.client_name,
@@ -83,7 +83,7 @@ export class OAuthSvc implements OAuthSvcInterface {
       resource: request.resource
     });
 
-    const code = await this.deps.stores.codes.issue({
+    const code = await this.deps.stores.codes.issueAuthorizationCode({
       client_id: request.client_id,
       user_id: input.user_id,
       grant_id: grant.grant_id,
@@ -95,46 +95,46 @@ export class OAuthSvc implements OAuthSvcInterface {
     });
 
     logger.info({ client_id: request.client_id, grant_id: grant.grant_id, scopes }, 'oauth consent approved');
-    return { redirect_url: this.respond(request, { code }) };
+    return { redirect_url: this.buildAuthorizationResponseRedirect(request, { code }) };
   }
 
-  async deny(input: { request_id: string; user_id: string }): Promise<{ redirect_url: string }> {
-    const request = await this.consumeRequest(input.request_id, this.now());
+  async denyAuthorizationRequest(input: { request_id: string; user_id: string }): Promise<{ redirect_url: string }> {
+    const request = await this.consumeAuthorizationRequest(input.request_id, this.getCurrentTime());
     logger.info({ client_id: request.client_id }, 'oauth consent denied');
-    return { redirect_url: this.respond(request, { error: 'access_denied', error_description: 'The user declined access' }) };
+    return { redirect_url: this.buildAuthorizationResponseRedirect(request, { error: 'access_denied', error_description: 'The user declined access' }) };
   }
 
   /** The MCP servers a user can connect an assistant to, with the URL to paste. */
-  listResources(): PublicMcpResource[] {
-    return this.deps.resources.all().map((resource) => ({ id: resource.id, name: resource.display_name, url: resource.url }));
+  listMcpResources(): PublicMcpResource[] {
+    return this.deps.resources.listResources().map((resource) => ({ id: resource.id, name: resource.display_name, url: resource.url }));
   }
 
-  async listGrants(user_id: string): Promise<PublicOAuthGrant[]> {
-    const grants = await this.deps.stores.grants.listExternal(user_id);
-    return grants.map((grant) => this.toPublic(grant));
+  async listConnectedAppGrants(user_id: string): Promise<PublicOAuthGrant[]> {
+    const grants = await this.deps.stores.grants.listExternalGrantsForUser(user_id);
+    return grants.map((grant) => this.toPublicOAuthGrant(grant));
   }
 
   /** Ends the connection everywhere at once: the grant and every token on every device. */
-  async revokeGrant(input: { user_id: string; grant_id: string }): Promise<void> {
-    const revoked = await this.deps.stores.grants.deleteExternal(input);
+  async revokeConnectedAppGrant(input: { user_id: string; grant_id: string }): Promise<void> {
+    const revoked = await this.deps.stores.grants.deleteExternalGrantForUser(input);
     if (!revoked) throw new NotFoundError('Connection not found');
-    await this.deps.stores.tokens.deleteForGrant(input.grant_id);
+    await this.deps.stores.tokens.deleteTokensForGrant(input.grant_id);
     logger.info({ grant_id: input.grant_id }, 'oauth grant revoked');
   }
 
   async issueFirstPartyAccessToken(input: FirstPartyTokenRequest): Promise<{ access_token: string; expires_at: Date }> {
-    const now = this.now();
-    const resource = this.deps.resources.find(input.resource_id);
+    const now = this.getCurrentTime();
+    const resource = this.deps.resources.findResourceById(input.resource_id);
     if (!resource) throw new ServiceUnavailableError(`The ${input.resource_id} MCP endpoint is not served`);
-    const grant = await this.deps.stores.grants.upsert({
+    const grant = await this.deps.stores.grants.upsertGrant({
       user_id: input.user_id,
       client_id: input.client_id,
       client_name: input.client_name,
       kind: 'first_party',
-      scopes: McpResourceCatalog.allScopes(resource),
+      scopes: McpResourceCatalog.listResourceScopes(resource),
       resource: resource.url
     });
-    const issued = await this.deps.stores.tokens.start({
+    const issued = await this.deps.stores.tokens.issueTokensInNewFamily({
       grant,
       scopes: grant.scopes,
       now,
@@ -146,23 +146,23 @@ export class OAuthSvc implements OAuthSvcInterface {
   }
 
   /** Single use: approving or denying removes it, so a consent link cannot be replayed. */
-  private async consumeRequest(request_id: string, now: Date): Promise<OAuthAuthorizationRequest> {
-    const request = await this.deps.stores.requests.consume({ request_id, now });
-    if (!request) throw OAuthSvc.requestGone();
+  private async consumeAuthorizationRequest(request_id: string, now: Date): Promise<OAuthAuthorizationRequest> {
+    const request = await this.deps.stores.requests.consumeAuthorizationRequest({ request_id, now });
+    if (!request) throw OAuthSvc.createAuthorizationRequestGoneError();
     return request;
   }
 
-  private respond(request: OAuthAuthorizationRequest, params: Record<string, string>): string {
-    return OAuthRedirects.authorizationResponse({
+  private buildAuthorizationResponseRedirect(request: OAuthAuthorizationRequest, params: Record<string, string>): string {
+    return OAuthRedirects.buildAuthorizationResponseRedirect({
       redirect_uri: request.redirect_uri,
-      issuer: OAuthAuthorizationServer.issuerOf(this.deps.config),
+      issuer: OAuthAuthorizationServer.getIssuerUrl(this.deps.config),
       state: request.state,
       params
     });
   }
 
-  private toPublic(grant: OAuthGrant): PublicOAuthGrant {
-    const resource = this.deps.resources.findByUrl(grant.resource);
+  private toPublicOAuthGrant(grant: OAuthGrant): PublicOAuthGrant {
+    const resource = this.deps.resources.findResourceByUrl(grant.resource);
     return {
       grant_id: grant.grant_id,
       client_name: grant.client_name,
@@ -176,22 +176,22 @@ export class OAuthSvc implements OAuthSvcInterface {
   }
 
   /** A request or grant whose resource is no longer served cannot be consented to. */
-  private requireResource(url: string): McpResource {
-    const resource = this.deps.resources.findByUrl(url);
+  private requireMcpResource(url: string): McpResource {
+    const resource = this.deps.resources.findResourceByUrl(url);
     if (!resource) throw new NotFoundError('This MCP endpoint is no longer available');
     return resource;
   }
 
-  private static accessOptions(resource: McpResource, requested_scopes: string[]): OAuthAccessOption[] {
+  private static buildConsentAccessOptions(resource: McpResource, requested_scopes: string[]): OAuthAccessOption[] {
     return (['read', 'read_write'] as const).map((value) => ({
       value,
       label: value === 'read' ? 'Read only' : 'Read & write',
       detail: resource.access_copy[value],
-      available: McpResourceCatalog.scopesFor(resource, value, requested_scopes).length === (value === 'read' ? 1 : 2)
+      available: McpResourceCatalog.resolveScopesForResourceAccess(resource, value, requested_scopes).length === (value === 'read' ? 1 : 2)
     }));
   }
 
-  private static hostOf(uri: string): string {
+  private static getUriHost(uri: string): string {
     try {
       const url = new URL(uri);
       return url.host || url.protocol;
@@ -200,11 +200,11 @@ export class OAuthSvc implements OAuthSvcInterface {
     }
   }
 
-  private static requestGone(): NotFoundError {
+  private static createAuthorizationRequestGoneError(): NotFoundError {
     return new NotFoundError('This authorization request has expired or was already used');
   }
 
-  private now(): Date {
+  private getCurrentTime(): Date {
     return this.deps.now?.() ?? new Date();
   }
 }

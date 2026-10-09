@@ -11,7 +11,7 @@ test('allows https, loopback http and private-use schemes', () => {
     'http://[::1]:9000/cb',
     'cursor://anysphere.cursor-retrieval/oauth/callback'
   ]) {
-    assert.equal(OAuthRedirectUriPolicy.isAllowed(uri), true, uri);
+    assert.equal(OAuthRedirectUriPolicy.isAllowedRedirectUri(uri), true, uri);
   }
 });
 
@@ -25,6 +25,6 @@ test('rejects plain http off loopback, script-like schemes, fragments and junk',
     'https://claude.ai/cb#frag',
     'not a url'
   ]) {
-    assert.equal(OAuthRedirectUriPolicy.isAllowed(uri), false, uri);
+    assert.equal(OAuthRedirectUriPolicy.isAllowedRedirectUri(uri), false, uri);
   }
 });

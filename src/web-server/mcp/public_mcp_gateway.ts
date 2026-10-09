@@ -42,50 +42,50 @@ export class PublicMcpGateway {
 
   private constructor(private readonly opts: PublicMcpGatewayOptions) {
     this.resource = opts.resource.url;
-    this.metadata_url = ProtectedResourceMetadata.urlFor(new URL(opts.resource.url));
+    this.metadata_url = ProtectedResourceMetadata.getProtectedResourceMetadataUrl(new URL(opts.resource.url));
   }
 
   /** Mounted at the host root: the metadata path lives under `/.well-known`, not under the resource. */
-  static build(opts: PublicMcpGatewayOptions): express.Router {
+  static buildRouter(opts: PublicMcpGatewayOptions): express.Router {
     const gateway = new PublicMcpGateway(opts);
     const router = express.Router();
-    router.get(new URL(gateway.metadata_url).pathname, gateway.serveMetadata.bind(gateway));
+    router.get(new URL(gateway.metadata_url).pathname, gateway.serveProtectedResourceMetadata.bind(gateway));
     router.use(
       new URL(opts.resource.url).pathname,
-      gateway.authenticate.bind(gateway),
-      PublicMcpGateway.perGrantRateLimiter(opts.resource.id),
-      McpProxyRouter.build({
+      gateway.authenticateAccessToken.bind(gateway),
+      PublicMcpGateway.createGrantRateLimiter(opts.resource.id),
+      McpProxyRouter.buildRouter({
         name: `${opts.resource.id}-public`,
         target_url: opts.resource.internal_url,
-        rewriteRequestHeaders: (proxy_req, res) => gateway.rewriteHeaders(proxy_req, res)
+        rewriteRequestHeaders: (proxy_req, res) => gateway.rewriteUpstreamAuthHeaders(proxy_req, res)
       })
     );
     return router;
   }
 
   // Readable from any origin: browser-based MCP clients fetch it before they hold a token.
-  private serveMetadata(_req: express.Request, res: express.Response): void {
+  private serveProtectedResourceMetadata(_req: express.Request, res: express.Response): void {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.json(
-      ProtectedResourceMetadata.build({
+      ProtectedResourceMetadata.buildProtectedResourceMetadata({
         resource: this.resource,
         authorization_server: CanonicalUrl.of(this.opts.authorization_server_url),
-        scopes: McpResourceCatalog.allScopes(this.opts.resource),
+        scopes: McpResourceCatalog.listResourceScopes(this.opts.resource),
         resource_name: `Cortex ${this.opts.resource.display_name.toLowerCase()}`
       })
     );
   }
 
-  private async authenticate(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
-    const token = PublicMcpGateway.bearerToken(req);
+  private async authenticateAccessToken(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
+    const token = PublicMcpGateway.parseAuthorizationHeader(req);
     if (!token) {
-      this.challenge(res, null);
+      this.sendBearerTokenChallenge(res, null);
       return;
     }
 
     let verified: VerifiedMcpToken | null;
     try {
-      verified = await this.opts.verifier.verify(token);
+      verified = await this.opts.verifier.verifyAccessToken(token);
     } catch (err) {
       logger.error({ err }, 'public MCP token verification failed');
       res.status(503).json({ jsonrpc: '2.0', error: { code: -32603, message: 'Authorization temporarily unavailable' }, id: null });
@@ -93,13 +93,13 @@ export class PublicMcpGateway {
     }
 
     if (!verified) {
-      this.challenge(res, { error: 'invalid_token', description: 'The access token is invalid, expired or revoked' });
+      this.sendBearerTokenChallenge(res, { error: 'invalid_token', description: 'The access token is invalid, expired or revoked' });
       return;
     }
     // RFC 8707: a token issued for another resource must never be spent here.
     if (verified.resource !== this.resource) {
       logger.warn({ client_id: verified.client_id, grant_id: verified.grant_id }, 'public MCP token for another resource refused');
-      this.challenge(res, { error: 'invalid_token', description: 'The access token was not issued for this resource' });
+      this.sendBearerTokenChallenge(res, { error: 'invalid_token', description: 'The access token was not issued for this resource' });
       return;
     }
 
@@ -118,12 +118,12 @@ export class PublicMcpGateway {
     next();
   }
 
-  private rewriteHeaders(proxy_req: ClientRequest, res: ServerResponse): void {
+  private rewriteUpstreamAuthHeaders(proxy_req: ClientRequest, res: ServerResponse): void {
     for (const header of STRIPPED_HEADERS) proxy_req.removeHeader(header);
     const locals = (res as express.Response).locals?.[LOCALS_KEY] as GatewayLocals | undefined;
     if (!locals) return;
 
-    const assertion = McpCallerAssertion.sign({
+    const assertion = McpCallerAssertion.signGatewayCallerAssertion({
       secret: this.opts.assertion_secret,
       audience: this.opts.resource.assertion_audience,
       caller: locals.caller
@@ -136,17 +136,17 @@ export class PublicMcpGateway {
    * RFC 9728 §5.1 and MCP scope selection: the 401 names the metadata (how a client
    * holding only the MCP URL finds the authorization server) and the scopes to ask for.
    */
-  private challenge(res: express.Response, failure: { error: string; description: string } | null): void {
+  private sendBearerTokenChallenge(res: express.Response, failure: { error: string; description: string } | null): void {
     const params = [
       ...(failure ? [`error="${failure.error}"`, `error_description="${failure.description}"`] : []),
       `resource_metadata="${this.metadata_url}"`,
-      `scope="${McpResourceCatalog.allScopes(this.opts.resource).join(' ')}"`
+      `scope="${McpResourceCatalog.listResourceScopes(this.opts.resource).join(' ')}"`
     ];
     res.setHeader('WWW-Authenticate', `Bearer ${params.join(', ')}`);
     res.status(401).json(failure ? { error: failure.error, error_description: failure.description } : { error: 'unauthorized' });
   }
 
-  private static perGrantRateLimiter(resource_id: string): express.RequestHandler {
+  private static createGrantRateLimiter(resource_id: string): express.RequestHandler {
     return RateLimitMiddleware.createRateLimiter({
       windowMs: Time.minutesToMs(1),
       max: REQUESTS_PER_GRANT_PER_MINUTE,
@@ -155,7 +155,7 @@ export class PublicMcpGateway {
     });
   }
 
-  private static bearerToken(req: express.Request): string | null {
+  private static parseAuthorizationHeader(req: express.Request): string | null {
     const header = req.headers.authorization;
     if (!header) return null;
     const [scheme, token] = header.split(' ');

@@ -37,7 +37,7 @@ const TOKENS: Record<string, VerifiedMcpToken> = {
   cx_at_articles: { user_id: 'user-1', client_id: 'https://claude.test/c.json', grant_id: 'g-3', scopes: ['articles:read'], resource: ARTICLES, kind: 'external' }
 };
 
-const verifier: McpTokenVerifier = { verify: async (token) => TOKENS[token] ?? null };
+const verifier: McpTokenVerifier = { verifyAccessToken: async (token) => TOKENS[token] ?? null };
 
 async function listen(server: Server): Promise<string> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -71,11 +71,11 @@ async function withGateways(fn: (base: string, seen: Seen) => Promise<void>) {
   });
 
   const gateways = express.Router();
-  for (const resource of catalog.all()) {
-    gateways.use(PublicMcpGateway.build({ verifier, resource, authorization_server_url: new URL('https://api.cortex.test'), assertion_secret: SECRET }));
+  for (const resource of catalog.listResources()) {
+    gateways.use(PublicMcpGateway.buildRouter({ verifier, resource, authorization_server_url: new URL('https://api.cortex.test'), assertion_secret: SECRET }));
   }
   const app = express();
-  app.use(HostGate.for(new URL(MCP_BASE), gateways));
+  app.use(HostGate.createHostRouter(new URL(MCP_BASE), gateways));
   app.use((_req, res) => res.status(404).end());
   const gateway = createServer(app);
   const base = await listen(gateway);
@@ -183,11 +183,11 @@ test('a valid token becomes an assertion addressed to that resource\'s server; s
     assert.equal(headers['x-mcp-client-id'], undefined);
 
     const token = String(headers.authorization).replace(/^Bearer /, '');
-    const caller = McpCallerAssertion.verify({ secret: SECRET, audience: 'cortex-notes-mcp', token });
+    const caller = McpCallerAssertion.verifyGatewayCallerAssertion({ secret: SECRET, audience: 'cortex-notes-mcp', token });
     assert.equal(caller?.kind, 'external');
     assert.equal(caller?.user_id, 'user-1');
     assert.deepEqual([...caller!.scopes], ['notes:read']);
-    assert.equal(McpCallerAssertion.verify({ secret: SECRET, audience: 'cortex-articles-mcp', token }), null);
+    assert.equal(McpCallerAssertion.verifyGatewayCallerAssertion({ secret: SECRET, audience: 'cortex-articles-mcp', token }), null);
   });
 });
 
@@ -196,7 +196,7 @@ test('each resource\'s traffic goes to its own server, with its own audience', a
     await post(base, '/articles', { authorization: 'Bearer cx_at_articles' });
     assert.equal(seen.notes.length, 0);
     const token = String(seen.articles[0].authorization).replace(/^Bearer /, '');
-    assert.ok(McpCallerAssertion.verify({ secret: SECRET, audience: 'cortex-articles-mcp', token }));
+    assert.ok(McpCallerAssertion.verifyGatewayCallerAssertion({ secret: SECRET, audience: 'cortex-articles-mcp', token }));
   });
 });
 
@@ -204,7 +204,7 @@ test('a first-party (voice) token is asserted as first_party for its own user', 
   await withGateways(async (base, seen) => {
     await post(base, '/notes', { authorization: 'Bearer cx_at_voice' });
     const token = String(seen.notes[0].authorization).replace(/^Bearer /, '');
-    const caller = McpCallerAssertion.verify({ secret: SECRET, audience: 'cortex-notes-mcp', token });
+    const caller = McpCallerAssertion.verifyGatewayCallerAssertion({ secret: SECRET, audience: 'cortex-notes-mcp', token });
     assert.equal(caller?.kind, 'first_party');
     assert.equal(caller?.user_id, 'user-2');
   });

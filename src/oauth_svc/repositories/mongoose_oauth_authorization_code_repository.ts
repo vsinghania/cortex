@@ -16,11 +16,11 @@ export class MongooseOAuthAuthorizationCodeRepository implements OAuthAuthorizat
     return new MongooseOAuthAuthorizationCodeRepository(this.factory.getModel(conn));
   }
 
-  async create(input: CreateOAuthAuthorizationCodeInput): Promise<void> {
+  async createAuthorizationCode(input: CreateOAuthAuthorizationCodeInput): Promise<void> {
     await this.model.create(input);
   }
 
-  async consume(input: OAuthCodeLookup & { family_id: string }): Promise<OAuthAuthorizationCode | null> {
+  async consumeAuthorizationCode(input: OAuthCodeLookup & { family_id: string }): Promise<OAuthAuthorizationCode | null> {
     const consumed = await this.model
       .findOneAndUpdate(
         {
@@ -36,7 +36,7 @@ export class MongooseOAuthAuthorizationCodeRepository implements OAuthAuthorizat
     return consumed ? MongooseUtils.toDomain<OAuthAuthorizationCode>(consumed) : null;
   }
 
-  async findByHash(code_hash: string): Promise<OAuthAuthorizationCode | null> {
+  async findAuthorizationCodeByHash(code_hash: string): Promise<OAuthAuthorizationCode | null> {
     const found = await this.model.findOne({ code_hash }).lean();
     return found ? MongooseUtils.toDomain<OAuthAuthorizationCode>(found) : null;
   }

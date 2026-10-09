@@ -17,7 +17,7 @@ export class NotesMcpHttpServer extends BaseMcpHttpServer {
       version: '1.0.0',
       title: 'Cortex Notes',
       description: 'Search, read and organise your Cortex notes.',
-      website_url: NoteLinks.fromEnv()?.home(),
+      website_url: NoteLinks.fromEnv()?.buildHomeUrl(),
       icons: CortexIcons.forMcp(),
       log_name: 'notes_mcp',
       options: {
@@ -41,16 +41,16 @@ export class NotesMcpHttpServer extends BaseMcpHttpServer {
       port: Number(process.env.MCP_NOTES_PORT ?? 3010) || 3010,
       path: process.env.MCP_NOTES_PATH ?? '/mcp',
       auth_token,
-      assertion_secret: NotesMcpHttpServer.resolveAssertionSecret(),
+      assertion_secret: NotesMcpHttpServer.resolveGatewayAssertionSecret(),
       assertion_audience: NotesMcpContract.ASSERTION_AUDIENCE,
-      allowed_hosts: NotesMcpHttpServer.resolveAllowedHosts()
+      allowed_hosts: NotesMcpHttpServer.resolveAllowedHostnames()
     };
   }
 
   /** Cortex's own agents carry their own prompts; only external assistants need the guide. */
   protected override getInstructions(caller: McpCaller): string | undefined {
-    if (!McpCallers.isExternal(caller)) return undefined;
-    return NotesMcpInstructions.forExternal({ can_write: McpCallers.allows(caller, NotesMcpContract.WRITE) });
+    if (!McpCallers.isExternalCaller(caller)) return undefined;
+    return NotesMcpInstructions.buildExternalCallerInstructions({ can_write: McpCallers.isScopeAllowedForCaller(caller, NotesMcpContract.WRITE) });
   }
 
   protected async createMcpModules(): Promise<McpModule[]> {
@@ -58,7 +58,7 @@ export class NotesMcpHttpServer extends BaseMcpHttpServer {
   }
 
   /** Shared with web-server's public gateway; unset means only internal callers get in. */
-  private static resolveAssertionSecret(): string | undefined {
+  private static resolveGatewayAssertionSecret(): string | undefined {
     const secret = process.env.MCP_GATEWAY_ASSERTION_SECRET;
     if (!secret) {
       logger.warn('MCP_GATEWAY_ASSERTION_SECRET not set; requests from the public MCP gateway will be refused');
@@ -67,7 +67,7 @@ export class NotesMcpHttpServer extends BaseMcpHttpServer {
     return secret;
   }
 
-  private static resolveAllowedHosts(): string[] | undefined {
+  private static resolveAllowedHostnames(): string[] | undefined {
     const raw_allowed_hosts = process.env.MCP_NOTES_ALLOWED_HOSTS;
     if (!raw_allowed_hosts) {
       return undefined;

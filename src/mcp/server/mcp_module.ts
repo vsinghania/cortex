@@ -22,7 +22,7 @@ export type McpToolRegistration = {
 };
 
 export abstract class McpModule {
-  public async register(server: McpServer, caller: McpCaller): Promise<void> {
+  public async registerCapabilities(server: McpServer, caller: McpCaller): Promise<void> {
     await this.registerTools(server, caller);
     await this.registerResources(server, caller);
     await this.registerPrompts(server, caller);
@@ -45,13 +45,13 @@ export abstract class McpModule {
    * emits a uniform `MCP tool invoked` / `MCP tool failed` line.
    */
   protected registerTool(server: McpServer, caller: McpCaller, tool: McpToolRegistration): void {
-    if (!McpCallers.allows(caller, tool.required_scope)) return;
+    if (!McpCallers.isScopeAllowedForCaller(caller, tool.required_scope)) return;
 
     const module_name = this.constructor.name;
     const wrapped = async (args: unknown): Promise<CallToolResult> => {
       const start_ms = performance.now();
       try {
-        if (!McpCallers.allows(caller, tool.required_scope)) {
+        if (!McpCallers.isScopeAllowedForCaller(caller, tool.required_scope)) {
           throw new Error(`This connection does not have ${tool.required_scope} access.`);
         }
         const result = await tool.handler(args);

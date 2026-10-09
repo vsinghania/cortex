@@ -11,7 +11,7 @@ const FORBIDDEN_SCHEMES = new Set(['javascript:', 'data:', 'file:', 'vbscript:',
 export class OAuthRedirectUriPolicy {
   private constructor() {}
 
-  static isAllowed(raw: string): boolean {
+  static isAllowedRedirectUri(raw: string): boolean {
     let url: URL;
     try {
       url = new URL(raw);

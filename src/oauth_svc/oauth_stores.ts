@@ -36,9 +36,9 @@ export class OAuthStoresLoader {
 
   private constructor() {}
 
-  static get(): Promise<OAuthStores> {
+  static getStores(): Promise<OAuthStores> {
     if (!OAuthStoresLoader.instance) {
-      OAuthStoresLoader.instance = OAuthStoresLoader.loadInstance();
+      OAuthStoresLoader.instance = OAuthStoresLoader.loadStores();
     }
     return OAuthStoresLoader.instance;
   }
@@ -53,7 +53,7 @@ export class OAuthStoresLoader {
     };
   }
 
-  private static async loadInstance(): Promise<OAuthStores> {
+  private static async loadStores(): Promise<OAuthStores> {
     try {
       const params = { db: DbNameResolver.resolve('auth') };
       const [requests, codes, grants, tokens] = await Promise.all([

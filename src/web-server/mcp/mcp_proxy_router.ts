@@ -13,7 +13,7 @@ export interface McpProxyOptions {
 export class McpProxyRouter {
   private constructor() {}
 
-  public static build(opts: McpProxyOptions): express.Router {
+  public static buildRouter(opts: McpProxyOptions): express.Router {
     const target = new URL(opts.target_url);
     const target_origin = target.origin;
     const target_pathname = target.pathname.replace(/\/+$/, '');
@@ -24,7 +24,7 @@ export class McpProxyRouter {
       target: target_origin,
       changeOrigin: true,
       xfwd: true,
-      pathRewrite: (incoming_path) => McpProxyRouter.rewritePath(target_pathname, incoming_path),
+      pathRewrite: (incoming_path) => McpProxyRouter.rewriteUpstreamRequestPath(target_pathname, incoming_path),
       on: {
         proxyReq: (proxy_req, req, res) => {
           opts.rewriteRequestHeaders?.(proxy_req, res);
@@ -38,7 +38,7 @@ export class McpProxyRouter {
             { err: err.message, mcp_name: opts.name, target_url: opts.target_url },
             'MCP proxy upstream error'
           );
-          McpProxyRouter.writeUpstreamError(res as ServerResponse | undefined);
+          McpProxyRouter.sendUpstreamConnectionError(res as ServerResponse | undefined);
         },
       },
     });
@@ -47,13 +47,13 @@ export class McpProxyRouter {
     return router;
   }
 
-  private static rewritePath(target_pathname: string, incoming_path: string): string {
+  private static rewriteUpstreamRequestPath(target_pathname: string, incoming_path: string): string {
     const tail = incoming_path === '/' ? '' : incoming_path;
     const rewritten = `${target_pathname}${tail}`;
     return rewritten.length > 0 ? rewritten : '/';
   }
 
-  private static writeUpstreamError(res?: ServerResponse): void {
+  private static sendUpstreamConnectionError(res?: ServerResponse): void {
     if (!res || res.headersSent) {
       return;
     }

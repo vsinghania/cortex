@@ -89,12 +89,12 @@ export class App {
     }
 
     const resources = McpResourceCatalog.fromEnv();
-    if (resources.all().length === 0) {
+    if (resources.listResources().length === 0) {
       logger.warn('No public MCP resource is configured; the OAuth authorization server has nothing to issue tokens for');
     }
     const authorization_server = OAuthAuthorizationServer.fromConfig(config, resources);
-    this.app.use(HostGate.for(config.issuer_url, new OAuthServerController(authorization_server, config).getRouter()));
-    logger.info({ issuer: OAuthAuthorizationServer.issuerOf(config) }, 'OAuth authorization server mounted');
+    this.app.use(HostGate.createHostRouter(config.issuer_url, new OAuthServerController(authorization_server, config).getRouter()));
+    logger.info({ issuer: OAuthAuthorizationServer.getIssuerUrl(config) }, 'OAuth authorization server mounted');
   }
 
   /**
@@ -117,20 +117,20 @@ export class App {
       return;
     }
     const catalog = McpResourceCatalog.create({ base_url: config.base_url });
-    if (catalog.all().length === 0) {
+    if (catalog.listResources().length === 0) {
       logger.warn('No MCP server has its internal URL set; no public MCP resource is served');
       return;
     }
 
     const verifier = new OAuthAccessTokenVerifier();
     const gateways = express.Router();
-    for (const resource of catalog.all()) {
-      gateways.use(PublicMcpGateway.build({ verifier, resource, authorization_server_url: config.authorization_server_url, assertion_secret }));
+    for (const resource of catalog.listResources()) {
+      gateways.use(PublicMcpGateway.buildRouter({ verifier, resource, authorization_server_url: config.authorization_server_url, assertion_secret }));
     }
     // web-server also answers for the API host; keeping the resource servers on the MCP
     // host means api.cortexapp.me/notes is not a second URL for the same resource.
-    this.app.use(HostGate.for(config.base_url, gateways));
-    logger.info({ resources: catalog.all().map((resource) => resource.url) }, 'Public MCP gateways mounted');
+    this.app.use(HostGate.createHostRouter(config.base_url, gateways));
+    logger.info({ resources: catalog.listResources().map((resource) => resource.url) }, 'Public MCP gateways mounted');
   }
 
   getApp() {
