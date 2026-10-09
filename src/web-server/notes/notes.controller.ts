@@ -174,7 +174,7 @@ export class NotesController {
         user_id,
         query: query.q,
         filter: NotesController.toListFilter(query),
-        sort: NoteListSort.fromParts({ field: query.sort, order: query.order }),
+        sort: NoteListSort.fromFieldAndOrder({ field: query.sort, order: query.order }),
         limit: query.limit,
         offset: query.offset
       });
@@ -245,7 +245,7 @@ export class NotesController {
       const body = NoteFilingSuggestionBodySchema.parse(req.body);
       const user_id = req.auth!.user_id;
       const notes_svc = await NotesSvc.create();
-      const suggestion = await notes_svc.suggestFiling({ user_id, ...body });
+      const suggestion = await notes_svc.suggestNoteFiling({ user_id, ...body });
       res.status(200).json({ response: { suggestion } });
     } catch (e) {
       next(e);

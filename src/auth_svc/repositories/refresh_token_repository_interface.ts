@@ -18,9 +18,9 @@ export interface RefreshTokenRepository {
     expires_at: Date;
   }): Promise<RefreshSession>;
 
-  findByTokenHash(token_hash: string): Promise<RefreshSession | null>;
+  findSessionByTokenHash(token_hash: string): Promise<RefreshSession | null>;
 
-  revokeByTokenHash(token_hash: string, opts?: { replaced_by?: string }): Promise<boolean>;
+  revokeSessionByTokenHash(token_hash: string, opts?: { replaced_by?: string }): Promise<boolean>;
 
   rotateSession(params: {
     old_token_hash: string;
@@ -28,10 +28,10 @@ export interface RefreshTokenRepository {
     new_expires_at: Date;
   }): Promise<RefreshSession | null>;
 
-  revokeAllForUser(user_id: string): Promise<number>;
+  revokeSessionsForUser(user_id: string): Promise<number>;
 
-  pruneExpired(limit?: number): Promise<number>;
+  pruneExpiredSessions(limit?: number): Promise<number>;
 
   /** Admin users view only - see UserSessionActivity. Users with no session rows are omitted. */
-  latestActivityByUser(user_ids: string[]): Promise<UserSessionActivity[]>;
+  findLatestSessionActivityByUser(user_ids: string[]): Promise<UserSessionActivity[]>;
 }

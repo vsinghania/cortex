@@ -20,7 +20,7 @@ type AdminUsersSvcDeps = {
   note_repo: Pick<NoteRepository, 'countNotesByUser'>;
   conversation_repo: Pick<ConversationRepositoryInterface, 'countConversationsByUser'>;
   onenote_repo: Pick<OneNoteConnectionRepository, 'listSummariesByUserIds'>;
-  session_repo: Pick<RefreshTokenRepository, 'latestActivityByUser'>;
+  session_repo: Pick<RefreshTokenRepository, 'findLatestSessionActivityByUser'>;
 };
 
 /**
@@ -51,29 +51,29 @@ export class AdminUsersSvc implements AdminUsersSvcInterface {
       this.deps.user_repo.listUsers(params),
       this.deps.user_repo.countUsers()
     ]);
-    const lookups = await this.readLookups(users.map((u) => u.user_id));
-    const rows = users.map((user) => AdminUserRowBuilder.build(user, lookups));
+    const lookups = await this.loadUserLookups(users.map((u) => u.user_id));
+    const rows = users.map((user) => AdminUserRowBuilder.buildUserRow(user, lookups));
 
     logger.info({ user_count: rows.length, total, duration_ms: Time.elapsedMs(start_ms) }, 'admin users listed');
     return { users: rows, total, limit: params.limit, offset: params.offset };
   }
 
-  private async readLookups(user_ids: string[]): Promise<AdminUserLookups> {
+  private async loadUserLookups(user_ids: string[]): Promise<AdminUserLookups> {
     const [notes, conversations, onenote, sessions] = await Promise.all([
       this.deps.note_repo.countNotesByUser({ user_ids }),
       this.deps.conversation_repo.countConversationsByUser(user_ids),
       this.deps.onenote_repo.listSummariesByUserIds(user_ids),
-      this.deps.session_repo.latestActivityByUser(user_ids)
+      this.deps.session_repo.findLatestSessionActivityByUser(user_ids)
     ]);
     return {
-      notes: AdminUsersSvc.byUserId(notes),
-      conversations: AdminUsersSvc.byUserId(conversations),
-      onenote: AdminUsersSvc.byUserId(onenote),
-      sessions: AdminUsersSvc.byUserId(sessions)
+      notes: AdminUsersSvc.indexRowsByUserId(notes),
+      conversations: AdminUsersSvc.indexRowsByUserId(conversations),
+      onenote: AdminUsersSvc.indexRowsByUserId(onenote),
+      sessions: AdminUsersSvc.indexRowsByUserId(sessions)
     };
   }
 
-  private static byUserId<T extends { user_id: string }>(rows: T[]): Map<string, T> {
+  private static indexRowsByUserId<T extends { user_id: string }>(rows: T[]): Map<string, T> {
     return new Map(rows.map((row) => [row.user_id, row]));
   }
 }

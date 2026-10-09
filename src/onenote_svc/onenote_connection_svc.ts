@@ -57,23 +57,23 @@ export class OneNoteConnectionSvc {
       connection_repo:
         overrides?.connection_repo ??
         (await MongooseOneNoteConnectionRepository.create({ db: DbNameResolver.resolve('onenote') })),
-      microsoft: overrides?.microsoft ?? OneNoteConnectionSvc.createAdapter(),
+      microsoft: overrides?.microsoft ?? OneNoteConnectionSvc.createMicrosoftOAuthAdapter(),
       secret_box: overrides?.secret_box ?? SecretBox.fromEnv(),
       createGraph: overrides?.createGraph ?? ((accessToken) => GraphOneNoteAdapter.create({ accessToken }))
     });
   }
 
   /** The Graph reader for one user, authorized by that user's stored grant. */
-  graphFor(user_id: string): GraphOneNoteAdapterInterface {
+  createGraphClientForUser(user_id: string): GraphOneNoteAdapterInterface {
     return this.deps.createGraph(() => this.getAccessToken(user_id));
   }
 
-  static toPublic(connection: OneNoteConnection): PublicOneNoteConnection {
+  static toPublicConnection(connection: OneNoteConnection): PublicOneNoteConnection {
     const { token_cache_sealed, microsoft_home_account_id, ...rest } = connection;
     return rest;
   }
 
-  private static createAdapter(): MicrosoftOAuthAdapterInterface {
+  private static createMicrosoftOAuthAdapter(): MicrosoftOAuthAdapterInterface {
     const config = OneNoteConfigLoader.fromEnv();
     if (!config) {
       throw new ServiceUnavailableError('OneNote is not configured');
@@ -106,15 +106,15 @@ export class OneNoteConnectionSvc {
       throw new UnauthorizedError('OneNote authorization does not belong to the signed-in user');
     }
 
-    const session = await this.deps.microsoft.exchangeCode({
+    const session = await this.deps.microsoft.exchangeAuthorizationCode({
       code: input.code,
       code_verifier: input.pending.code_verifier
     });
 
-    const connection = await this.deps.connection_repo.upsert({
+    const connection = await this.deps.connection_repo.upsertConnection({
       user_id: input.user_id,
       identity: session.identity,
-      token_cache_sealed: this.seal(session.token_cache, input.user_id),
+      token_cache_sealed: this.encryptTokenCache(session.token_cache, input.user_id),
       scopes: session.scopes
     });
 
@@ -122,12 +122,12 @@ export class OneNoteConnectionSvc {
       { user_id: input.user_id, scope_count: session.scopes.length, duration_ms: Time.elapsedMs(start_ms) },
       'onenote connected'
     );
-    return OneNoteConnectionSvc.toPublic(connection);
+    return OneNoteConnectionSvc.toPublicConnection(connection);
   }
 
   async getConnection(user_id: string): Promise<PublicOneNoteConnection | null> {
     const connection = await this.deps.connection_repo.findByUserId(user_id);
-    return connection ? OneNoteConnectionSvc.toPublic(connection) : null;
+    return connection ? OneNoteConnectionSvc.toPublicConnection(connection) : null;
   }
 
   /**
@@ -138,7 +138,7 @@ export class OneNoteConnectionSvc {
     return this.deps.connection_repo.findByUserId(user_id);
   }
 
-  /** Called only by a sync pass that reached the end; see OneNoteSyncSvc.run. */
+  /** Called only by a sync pass that reached the end; see OneNoteSyncSvc.runSyncPass. */
   async recordSyncCompleted(params: { user_id: string; sync_watermark?: Date; last_synced_at: Date }): Promise<void> {
     await this.deps.connection_repo.updateSyncState(params);
   }
@@ -156,14 +156,14 @@ export class OneNoteConnectionSvc {
 
     try {
       const result = await this.deps.microsoft.acquireAccessToken({
-        token_cache: this.open(connection.token_cache_sealed, user_id),
+        token_cache: this.decryptTokenCache(connection.token_cache_sealed, user_id),
         home_account_id: connection.microsoft_home_account_id
       });
 
       if (result.token_cache) {
         await this.deps.connection_repo.updateTokenCache({
           user_id,
-          token_cache_sealed: this.seal(result.token_cache, user_id)
+          token_cache_sealed: this.encryptTokenCache(result.token_cache, user_id)
         });
       }
       return result.access_token;
@@ -188,8 +188,8 @@ export class OneNoteConnectionSvc {
   async listNotebooks(user_id: string, opts: { refresh?: boolean } = {}): Promise<OneNoteNotebookChoice[]> {
     let connection = await this.requireConnection(user_id);
 
-    if (opts.refresh || OneNoteConnectionSvc.cacheIsStale(connection)) {
-      const fetched = await this.graphFor(user_id).listNotebooks();
+    if (opts.refresh || OneNoteConnectionSvc.isNotebookCacheStale(connection)) {
+      const fetched = await this.createGraphClientForUser(user_id).listNotebooks();
       connection =
         (await this.deps.connection_repo.cacheNotebooks({
           user_id,
@@ -208,12 +208,12 @@ export class OneNoteConnectionSvc {
    * could be derived from is reaped on a TTL, and a notification needs to tell "just
    * started failing" from "has been failing for days".
    */
-  async recordNotebookFailed(params: { user_id: string; notebook_id: string; reason: string }): Promise<void> {
+  async recordNotebookSyncFailure(params: { user_id: string; notebook_id: string; reason: string }): Promise<void> {
     await this.deps.connection_repo.recordNotebookFailure({ ...params, at: new Date() });
   }
 
   /** Called by a sync pass that finished one notebook; see OneNoteSyncSvc. */
-  async recordNotebookSynced(params: {
+  async recordNotebookSyncCompleted(params: {
     user_id: string;
     notebook_id: string;
     sync_watermark?: Date;
@@ -222,7 +222,7 @@ export class OneNoteConnectionSvc {
     await this.deps.connection_repo.updateNotebookSyncState(params);
   }
 
-  private static cacheIsStale(connection: OneNoteConnection): boolean {
+  private static isNotebookCacheStale(connection: OneNoteConnection): boolean {
     if (!connection.notebooks_cached_at || connection.notebooks.length === 0) return true;
     return Date.now() - connection.notebooks_cached_at.getTime() > NOTEBOOK_CACHE_TTL_MS;
   }
@@ -241,7 +241,7 @@ export class OneNoteConnectionSvc {
     if (!updated) throw new NotFoundError('OneNote is not connected');
 
     logger.info({ user_id: params.user_id, notebook_count: unique.length }, 'onenote notebooks selected');
-    return OneNoteConnectionSvc.toPublic(updated);
+    return OneNoteConnectionSvc.toPublicConnection(updated);
   }
 
   private async requireConnection(user_id: string): Promise<OneNoteConnection> {
@@ -259,11 +259,11 @@ export class OneNoteConnectionSvc {
     return deleted;
   }
 
-  private seal(token_cache: string, user_id: string): string {
+  private encryptTokenCache(token_cache: string, user_id: string): string {
     return this.deps.secret_box.seal(token_cache, { user_id, field: TOKEN_CACHE_FIELD });
   }
 
-  private open(token_cache_sealed: string, user_id: string): string {
+  private decryptTokenCache(token_cache_sealed: string, user_id: string): string {
     return this.deps.secret_box.open(token_cache_sealed, { user_id, field: TOKEN_CACHE_FIELD });
   }
 }

@@ -39,22 +39,22 @@ function fakeRepo(initial: McpServerManifest[]) {
 test('refresh keeps the same handle for an unchanged server', async () => {
   const { repo } = fakeRepo([buildManifest('notes')]);
   const registry = await McpServerRegistry.create(repo);
-  const [before] = registry.resolveAll(['notes']);
+  const [before] = registry.resolveMcpServerHandles(['notes']);
 
-  await registry.refresh();
+  await registry.refreshMcpServers();
 
-  assert.equal(registry.resolveAll(['notes'])[0], before);
+  assert.equal(registry.resolveMcpServerHandles(['notes'])[0], before);
 });
 
 test('refresh rebuilds the handle when the manifest version changes', async () => {
   const { repo, setManifests } = fakeRepo([buildManifest('notes')]);
   const registry = await McpServerRegistry.create(repo);
-  const [before] = registry.resolveAll(['notes']);
+  const [before] = registry.resolveMcpServerHandles(['notes']);
 
   setManifests([buildManifest('notes', { version: 2 })]);
-  await registry.refresh();
+  await registry.refreshMcpServers();
 
-  const [after] = registry.resolveAll(['notes']);
+  const [after] = registry.resolveMcpServerHandles(['notes']);
   assert.ok(after);
   assert.notEqual(after, before);
 });
@@ -62,12 +62,12 @@ test('refresh rebuilds the handle when the manifest version changes', async () =
 test('refresh rebuilds the handle when updated_at changes', async () => {
   const { repo, setManifests } = fakeRepo([buildManifest('notes')]);
   const registry = await McpServerRegistry.create(repo);
-  const [before] = registry.resolveAll(['notes']);
+  const [before] = registry.resolveMcpServerHandles(['notes']);
 
   setManifests([buildManifest('notes', { updated_at: new Date('2026-02-01T00:00:00Z') })]);
-  await registry.refresh();
+  await registry.refreshMcpServers();
 
-  assert.notEqual(registry.resolveAll(['notes'])[0], before);
+  assert.notEqual(registry.resolveMcpServerHandles(['notes'])[0], before);
 });
 
 test('refresh drops servers that are no longer enabled', async () => {
@@ -75,8 +75,8 @@ test('refresh drops servers that are no longer enabled', async () => {
   const registry = await McpServerRegistry.create(repo);
 
   setManifests([buildManifest('search')]);
-  await registry.refresh();
+  await registry.refreshMcpServers();
 
-  assert.deepEqual(registry.resolveAll(['notes']), []);
-  assert.deepEqual(registry.list().map((h) => h.id), ['search']);
+  assert.deepEqual(registry.resolveMcpServerHandles(['notes']), []);
+  assert.deepEqual(registry.listMcpServerHandles().map((h) => h.id), ['search']);
 });

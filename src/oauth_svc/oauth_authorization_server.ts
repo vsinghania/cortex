@@ -9,7 +9,7 @@ import { OAuthPkce } from './oauth_pkce.js';
 import { OAuthRedirects } from './oauth_redirects.js';
 import { OAuthStoresLoader, type OAuthStores } from './oauth_stores.js';
 import { OAuthTokenFamilies } from './oauth_token_families.js';
-import type { OAuthClient, OAuthTokenRecord, OAuthTokenResponse } from './types/oauth.types.js';
+import type { OAuthClient, OAuthErrorRedirectInput, OAuthTokenRecord, OAuthTokenResponse } from './types/oauth.types.js';
 
 const CONSENT_PATH = '/connect';
 
@@ -50,7 +50,7 @@ export class OAuthAuthorizationServer {
 
   static fromConfig(config: OAuthConfig, resources: McpResourceCatalog): OAuthAuthorizationServer {
     return new OAuthAuthorizationServer({
-      stores: () => OAuthStoresLoader.get(),
+      stores: () => OAuthStoresLoader.getStores(),
       clients: new ClientIdMetadataResolver(),
       config,
       resources
@@ -58,22 +58,22 @@ export class OAuthAuthorizationServer {
   }
 
   /** The issuer identifier, spelled exactly as metadata and every `iss` parameter spell it. */
-  static issuerOf(config: OAuthConfig): string {
+  static getIssuerUrl(config: OAuthConfig): string {
     return CanonicalUrl.of(config.issuer_url);
   }
 
   /** Where RFC 8414 puts the metadata for this issuer: the well-known prefix ahead of the issuer's path. */
-  static metadataPathOf(config: OAuthConfig): string {
+  static getMetadataEndpointPath(config: OAuthConfig): string {
     const path = config.issuer_url.pathname.replace(/\/+$/, '');
     return `/.well-known/oauth-authorization-server${path}`;
   }
 
-  static endpointPathOf(config: OAuthConfig, endpoint: 'authorize' | 'token' | 'revoke'): string {
+  static getOAuthEndpointPath(config: OAuthConfig, endpoint: 'authorize' | 'token' | 'revoke'): string {
     return `${config.issuer_url.pathname.replace(/\/+$/, '')}/${endpoint}`;
   }
 
-  metadata(): AuthorizationServerMetadata {
-    const issuer = OAuthAuthorizationServer.issuerOf(this.deps.config);
+  getAuthorizationServerMetadata(): AuthorizationServerMetadata {
+    const issuer = OAuthAuthorizationServer.getIssuerUrl(this.deps.config);
     return {
       issuer,
       authorization_endpoint: `${issuer}/authorize`,
@@ -84,7 +84,7 @@ export class OAuthAuthorizationServer {
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
       revocation_endpoint_auth_methods_supported: ['none'],
-      scopes_supported: this.deps.resources.scopesSupported(),
+      scopes_supported: this.deps.resources.listSupportedScopes(),
       client_id_metadata_document_supported: true,
       authorization_response_iss_parameter_supported: true
     };
@@ -95,40 +95,36 @@ export class OAuthAuthorizationServer {
    * carrying an error. Throws only when the client or its redirect_uri cannot be
    * trusted, in which case the error must be shown here and never redirected.
    */
-  async authorize(params: OAuthParams): Promise<string> {
+  async beginAuthorizationRequest(params: OAuthParams): Promise<string> {
     if (!params.client_id) throw new OAuthProtocolError('invalid_request', 'client_id is required');
-    const client = await this.deps.clients.resolve(params.client_id);
+    const client = await this.deps.clients.resolveClientMetadata(params.client_id);
     const redirect_uri = OAuthAuthorizationServer.resolveRedirectUri(client, params.redirect_uri);
 
-    const issuer = OAuthAuthorizationServer.issuerOf(this.deps.config);
-    const fail = (error: string, description: string) =>
-      OAuthRedirects.authorizationResponse({
-        redirect_uri,
-        issuer,
-        state: params.state,
-        params: { error, error_description: description }
-      });
-
-    if (params.response_type !== 'code') return fail('unsupported_response_type', 'Only response_type=code is supported');
-    if (params.code_challenge_method !== 'S256' || !params.code_challenge || !OAuthPkce.isValidChallenge(params.code_challenge)) {
-      return fail('invalid_request', 'PKCE with code_challenge_method=S256 is required');
+    const response = { redirect_uri, state: params.state };
+    if (params.response_type !== 'code') {
+      return this.buildAuthorizationErrorRedirect({ ...response, error: 'unsupported_response_type', description: 'Only response_type=code is supported' });
+    }
+    if (params.code_challenge_method !== 'S256' || !params.code_challenge || !OAuthPkce.isValidCodeChallenge(params.code_challenge)) {
+      return this.buildAuthorizationErrorRedirect({ ...response, error: 'invalid_request', description: 'PKCE with code_challenge_method=S256 is required' });
     }
     // MCP clients must name the resource (RFC 8707); with several MCP servers, a missing
     // one would be a guess.
-    const resource = params.resource ? this.deps.resources.findByUrl(params.resource) : null;
-    if (!resource) return fail('invalid_target', 'resource must name one of this server\'s MCP endpoints');
+    const resource = params.resource ? this.deps.resources.findResourceByUrl(params.resource) : null;
+    if (!resource) {
+      return this.buildAuthorizationErrorRedirect({ ...response, error: 'invalid_target', description: 'resource must name one of this server\'s MCP endpoints' });
+    }
 
     const { requests } = await this.deps.stores();
-    const request_id = await requests.park({
+    const request_id = await requests.createAuthorizationRequest({
       client_id: client.client_id,
       client_name: client.client_name,
       client_host: client.client_host,
       redirect_uri,
       code_challenge: params.code_challenge,
       state: params.state,
-      requested_scopes: McpResourceCatalog.normalizeScopes(resource, params.scope?.split(' ').filter(Boolean) ?? []),
+      requested_scopes: McpResourceCatalog.resolveRequestedResourceScopes(resource, params.scope?.split(' ').filter(Boolean) ?? []),
       resource: resource.url,
-      now: this.now()
+      now: this.getCurrentTime()
     });
 
     logger.info({ client_id: client.client_id }, 'oauth authorization started');
@@ -137,33 +133,33 @@ export class OAuthAuthorizationServer {
     return consent.toString();
   }
 
-  async token(params: OAuthParams): Promise<OAuthTokenResponse> {
-    if (params.grant_type === 'authorization_code') return this.exchangeCode(params);
-    if (params.grant_type === 'refresh_token') return this.refresh(params);
+  async exchangeTokenGrant(params: OAuthParams): Promise<OAuthTokenResponse> {
+    if (params.grant_type === 'authorization_code') return this.exchangeAuthorizationCode(params);
+    if (params.grant_type === 'refresh_token') return this.rotateRefreshToken(params);
     throw new OAuthProtocolError('unsupported_grant_type', 'Supported grant types are authorization_code and refresh_token');
   }
 
   /** RFC 7009: the answer is the same whether or not the token existed. */
-  async revoke(params: OAuthParams): Promise<void> {
+  async revokeTokenFamilyForToken(params: OAuthParams): Promise<void> {
     if (!params.token || !params.client_id) throw new OAuthProtocolError('invalid_request', 'token and client_id are required');
     const { tokens } = await this.deps.stores();
-    const revoked = await tokens.revoke({ token: params.token, client_id: params.client_id, now: this.now() });
+    const revoked = await tokens.revokeTokenFamilyForToken({ token: params.token, client_id: params.client_id, now: this.getCurrentTime() });
     logger.info({ client_id: params.client_id, revoked }, 'oauth token revoked');
   }
 
-  private async exchangeCode(params: OAuthParams): Promise<OAuthTokenResponse> {
+  private async exchangeAuthorizationCode(params: OAuthParams): Promise<OAuthTokenResponse> {
     if (!params.code || !params.code_verifier || !params.client_id) {
       throw new OAuthProtocolError('invalid_request', 'code, code_verifier and client_id are required');
     }
-    const client = await this.deps.clients.resolve(params.client_id);
-    const now = this.now();
+    const client = await this.deps.clients.resolveClientMetadata(params.client_id);
+    const now = this.getCurrentTime();
     const stores = await this.deps.stores();
 
-    const code = await stores.codes.find(params.code);
+    const code = await stores.codes.findAuthorizationCode(params.code);
     if (!code || code.client_id !== client.client_id) throw new OAuthProtocolError('invalid_grant', 'Invalid authorization code');
     if (code.consumed_at) {
       // OAuth 2.1 §4.1.2: a code used twice may have been stolen, so its tokens go too.
-      if (code.family_id) await stores.tokens.revokeFamily({ family_id: code.family_id, now });
+      if (code.family_id) await stores.tokens.revokeTokenFamily({ family_id: code.family_id, now });
       logger.warn({ client_id: client.client_id, grant_id: code.grant_id }, 'oauth authorization code replay detected');
       throw new OAuthProtocolError('invalid_grant', 'Authorization code was already used');
     }
@@ -174,18 +170,18 @@ export class OAuthAuthorizationServer {
     if (params.resource !== undefined && CanonicalUrl.parse(params.resource) !== code.resource) {
       throw new OAuthProtocolError('invalid_target', 'resource does not match the authorization request');
     }
-    if (!OAuthPkce.verify({ code_verifier: params.code_verifier, code_challenge: code.code_challenge })) {
+    if (!OAuthPkce.verifyCodeVerifier({ code_verifier: params.code_verifier, code_challenge: code.code_challenge })) {
       throw new OAuthProtocolError('invalid_grant', 'code_verifier does not match the code_challenge');
     }
 
-    const grant = await stores.grants.find(code.grant_id);
+    const grant = await stores.grants.findGrantById(code.grant_id);
     if (!grant) throw new OAuthProtocolError('invalid_grant', 'The connection was revoked');
 
-    const family_id = OAuthTokenFamilies.newFamilyId();
-    const consumed = await stores.codes.consume({ code: params.code, client_id: client.client_id, now, family_id });
+    const family_id = OAuthTokenFamilies.createTokenFamilyId();
+    const consumed = await stores.codes.consumeAuthorizationCode({ code: params.code, client_id: client.client_id, now, family_id });
     if (!consumed) throw new OAuthProtocolError('invalid_grant', 'Authorization code was already used');
 
-    const issued = await stores.tokens.continue({
+    const issued = await stores.tokens.issueTokensInExistingFamily({
       grant,
       family_id,
       scopes: code.scopes,
@@ -193,41 +189,41 @@ export class OAuthAuthorizationServer {
       with_refresh: client.allows_refresh
     });
     logger.info({ user_id: grant.user_id, client_id: client.client_id, grant_id: grant.grant_id, scopes: issued.scopes }, 'oauth tokens issued');
-    return OAuthTokenFamilies.toResponse(issued);
+    return OAuthTokenFamilies.toOAuthTokenResponse(issued);
   }
 
-  private async refresh(params: OAuthParams): Promise<OAuthTokenResponse> {
+  private async rotateRefreshToken(params: OAuthParams): Promise<OAuthTokenResponse> {
     if (!params.refresh_token || !params.client_id) {
       throw new OAuthProtocolError('invalid_request', 'refresh_token and client_id are required');
     }
-    const client = await this.deps.clients.resolve(params.client_id);
-    const now = this.now();
+    const client = await this.deps.clients.resolveClientMetadata(params.client_id);
+    const now = this.getCurrentTime();
     const stores = await this.deps.stores();
 
-    const claimed = await stores.tokens.claimRefresh({ refresh_token: params.refresh_token, client_id: client.client_id, now });
-    if (!claimed) throw new OAuthProtocolError('invalid_grant', 'Invalid, expired or already used refresh token');
+    const consumed = await stores.tokens.consumeRefreshTokenForRotation({ refresh_token: params.refresh_token, client_id: client.client_id, now });
+    if (!consumed) throw new OAuthProtocolError('invalid_grant', 'Invalid, expired or already used refresh token');
 
-    const grant = await stores.grants.find(claimed.grant_id);
+    const grant = await stores.grants.findGrantById(consumed.grant_id);
     if (!grant) throw new OAuthProtocolError('invalid_grant', 'The connection was revoked');
-    if (params.resource !== undefined && CanonicalUrl.parse(params.resource) !== claimed.resource) {
+    if (params.resource !== undefined && CanonicalUrl.parse(params.resource) !== consumed.resource) {
       throw new OAuthProtocolError('invalid_target', 'resource does not match the grant');
     }
-    const resource = this.deps.resources.findByUrl(claimed.resource);
+    const resource = this.deps.resources.findResourceByUrl(consumed.resource);
     if (!resource) throw new OAuthProtocolError('invalid_target', 'This MCP endpoint is no longer served');
 
-    const issued = await stores.tokens.continue({
+    const issued = await stores.tokens.issueTokensInExistingFamily({
       grant,
-      family_id: claimed.family_id,
-      scopes: OAuthAuthorizationServer.narrowScopes({ token: claimed, grant_scopes: grant.scopes, resource, requested: params.scope }),
+      family_id: consumed.family_id,
+      scopes: OAuthAuthorizationServer.resolveRefreshTokenScopes({ token: consumed, grant_scopes: grant.scopes, resource, requested: params.scope }),
       now,
       with_refresh: true
     });
     logger.debug({ client_id: client.client_id, grant_id: grant.grant_id }, 'oauth tokens refreshed');
-    return OAuthTokenFamilies.toResponse(issued);
+    return OAuthTokenFamilies.toOAuthTokenResponse(issued);
   }
 
   /** A refresh may ask for less than it holds, never more (RFC 6749 §6); the grant caps it too. */
-  private static narrowScopes(input: {
+  private static resolveRefreshTokenScopes(input: {
     token: OAuthTokenRecord;
     grant_scopes: string[];
     resource: McpResource;
@@ -239,7 +235,7 @@ export class OAuthAuthorizationServer {
     if (asked.some((scope) => !held.includes(scope))) {
       throw new OAuthProtocolError('invalid_scope', 'Requested scope exceeds what was granted');
     }
-    return McpResourceCatalog.normalizeScopes(input.resource, asked);
+    return McpResourceCatalog.resolveRequestedResourceScopes(input.resource, asked);
   }
 
   /** The registered redirect_uri to use, or a non-redirectable error: never send a code to an unregistered place. */
@@ -248,13 +244,22 @@ export class OAuthAuthorizationServer {
       if (client.redirect_uris.length === 1) return client.redirect_uris[0];
       throw new OAuthProtocolError('invalid_request', 'redirect_uri is required for a client with several redirect URIs');
     }
-    if (!OAuthRedirects.matchesRegistered(requested, client.redirect_uris)) {
+    if (!OAuthRedirects.matchesRegisteredRedirectUri(requested, client.redirect_uris)) {
       throw new OAuthProtocolError('invalid_request', 'redirect_uri is not registered for this client');
     }
     return requested;
   }
 
-  private now(): Date {
+  private getCurrentTime(): Date {
     return this.deps.now?.() ?? new Date();
+  }
+
+  private buildAuthorizationErrorRedirect(input: OAuthErrorRedirectInput): string {
+    return OAuthRedirects.buildAuthorizationResponseRedirect({
+      redirect_uri: input.redirect_uri,
+      issuer: OAuthAuthorizationServer.getIssuerUrl(this.deps.config),
+      state: input.state,
+      params: { error: input.error, error_description: input.description }
+    });
   }
 }

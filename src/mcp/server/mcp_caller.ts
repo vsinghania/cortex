@@ -14,7 +14,7 @@ export class McpCallers {
 
   private constructor() {}
 
-  static toAuthInfo(caller: McpCaller): AuthInfo {
+  static toSdkAuthInfo(caller: McpCaller): AuthInfo {
     const extra: CallerExtra = { caller_kind: caller.kind, user_id: caller.user_id };
     return {
       token: McpCallers.VERIFIED_TOKEN_PLACEHOLDER,
@@ -25,7 +25,7 @@ export class McpCallers {
   }
 
   /** Null for anything this server did not authenticate itself: such a request is refused. */
-  static fromAuthInfo(auth_info: AuthInfo | undefined): McpCaller | null {
+  static fromSdkAuthInfo(auth_info: AuthInfo | undefined): McpCaller | null {
     const extra = auth_info?.extra as CallerExtra | undefined;
     if (!auth_info || !extra) return null;
     if (extra.caller_kind === 'internal') return { kind: 'internal', user_id: extra.user_id };
@@ -36,17 +36,17 @@ export class McpCallers {
   }
 
   /** Internal callers hold the service credential, and that alone is what grants them everything. */
-  static allows(caller: McpCaller, scope: string): boolean {
+  static isScopeAllowedForCaller(caller: McpCaller, scope: string): boolean {
     return caller.kind === 'internal' || caller.scopes.has(scope);
   }
 
   /** Only third-party assistants get the trimmed, linked view and the server guide. */
-  static isExternal(caller: McpCaller): boolean {
+  static isExternalCaller(caller: McpCaller): boolean {
     return caller.kind === 'external';
   }
 
   // Worded for any caller: external assistants can see this text too.
-  static requireUserId(caller: McpCaller): string {
+  static requireCallerUserId(caller: McpCaller): string {
     if (!caller.user_id) throw new Error('This request is not signed in as a Cortex user.');
     return caller.user_id;
   }

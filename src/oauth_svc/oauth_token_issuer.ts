@@ -22,28 +22,28 @@ export type IssuedSecret = {
 export class OAuthTokenIssuer {
   private constructor() {}
 
-  static accessToken(now: Date, ttl_sec: number = OAUTH_ACCESS_TOKEN_TTL_SEC): IssuedSecret {
-    return OAuthTokenIssuer.issue(ACCESS_TOKEN_PREFIX, now, ttl_sec);
+  static generateAccessToken(now: Date, ttl_sec: number = OAUTH_ACCESS_TOKEN_TTL_SEC): IssuedSecret {
+    return OAuthTokenIssuer.generateOpaqueSecret(ACCESS_TOKEN_PREFIX, now, ttl_sec);
   }
 
-  static refreshToken(now: Date): IssuedSecret {
-    return OAuthTokenIssuer.issue(REFRESH_TOKEN_PREFIX, now, OAUTH_REFRESH_TOKEN_TTL_SEC);
+  static generateRefreshToken(now: Date): IssuedSecret {
+    return OAuthTokenIssuer.generateOpaqueSecret(REFRESH_TOKEN_PREFIX, now, OAUTH_REFRESH_TOKEN_TTL_SEC);
   }
 
-  static authorizationCode(now: Date): IssuedSecret {
-    return OAuthTokenIssuer.issue(AUTHORIZATION_CODE_PREFIX, now, OAUTH_AUTHORIZATION_CODE_TTL_SEC);
+  static generateAuthorizationCode(now: Date): IssuedSecret {
+    return OAuthTokenIssuer.generateOpaqueSecret(AUTHORIZATION_CODE_PREFIX, now, OAUTH_AUTHORIZATION_CODE_TTL_SEC);
   }
 
-  static hash(value: string): string {
+  static hashSecret(value: string): string {
     return TokenUtils.sha256Base64Url(value);
   }
 
-  static expiresAfter(now: Date, ttl_sec: number): Date {
+  static calculateExpiryDate(now: Date, ttl_sec: number): Date {
     return new Date(now.getTime() + Time.secondsToMs(ttl_sec));
   }
 
-  private static issue(prefix: string, now: Date, ttl_sec: number): IssuedSecret {
+  private static generateOpaqueSecret(prefix: string, now: Date, ttl_sec: number): IssuedSecret {
     const value = `${prefix}${TokenUtils.generateOpaqueToken(32)}`;
-    return { value, hash: OAuthTokenIssuer.hash(value), expires_at: OAuthTokenIssuer.expiresAfter(now, ttl_sec) };
+    return { value, hash: OAuthTokenIssuer.hashSecret(value), expires_at: OAuthTokenIssuer.calculateExpiryDate(now, ttl_sec) };
   }
 }

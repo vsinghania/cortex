@@ -9,7 +9,7 @@ answer text ──┐
               ├─► CitationExtractor ─► Citation[]  ──► persisted on the assistant message
 tool payloads ┘        (markers ∩ retrieved chunks)
 
-Citation[] ─► CitationSvc.resolve ─► DocumentResolver(corpus) ─► CitationView[]
+Citation[] ─► CitationSvc.resolveCitations ─► DocumentResolver(corpus) ─► CitationView[]
                                           └─ NotesDocumentResolver ─► NotesSvc
 ```
 
@@ -44,11 +44,11 @@ The payoff is that **renaming a note updates every past answer that cited it**, 
 
 ## 2. Extraction — citations are verified, not claimed
 
-`CitationExtractor.extract({ tool_payloads, answer_text })` intersects the markers in the answer with the chunks retrieval actually returned *that turn*. A marker matching nothing is dropped and the marker stripped, so **the model cannot fabricate a reference to a document it never saw**. Markers are numbered by first appearance and deduped.
+`CitationExtractor.extractCitations({ tool_payloads, answer_text })` intersects the markers in the answer with the chunks retrieval actually returned *that turn*. A marker matching nothing is dropped and the marker stripped, so **the model cannot fabricate a reference to a document it never saw**. Markers are numbered by first appearance and deduped.
 
-The marker syntax `[c:<chunk_id>]` is taught by the `citations` [instruction policy](agent_svc.md#5-instruction-policies), which builds its text from `CitationExtractor.MARKER_SYNTAX` / `markerFor()` — so the prompt and `MARKER_PATTERN` share one source. An agent must opt into that policy; an agent that instead teaches the format in its own Mongo prompt can still drift, and a mismatched format silently yields zero citations. The same policy tells the model to cite only chunks retrieved in the current turn, because extraction only sees this turn's payloads. The MCP tool description deliberately does **not** prescribe the format — it says only that `chunk_id` is stable and safe to reference. A tool describes its data; the agent decides what referencing means.
+The marker syntax `[c:<chunk_id>]` is taught by the `citations` [instruction policy](agent_svc.md#5-instruction-policies), which builds its text from `CitationExtractor.MARKER_SYNTAX` / `buildCitationMarker()` — so the prompt and `MARKER_PATTERN` share one source. An agent must opt into that policy; an agent that instead teaches the format in its own Mongo prompt can still drift, and a mismatched format silently yields zero citations. The same policy tells the model to cite only chunks retrieved in the current turn, because extraction only sees this turn's payloads. The MCP tool description deliberately does **not** prescribe the format — it says only that `chunk_id` is stable and safe to reference. A tool describes its data; the agent decides what referencing means.
 
-**The input is plain data, not `Message[]`.** That is load-bearing: it is what stops `citation_svc` importing `agent_svc` and closing the dependency loop. `AgentSvc.toolPayloads` does the message-shape work on its side of the boundary.
+**The input is plain data, not `Message[]`.** That is load-bearing: it is what stops `citation_svc` importing `agent_svc` and closing the dependency loop. `AgentSvc.extractToolResultPayloads` does the message-shape work on its side of the boundary.
 
 ## 3. Resolution — one registry per corpus
 
@@ -57,11 +57,11 @@ The marker syntax `[c:<chunk_id>]` is taught by the `citations` [instruction pol
 ```ts
 interface DocumentResolver {
   readonly corpus: Corpus;
-  resolve(params: { user_id, document_ids, chunk_ids }): Promise<ResolvedDocuments>;
+  resolveDocuments(params: { user_id, document_ids, chunk_ids }): Promise<ResolvedDocuments>;
 }
 ```
 
-`resolveGroups` batches across a whole transcript: citations are grouped by corpus, each resolver is called **once** with the deduped ids, and results are mapped back. A conversation with fifty cited messages costs the same query budget as one.
+`resolveCitationGroups` batches across a whole transcript: citations are grouped by corpus, each resolver is called **once** with the deduped ids, and results are mapped back. A conversation with fifty cited messages costs the same query budget as one.
 
 **A missing resolver warns and degrades**, it does not throw — one unregistered corpus must not fail an entire conversation read. Note this differs from `RetrievalSvc.retrieve`, which throws on an unknown corpus; retrieval failing loudly is right for a search, but a citation is decoration on history.
 
@@ -103,7 +103,7 @@ Numbering stays dense in every case, because `index` was fixed at extraction tim
 ## 7. Extending: a second corpus
 
 1. Implement `DocumentResolver` under `corpora/`, wrapping that domain's service. Keep both lookups user-scoped in the repository query, never in an application-layer check.
-2. Register it in `CitationSvc.loadInstance()`.
+2. Register it in `CitationSvc.loadCitationSvcInstance()`.
 3. Add the module pair to `scripts/layering.test.ts`.
 4. Add its route to `CORPUS_ROUTES` in the SPA, and make sure the target view can accept a `?chunk=` deep link.
 

@@ -6,7 +6,7 @@ import { Corpus } from '../../retrieval_svc/types/retrieval.types.js';
  *
  * Identity only. Presentation fields (document title, heading path) are deliberately NOT
  * stored: they are mutable properties of the source document and would go stale the moment
- * it is edited. CitationSvc.resolve joins them from live data on the way out.
+ * it is edited. CitationSvc.resolveCitations joins them from live data on the way out.
  *
  * `index` is safe to store because it is a property of the answer text, which never
  * changes. `document_id` is stored alongside `chunk_id` because re-indexing prunes chunks:

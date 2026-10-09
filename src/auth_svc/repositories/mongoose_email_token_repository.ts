@@ -18,7 +18,7 @@ export class MongooseEmailTokenRepository implements EmailTokenRepository {
 
   // Two writes, not one atomic swap. Only a second concurrent issue for the same
   // user and purpose could interleave them, and the send job's dedup key rules that out.
-  async replaceForUser(input: {
+  async replaceEmailTokenForUser(input: {
     user_id: string;
     purpose: EmailTokenPurpose;
     token_hash: string;
@@ -31,7 +31,7 @@ export class MongooseEmailTokenRepository implements EmailTokenRepository {
   // One conditional update, so two submissions of the same link cannot both pass.
   // Expiry is enforced here, not left to the TTL index: its reaper runs about once
   // a minute, so an expired row can still be sitting in the collection.
-  async consume(input: { token_hash: string; purpose: EmailTokenPurpose; now: Date }): Promise<EmailToken | null> {
+  async consumeEmailToken(input: { token_hash: string; purpose: EmailTokenPurpose; now: Date }): Promise<EmailToken | null> {
     const consumed = await this.model
       .findOneAndUpdate(
         {

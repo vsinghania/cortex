@@ -9,21 +9,21 @@ export class OAuthAuthorizationCodes {
   constructor(private readonly repo: OAuthAuthorizationCodeRepository) {}
 
   /** Returns the raw code, which exists only in the redirect to the client. */
-  async issue(input: IssueOAuthAuthorizationCodeInput): Promise<string> {
+  async issueAuthorizationCode(input: IssueOAuthAuthorizationCodeInput): Promise<string> {
     const { now, ...code } = input;
-    const issued = OAuthTokenIssuer.authorizationCode(now);
-    await this.repo.create({ ...code, code_hash: issued.hash, expires_at: issued.expires_at });
+    const issued = OAuthTokenIssuer.generateAuthorizationCode(now);
+    await this.repo.createAuthorizationCode({ ...code, code_hash: issued.hash, expires_at: issued.expires_at });
     return issued.value;
   }
 
   /** Any code with this value, used or not: how a replay is recognised. */
-  find(code: string): Promise<OAuthAuthorizationCode | null> {
-    return this.repo.findByHash(OAuthTokenIssuer.hash(code));
+  findAuthorizationCode(code: string): Promise<OAuthAuthorizationCode | null> {
+    return this.repo.findAuthorizationCodeByHash(OAuthTokenIssuer.hashSecret(code));
   }
 
   /** Marks an unexpired, unused code consumed by the family it starts; null if another exchange got there first. */
-  consume(input: { code: string; client_id: string; now: Date; family_id: string }): Promise<OAuthAuthorizationCode | null> {
+  consumeAuthorizationCode(input: { code: string; client_id: string; now: Date; family_id: string }): Promise<OAuthAuthorizationCode | null> {
     const { code, ...lookup } = input;
-    return this.repo.consume({ ...lookup, code_hash: OAuthTokenIssuer.hash(code) });
+    return this.repo.consumeAuthorizationCode({ ...lookup, code_hash: OAuthTokenIssuer.hashSecret(code) });
   }
 }

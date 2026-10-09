@@ -96,13 +96,13 @@ Partial because only *scheduled* jobs have a window; without it every ad-hoc job
 | `scheduled_for` | the same **window** being materialized twice | never — it is history |
 | `dedup_active` | a **new run** starting while the previous is active | at the terminal write |
 
-One stops duplicate creation, the other stops overrun. `enqueue` reports which constraint refused (`conflict_on`), because they mean different things to whoever is reading the logs.
+One stops duplicate creation, the other stops overrun. `enqueueJob` reports which constraint refused (`conflict_on`), because they mean different things to whoever is reading the logs.
 
 ## 5. Two deliberate exceptions
 
 **`jobs.user_id` is optional, and is not an authorization scope.** Every other collection is user-scoped and [recall.md](recall.md) calls that invariant load-bearing. Here it is optional because a job may legitimately be system-wide — the re-index with an empty filter targets every note in the system. Present, it means "this job's work belongs to one user" and scopes the dedup key; absent, the job is system-wide. It never decides what a handler may read: `payload` does that, and `requested_by` separately records which admin triggered the run. **Do not "fix" this into a required tenant guard.** The compensating control is that the only enqueue surface is admin-gated.
 
-**`claimNext` is the one deliberately unscoped repository method.** The worker is a system actor; `user_id` comes *out of* a job, never into the query. Every read method beside it stays scoped as usual.
+**`claimNextJob` is the one deliberately unscoped repository method.** The worker is a system actor; `user_id` comes *out of* a job, never into the query. Every read method beside it stays scoped as usual.
 
 ## 6. Operations
 
@@ -160,8 +160,8 @@ Both surfaces run the same admission check: an unregistered job name is refused,
 - **A job whose handler is not registered is released, not failed** — handed back unrun and unpenalised, so a job name can ship before the code that runs it. The cost is that a permanently unregistered name loops quietly; queue-depth sampling should watch for names with queued rows and no handler.
 - **An empty registry throws at startup.** Such a worker would claim every job and release every one unrun — a hot loop that looks healthy. The worker fails its boot instead, so the restart policy and the deploy health gate both see it.
 - **Handler registration rethrows** at bootstrap, unlike most startup steps which warn and continue. A handler that silently fails to register means its jobs stop being claimed with no error anywhere.
-- **An empty payload needs `minimize: false` on the schema.** Mongoose strips empty objects on save, *after* validation, so `payload: {}` vanished from a `required: true` field and the handler's schema then rejected `undefined`. At the time it only bit the `create()` path, because the dedup route was then an upsert and `$setOnInsert` is a raw update operator that bypasses minimize. `enqueue` is now a plain `create()` in every case, so the flag is what keeps an empty payload alive at all. Both job models disable minimize; `jobs:smoke` pins the round trip.
-- **A cancel is not immediate.** `requestCancel` flags a running job; its worker notices on the next heartbeat, so the route returns 202 before the job has stopped. A *queued* job cancels outright.
+- **An empty payload needs `minimize: false` on the schema.** Mongoose strips empty objects on save, *after* validation, so `payload: {}` vanished from a `required: true` field and the handler's schema then rejected `undefined`. At the time it only bit the `create()` path, because the dedup route was then an upsert and `$setOnInsert` is a raw update operator that bypasses minimize. `enqueueJob` is now a plain `create()` in every case, so the flag is what keeps an empty payload alive at all. Both job models disable minimize; `jobs:smoke` pins the round trip.
+- **A cancel is not immediate.** `requestJobCancellation` flags a running job; its worker notices on the next heartbeat, so the route returns 202 before the job has stopped. A *queued* job cancels outright.
 
 ## 10. Deliberately deferred
 

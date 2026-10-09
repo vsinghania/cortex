@@ -1,5 +1,5 @@
 /*
- * AuthSvc.sessionUserId: the read-only session lookup an OAuth callback uses to learn
+ * AuthSvc.findSessionUserId: the read-only session lookup an OAuth callback uses to learn
  * who the browser is signed in as. Refresh sessions live in memory here; the hashing
  * and the validity rules are the real code.
  */
@@ -27,7 +27,7 @@ function session(token: string, overrides: Partial<RefreshSession> = {}): Refres
 async function svcWith(sessions: RefreshSession[]) {
   let rotations = 0;
   const rt_repo = {
-    findByTokenHash: async (token_hash: string) => sessions.find((s) => s.token_hash === token_hash) ?? null,
+    findSessionByTokenHash: async (token_hash: string) => sessions.find((s) => s.token_hash === token_hash) ?? null,
     rotateSession: async () => {
       rotations += 1;
       return null;
@@ -45,7 +45,7 @@ async function svcWith(sessions: RefreshSession[]) {
 test('a live session resolves to its user, without rotating the token', async () => {
   const { svc, rotations } = await svcWith([session('live-token')]);
 
-  assert.equal(await svc.sessionUserId('live-token'), 'user-1');
+  assert.equal(await svc.findSessionUserId('live-token'), 'user-1');
   assert.equal(rotations(), 0, 'a lookup must not spend the refresh token');
 });
 
@@ -55,9 +55,9 @@ test('no cookie, an unknown token, a revoked or an expired session all resolve t
     session('expired-token', { expires_at: new Date(Date.now() - HOUR_MS) })
   ]);
 
-  assert.equal(await svc.sessionUserId(undefined), null);
-  assert.equal(await svc.sessionUserId(''), null);
-  assert.equal(await svc.sessionUserId('unknown-token'), null);
-  assert.equal(await svc.sessionUserId('revoked-token'), null);
-  assert.equal(await svc.sessionUserId('expired-token'), null);
+  assert.equal(await svc.findSessionUserId(undefined), null);
+  assert.equal(await svc.findSessionUserId(''), null);
+  assert.equal(await svc.findSessionUserId('unknown-token'), null);
+  assert.equal(await svc.findSessionUserId('revoked-token'), null);
+  assert.equal(await svc.findSessionUserId('expired-token'), null);
 });

@@ -20,9 +20,9 @@ export class AgentFactory {
    * by AgentRegistry via BaseAgent.setSubAgents() before compile().
    * Throws on an unknown instruction policy name, as on an unknown tool.
    */
-  static forManifest(deps: AgentFactoryDeps): BaseAgent {
+  static createAgentFromManifest(deps: AgentFactoryDeps): BaseAgent {
     const { manifest, tools, mcp_servers } = deps;
-    const instructions = InstructionComposer.forManifest(manifest);
+    const instructions = InstructionComposer.composeManifestInstructions(manifest);
     switch (manifest.engine) {
       case AgentEngine.OpenAi:
         return new OpenAiAgent({ manifest, instructions, tools, mcp_servers });

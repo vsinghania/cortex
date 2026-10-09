@@ -163,11 +163,11 @@ async function buildSvc(args: { graph: FakeGraph; conn?: OneNoteConnection; note
 
   const connection_svc = {
     getStoredConnection: async () => stored,
-    graphFor: () => args.graph,
-    recordNotebookSynced: async (p: { notebook_id: string; sync_watermark?: Date }) => {
+    createGraphClientForUser: () => args.graph,
+    recordNotebookSyncCompleted: async (p: { notebook_id: string; sync_watermark?: Date }) => {
       notebooks_synced.push(p);
     },
-    recordNotebookFailed: async (p: { notebook_id: string; reason: string }) => {
+    recordNotebookSyncFailure: async (p: { notebook_id: string; reason: string }) => {
       notebooks_failed.push(p);
     },
     recordSyncCompleted: async (p: { last_synced_at: Date }) => {
@@ -185,7 +185,7 @@ test('pages import as notes filed under OneNote / notebook / section', async () 
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] });
   const { svc, notes, folder_repo } = await buildSvc({ graph });
 
-  const result = await svc.run({ user_id: USER_ID, mode: 'full' });
+  const result = await svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   assert.equal(result.completed, true);
   assert.deepEqual(result.stats.created, 1);
@@ -211,7 +211,7 @@ test('only sections from chosen notebooks are walked', async () => {
   );
   const { svc, notes } = await buildSvc({ graph });
 
-  await svc.run({ user_id: USER_ID, mode: 'full' });
+  await svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   assert.deepEqual(notes.notes.map((n) => n.external_id), ['p1']);
   assert.deepEqual(graph.list_pages_calls.map((c) => c.section_id), ['sec-1']);
@@ -220,12 +220,12 @@ test('only sections from chosen notebooks are walked', async () => {
 test('an unchanged page is not rewritten, only re-stamped', async () => {
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] });
   const first = await buildSvc({ graph });
-  await first.svc.run({ user_id: USER_ID, mode: 'full' });
+  await first.svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
   const created_before = first.notes.created;
 
   // Incremental: the pass that runs on a schedule, where skipping is the whole point.
   const again = await buildSvc({ graph, notes: first.notes });
-  const result = await again.svc.run({ user_id: USER_ID, mode: 'incremental' });
+  const result = await again.svc.runSyncPass({ user_id: USER_ID, mode: 'incremental' });
 
   assert.equal(result.stats.unchanged, 1);
   assert.equal(result.stats.created + result.stats.updated, 0);
@@ -238,11 +238,11 @@ test('a full pass rewrites even when the page has not changed', async () => {
   // markdown we would now produce is not.
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] });
   const first = await buildSvc({ graph });
-  await first.svc.run({ user_id: USER_ID, mode: 'full' });
+  await first.svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
   const created_before = first.notes.created;
 
   const again = await buildSvc({ graph, notes: first.notes });
-  const result = await again.svc.run({ user_id: USER_ID, mode: 'full' });
+  const result = await again.svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   assert.equal(result.stats.unchanged, 0, 'full means full');
   assert.equal(result.stats.updated, 1);
@@ -252,14 +252,14 @@ test('a full pass rewrites even when the page has not changed', async () => {
 test('a stored note converted by an older version is re-converted', async () => {
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] });
   const { svc, notes } = await buildSvc({ graph });
-  await svc.run({ user_id: USER_ID, mode: 'full' });
+  await svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   // What a note imported before the converter changed looks like: a bare hash, with no
   // version stamped beside it.
   notes.notes[0].metadata = { ...notes.notes[0].metadata, provider_etag: 'bare-hash-from-before' };
   const created_before = notes.created;
 
-  const result = await (await buildSvc({ graph, notes })).svc.run({ user_id: USER_ID, mode: 'incremental' });
+  const result = await (await buildSvc({ graph, notes })).svc.runSyncPass({ user_id: USER_ID, mode: 'incremental' });
 
   assert.equal(result.stats.unchanged, 0);
   assert.equal(result.stats.updated, 1, 'an ordinary pass heals it, with no manual resync');
@@ -271,11 +271,11 @@ test('a page whose content changed is written again', async () => {
   const content: Record<string, string> = { p1: '<p>before</p>' };
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] }, content);
   const first = await buildSvc({ graph });
-  await first.svc.run({ user_id: USER_ID, mode: 'full' });
+  await first.svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   content.p1 = '<p>after</p>';
   const again = await buildSvc({ graph, notes: first.notes });
-  const result = await again.svc.run({ user_id: USER_ID, mode: 'full' });
+  const result = await again.svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   assert.equal(result.stats.updated, 1);
   assert.match(first.notes.notes[0].body, /after/);
@@ -292,7 +292,7 @@ test('one unreadable page is recorded and the pass still completes', async () =>
   const { svc, notes } = await buildSvc({ graph });
   const errors: Array<{ item_id: string }> = [];
 
-  const result = await svc.run({ user_id: USER_ID, mode: 'full', onError: (e) => errors.push(e) });
+  const result = await svc.runSyncPass({ user_id: USER_ID, mode: 'full', onError: (e) => errors.push(e) });
 
   assert.equal(result.completed, true);
   assert.equal(result.stats.failed, 1);
@@ -318,7 +318,7 @@ test('a password-protected section is skipped, and the rest of the pass still ru
   const { svc, notes } = await buildSvc({ graph });
   const errors: Array<{ item_id: string; message: string }> = [];
 
-  const result = await svc.run({ user_id: USER_ID, mode: 'full', onError: (e) => errors.push(e) });
+  const result = await svc.runSyncPass({ user_id: USER_ID, mode: 'full', onError: (e) => errors.push(e) });
 
   assert.equal(result.completed, true, 'one locked section must not end the pass');
   assert.equal(result.stats.sections_skipped, 1);
@@ -331,7 +331,7 @@ test('a section that has gone is skipped, but a dead grant still stops everythin
     'sec-1': new GraphRequestFailedError('Graph request failed (404)', 404, '20001')
   });
   const { svc: tolerant } = await buildSvc({ graph: gone });
-  const result = await tolerant.run({ user_id: USER_ID, mode: 'full' });
+  const result = await tolerant.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   assert.equal(result.completed, true);
   assert.equal(result.stats.sections_skipped, 1);
@@ -340,7 +340,7 @@ test('a section that has gone is skipped, but a dead grant still stops everythin
     'sec-1': new OneNoteReauthRequiredError()
   });
   const { svc: strict } = await buildSvc({ graph: revoked });
-  await assert.rejects(strict.run({ user_id: USER_ID, mode: 'full' }), OneNoteReauthRequiredError);
+  await assert.rejects(strict.runSyncPass({ user_id: USER_ID, mode: 'full' }), OneNoteReauthRequiredError);
 });
 
 test('a failed pass records the reason against the notebook it died on', async () => {
@@ -349,7 +349,7 @@ test('a failed pass records the reason against the notebook it died on', async (
   });
   const { svc, notebooks_failed } = await buildSvc({ graph: revoked });
 
-  await assert.rejects(svc.run({ user_id: USER_ID, mode: 'full' }), OneNoteReauthRequiredError);
+  await assert.rejects(svc.runSyncPass({ user_id: USER_ID, mode: 'full' }), OneNoteReauthRequiredError);
 
   // Durable, because the job row carrying this is reaped on a TTL.
   assert.deepEqual(notebooks_failed, [{ user_id: USER_ID, notebook_id: 'nb-1', reason: 'reauth_required' }]);
@@ -361,7 +361,7 @@ test('a cancelled pass is not recorded as a notebook failure', async () => {
   const controller = new AbortController();
   controller.abort(new Error('worker draining'));
 
-  await assert.rejects(svc.run({ user_id: USER_ID, mode: 'full', signal: controller.signal }));
+  await assert.rejects(svc.runSyncPass({ user_id: USER_ID, mode: 'full', signal: controller.signal }));
   assert.deepEqual(notebooks_failed, [], 'a shutdown is not the notebook going wrong');
 });
 
@@ -372,7 +372,7 @@ test("each notebook's watermark moves only when that notebook is read to the end
   });
   const { svc, notebooks_synced } = await buildSvc({ graph });
 
-  await svc.run({ user_id: USER_ID, mode: 'full' });
+  await svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   assert.equal(notebooks_synced.length, 1);
   assert.equal(notebooks_synced[0].notebook_id, 'nb-1');
@@ -393,7 +393,7 @@ test('a scoped pass leaves the other notebooks\' watermarks untouched', async ()
   );
   const { svc, notebooks_synced, notes } = await buildSvc({ graph, conn });
 
-  await svc.run({ user_id: USER_ID, mode: 'full', notebook_ids: ['nb-2'] });
+  await svc.runSyncPass({ user_id: USER_ID, mode: 'full', notebook_ids: ['nb-2'] });
 
   assert.deepEqual(notebooks_synced.map((n) => n.notebook_id), ['nb-2'], 'only the scoped notebook advances');
   assert.deepEqual(notes.notes.map((n) => n.external_id), ['p2']);
@@ -403,7 +403,7 @@ test('a scope naming a notebook that is not selected syncs nothing', async () =>
   const graph = new FakeGraph([section('sec-1', 'Auth', 'nb-1', 'Tech')], { 'sec-1': [page('p1', 'Tokens')] });
   const { svc, notes } = await buildSvc({ graph });
 
-  const result = await svc.run({ user_id: USER_ID, mode: 'full', notebook_ids: ['nb-unselected'] });
+  const result = await svc.runSyncPass({ user_id: USER_ID, mode: 'full', notebook_ids: ['nb-unselected'] });
 
   assert.equal(result.stats.notebooks, 0);
   assert.equal(notes.notes.length, 0);
@@ -417,7 +417,7 @@ test('an exhausted budget pauses with a checkpoint instead of finishing', async 
   const { svc, notebooks_synced, notes } = await buildSvc({ graph });
 
   // Zero budget: the first section is finished, then the pass yields.
-  const result = await svc.run({ user_id: USER_ID, mode: 'full', budget_ms: 0 });
+  const result = await svc.runSyncPass({ user_id: USER_ID, mode: 'full', budget_ms: 0 });
 
   assert.equal(result.completed, false);
   assert.equal(result.checkpoint?.section_cursor, 'sec-1');
@@ -432,7 +432,7 @@ test('resuming from a checkpoint continues after the section already drained', a
   );
   const { svc, notes } = await buildSvc({ graph });
 
-  const result = await svc.run({
+  const result = await svc.runSyncPass({
     user_id: USER_ID,
     mode: 'full',
     checkpoint: { section_cursor: 'sec-1', pages_seen: 1 }
@@ -451,7 +451,7 @@ test('an incremental pass asks Graph for pages since the watermark, less an over
     conn: connection({ notebooks: [{ id: 'nb-1', display_name: 'Tech', sync_watermark: watermark }] })
   });
 
-  await svc.run({ user_id: USER_ID, mode: 'incremental' });
+  await svc.runSyncPass({ user_id: USER_ID, mode: 'incremental' });
 
   const asked = graph.list_pages_calls[0].modified_after!;
   assert.equal(watermark.getTime() - asked.getTime(), 5 * 60 * 1000, 'five minutes of overlap');
@@ -464,7 +464,7 @@ test('a full pass ignores the watermark entirely', async () => {
     conn: connection({ notebooks: [{ id: 'nb-1', display_name: 'Tech', sync_watermark: new Date() }] })
   });
 
-  await svc.run({ user_id: USER_ID, mode: 'full' });
+  await svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   assert.equal(graph.list_pages_calls[0].modified_after, undefined);
 });
@@ -473,7 +473,7 @@ test('syncing refuses until a notebook is chosen', async () => {
   const graph = new FakeGraph([], {});
   const { svc } = await buildSvc({ graph, conn: connection({ selected_notebook_ids: [] }) });
 
-  await assert.rejects(svc.run({ user_id: USER_ID, mode: 'full' }), BadRequestError);
+  await assert.rejects(svc.runSyncPass({ user_id: USER_ID, mode: 'full' }), BadRequestError);
 });
 
 test('an abort stops the pass rather than being recorded as a failed page', async () => {
@@ -482,7 +482,7 @@ test('an abort stops the pass rather than being recorded as a failed page', asyn
   const controller = new AbortController();
   controller.abort(new Error('worker draining'));
 
-  await assert.rejects(svc.run({ user_id: USER_ID, mode: 'full', signal: controller.signal }), /draining/);
+  await assert.rejects(svc.runSyncPass({ user_id: USER_ID, mode: 'full', signal: controller.signal }), /draining/);
 });
 
 test('sections under a section group nest one level deeper', async () => {
@@ -495,7 +495,7 @@ test('sections under a section group nest one level deeper', async () => {
   const graph = new FakeGraph([grouped], { 'sec-1': [page('p1', 'Tokens')] });
   const { svc, folder_repo } = await buildSvc({ graph });
 
-  await svc.run({ user_id: USER_ID, mode: 'full' });
+  await svc.runSyncPass({ user_id: USER_ID, mode: 'full' });
 
   assert.deepEqual(folder_repo.folders.map((f) => f.name), ['OneNote', 'Tech', 'Backend', 'Auth']);
   assert.deepEqual(

@@ -18,32 +18,32 @@ export class AppLinks {
    * The token rides in the fragment, which browsers never send to a server - so it
    * stays out of CDN and load-balancer logs, and out of Referer headers.
    */
-  passwordReset(token: string): string {
-    return this.build('/reset-password', { token });
+  buildPasswordResetUrl(token: string): string {
+    return this.buildAppUrl('/reset-password', { token });
   }
 
-  verifyEmail(token: string): string {
-    return this.build('/verify-email', { token });
+  buildEmailVerificationUrl(token: string): string {
+    return this.buildAppUrl('/verify-email', { token });
   }
 
   /** `path` must already be a sanitized same-origin path. */
-  appPath(path: string): string {
+  buildAppPathUrl(path: string): string {
     return new URL(path, this.base_url).toString();
   }
 
-  loginError(error: string): string {
-    return this.build('/login', { error });
+  buildLoginErrorUrl(error: string): string {
+    return this.buildAppUrl('/login', { error });
   }
 
   /**
    * Where an integration's OAuth callback lands. The outcome rides in the fragment
    * for the same reason tokens do: it never reaches a server log.
    */
-  settings(fragment: Record<string, string> = {}): string {
-    return Object.keys(fragment).length > 0 ? this.build('/settings', fragment) : this.appPath('/settings');
+  buildSettingsUrl(fragment: Record<string, string> = {}): string {
+    return Object.keys(fragment).length > 0 ? this.buildAppUrl('/settings', fragment) : this.buildAppPathUrl('/settings');
   }
 
-  private build(path: string, fragment: Record<string, string>): string {
+  private buildAppUrl(path: string, fragment: Record<string, string>): string {
     const url = new URL(path, this.base_url);
     url.hash = new URLSearchParams(fragment).toString();
     return url.toString();

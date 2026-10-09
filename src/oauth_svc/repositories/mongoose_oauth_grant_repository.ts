@@ -16,7 +16,7 @@ export class MongooseOAuthGrantRepository implements OAuthGrantRepository {
     return new MongooseOAuthGrantRepository(this.factory.getModel(conn));
   }
 
-  async upsert(input: UpsertOAuthGrantInput & { grant_id: string }): Promise<OAuthGrant> {
+  async upsertGrant(input: UpsertOAuthGrantInput & { grant_id: string }): Promise<OAuthGrant> {
     const { grant_id, user_id, client_id, resource, ...replaced } = input;
     const upserted = await this.model
       .findOneAndUpdate(
@@ -28,22 +28,22 @@ export class MongooseOAuthGrantRepository implements OAuthGrantRepository {
     return MongooseUtils.toDomain<OAuthGrant>(upserted);
   }
 
-  async findById(grant_id: string): Promise<OAuthGrant | null> {
+  async findGrantById(grant_id: string): Promise<OAuthGrant | null> {
     const found = await this.model.findOne({ grant_id }).lean();
     return found ? MongooseUtils.toDomain<OAuthGrant>(found) : null;
   }
 
-  async listExternalByUser(user_id: string): Promise<OAuthGrant[]> {
+  async listExternalGrantsForUser(user_id: string): Promise<OAuthGrant[]> {
     const found = await this.model.find({ user_id, kind: 'external' }).sort({ created_at: -1 }).lean();
     return found.map((grant) => MongooseUtils.toDomain<OAuthGrant>(grant));
   }
 
-  async deleteExternalForUser(input: { user_id: string; grant_id: string }): Promise<boolean> {
+  async deleteExternalGrantForUser(input: { user_id: string; grant_id: string }): Promise<boolean> {
     const result = await this.model.deleteOne({ user_id: input.user_id, grant_id: input.grant_id, kind: 'external' });
     return result.deletedCount > 0;
   }
 
-  async touchLastUsed(input: { grant_id: string; at: Date }): Promise<void> {
+  async updateGrantLastUsedAt(input: { grant_id: string; at: Date }): Promise<void> {
     await this.model.updateOne({ grant_id: input.grant_id }, { $set: { last_used_at: input.at } });
   }
 }

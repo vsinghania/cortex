@@ -49,7 +49,7 @@ export class JobWorker {
    */
   static async create(): Promise<JobWorker> {
     const registry = JobHandlerRegistry.getInstance();
-    if (registry.registeredNames().length === 0) {
+    if (registry.listRegisteredJobNames().length === 0) {
       throw new Error('JobWorker.create: no job handlers registered. Register handlers at bootstrap.');
     }
 
@@ -69,7 +69,7 @@ export class JobWorker {
       this.tick_in_flight = true;
       TraceContext.enterBackground('jobs-worker');
       try {
-        await this.pollOnce();
+        await this.claimAvailableJobs();
       } catch (err) {
         logger.warn({ err }, 'job worker poll failed');
       } finally {
@@ -84,7 +84,7 @@ export class JobWorker {
         worker_id: this.config.worker_id,
         concurrency: this.config.concurrency,
         poll_interval_ms: this.config.poll_interval_ms,
-        job_names: this.registry.registeredNames()
+        job_names: this.registry.listRegisteredJobNames()
       },
       'job worker started'
     );
@@ -120,20 +120,20 @@ export class JobWorker {
       );
     }
 
-    logger.info({ worker_id: this.config.worker_id, ...this.countersOnly() }, 'job worker stopped');
+    logger.info({ worker_id: this.config.worker_id, ...this.getJobCounters() }, 'job worker stopped');
   }
 
   getStats(): WorkerStats {
-    return { worker_id: this.config.worker_id, in_flight: this.in_flight.size, ...this.countersOnly() };
+    return { worker_id: this.config.worker_id, in_flight: this.in_flight.size, ...this.getJobCounters() };
   }
 
-  private async pollOnce(): Promise<number> {
+  private async claimAvailableJobs(): Promise<number> {
     let claimed = 0;
 
     while (!this.stopping && this.in_flight.size < this.config.concurrency) {
       // The default lease, because which handler owns this job is not known until
       // it is claimed. The first heartbeat extends it to the handler's own lease_ms.
-      const job = await this.repo.claimNext({
+      const job = await this.repo.claimNextJob({
         worker_id: this.config.worker_id,
         lease_ms: this.config.lease_ms,
         now: new Date()
@@ -176,7 +176,7 @@ export class JobWorker {
 
   private async executeJob(job: Job, ctx: JobRunContext, start_ms: number): Promise<void> {
     if (job.attempts > job.max_attempts) {
-      await this.deadLetterExhausted(job);
+      await this.failJobWithExhaustedAttempts(job);
       return;
     }
 
@@ -187,11 +187,11 @@ export class JobWorker {
     // this is that moment: whatever caused the delay - a late scheduler, a
     // backlog, a stalled worker - it is caught here.
     if (job.deadline_at && job.deadline_at.getTime() < Date.now()) {
-      await this.skipPastDeadline(job);
+      await this.skipJobPastDeadline(job);
       return;
     }
 
-    const handler = this.registry.get(job.name);
+    const handler = this.registry.findHandler(job.name);
     if (!handler) {
       // Claimed a job this worker cannot run. Hand it back unrun and unpenalised so
       // a correctly-built worker can take it - never fail it, which would destroy
@@ -200,7 +200,7 @@ export class JobWorker {
         { job_id: job.id, job_name: job.name },
         'no handler registered for job; released back to the queue'
       );
-      await this.repo.release({
+      await this.repo.releaseJobLease({
         job_id: job.id,
         worker_id: this.config.worker_id,
         now: new Date(),
@@ -209,26 +209,26 @@ export class JobWorker {
       return;
     }
 
-    const lease_ms = this.leaseMsFor(handler.lease_ms);
-    const heartbeat = this.startHeartbeat(ctx, lease_ms);
+    const lease_ms = this.resolveLeaseDurationMs(handler.lease_ms);
+    const heartbeat = this.startLeaseHeartbeat(ctx, lease_ms);
 
     try {
       const payload = handler.parsePayload(job.payload);
       const result = await handler.handle(payload, ctx);
-      await this.writeOutcome({ job, ctx, handler_result: result, start_ms });
+      await this.persistJobOutcome({ job, ctx, handler_result: result, start_ms });
     } catch (err) {
-      await this.writeOutcome({ job, ctx, err, start_ms });
+      await this.persistJobOutcome({ job, ctx, err, start_ms });
     } finally {
       clearInterval(heartbeat);
     }
   }
 
-  private startHeartbeat(ctx: JobRunContext, lease_ms: number): NodeJS.Timeout {
-    const interval_ms = JobLease.heartbeatIntervalMs(lease_ms);
+  private startLeaseHeartbeat(ctx: JobRunContext, lease_ms: number): NodeJS.Timeout {
+    const interval_ms = JobLease.calculateHeartbeatIntervalMs(lease_ms);
 
     const timer = setInterval(async () => {
       try {
-        const beat = await this.repo.heartbeat({
+        const beat = await this.repo.renewJobLease({
           job_id: ctx.job_id,
           worker_id: this.config.worker_id,
           now: new Date(),
@@ -253,7 +253,7 @@ export class JobWorker {
     return timer;
   }
 
-  private async writeOutcome(params: {
+  private async persistJobOutcome(params: {
     job: Job;
     ctx: JobRunContext;
     handler_result?: JobResult;
@@ -271,7 +271,7 @@ export class JobWorker {
     if (abort_reason === 'lease_lost') return;
 
     if (abort_reason === 'shutdown') {
-      await this.repo.release({
+      await this.repo.releaseJobLease({
         ...lease,
         progress,
         checkpoint: ctx.snapshotCheckpoint()
@@ -281,14 +281,14 @@ export class JobWorker {
     }
 
     if (abort_reason === 'cancelled') {
-      await this.repo.cancel({ ...lease, progress, retention_sec: this.config.succeeded_retention_sec });
+      await this.repo.cancelJob({ ...lease, progress, retention_sec: this.config.succeeded_retention_sec });
       logger.info({ job_id: job.id, job_name: job.name, duration_ms, ...progress }, 'job cancelled');
       return;
     }
 
-    const failure = JobWorker.asFailure(params.handler_result, params.err);
+    const failure = JobWorker.toJobFailure(params.handler_result, params.err);
     if (!failure) {
-      await this.repo.complete({
+      await this.repo.completeJob({
         ...lease,
         result: params.handler_result?.outcome === 'succeeded' ? params.handler_result.summary : undefined,
         errors: ctx.snapshotErrors(),
@@ -300,17 +300,17 @@ export class JobWorker {
       return;
     }
 
-    const decision = JobRetryDecision.decide({
+    const decision = JobRetryDecision.decideJobRetry({
       attempts: job.attempts,
       max_attempts: job.max_attempts,
       err: params.err,
       explicit_retryable: failure.explicit_retryable,
-      policy: this.retryPolicyFor(job),
+      policy: this.resolveRetryPolicy(job),
       now: lease.now
     });
 
     if (decision.outcome === 'retry') {
-      await this.repo.retryLater({
+      await this.repo.scheduleJobRetry({
         ...lease,
         run_at: decision.run_at,
         message: failure.message,
@@ -333,7 +333,7 @@ export class JobWorker {
       return;
     }
 
-    await this.repo.fail({
+    await this.repo.failJob({
       ...lease,
       message: failure.message,
       errors: ctx.snapshotErrors(),
@@ -357,9 +357,9 @@ export class JobWorker {
   }
 
   /** Not a failure: the work was fine, its window closed. */
-  private async skipPastDeadline(job: Job): Promise<void> {
+  private async skipJobPastDeadline(job: Job): Promise<void> {
     const now = new Date();
-    await this.repo.cancel({
+    await this.repo.cancelJob({
       job_id: job.id,
       worker_id: this.config.worker_id,
       now,
@@ -381,8 +381,8 @@ export class JobWorker {
     );
   }
 
-  private async deadLetterExhausted(job: Job): Promise<void> {
-    await this.repo.fail({
+  private async failJobWithExhaustedAttempts(job: Job): Promise<void> {
+    await this.repo.failJob({
       job_id: job.id,
       worker_id: this.config.worker_id,
       now: new Date(),
@@ -396,16 +396,16 @@ export class JobWorker {
     );
   }
 
-  private retryPolicyFor(job: Job): RetryPolicy {
-    const handler = this.registry.get(job.name);
+  private resolveRetryPolicy(job: Job): RetryPolicy {
+    const handler = this.registry.findHandler(job.name);
     return { ...this.config.default_retry_policy, ...(handler?.retry_policy ?? {}) };
   }
 
-  private leaseMsFor(handler_lease_ms: number | undefined): number {
+  private resolveLeaseDurationMs(handler_lease_ms: number | undefined): number {
     return handler_lease_ms ?? this.config.lease_ms;
   }
 
-  private countersOnly(): Omit<WorkerStats, 'worker_id' | 'in_flight'> {
+  private getJobCounters(): Omit<WorkerStats, 'worker_id' | 'in_flight'> {
     return {
       claimed_total: this.claimed_total,
       succeeded_total: this.succeeded_total,
@@ -413,7 +413,7 @@ export class JobWorker {
     };
   }
 
-  private static asFailure(
+  private static toJobFailure(
     result: JobResult | undefined,
     err: unknown
   ): { message: string; explicit_retryable?: boolean } | null {

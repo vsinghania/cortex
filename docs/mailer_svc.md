@@ -2,10 +2,10 @@
 
 Delivers a finished email through a pluggable transport. It knows nothing about users, auth, or jobs — domain modules decide *what* to send and *when*; this module only decides *how*.
 
-Source: [src/mailer_svc/](../src/mailer_svc/). Contract: `MailerSvcInterface` — `send(message)` and `verify()`.
+Source: [src/mailer_svc/](../src/mailer_svc/). Contract: `MailerSvcInterface` — `sendMail(message)` and `verifyTransportConnection()`.
 
 ```
-domain job handler ──render──► RenderedMail ──► MailerSvc.send ──► MailTransport ──► SMTP relay
+domain job handler ──render──► RenderedMail ──► MailerSvc.sendMail ──► MailTransport ──► SMTP relay
 (auth_svc, reminders…)   (owns its template)       (from, logs)     (SmtpMailTransport)
 ```
 
@@ -19,11 +19,11 @@ domain job handler ──render──► RenderedMail ──► MailerSvc.send �
 | **MailerSvc** | the `from` address, transport selection, one `mail sent` / `mail send failed` log line |
 | **MailTransport** | talking to the vendor; turning every failure into a `MailDeliveryError` |
 
-The split is enforced, not just documented: `scripts/layering.test.ts` forbids `mailer_svc` from importing any domain module or `jobs_svc`. A future reminders sender adds its own template and job handler in its own module and calls `MailerSvc.send` — nothing here changes.
+The split is enforced, not just documented: `scripts/layering.test.ts` forbids `mailer_svc` from importing any domain module or `jobs_svc`. A future reminders sender adds its own template and job handler in its own module and calls `MailerSvc.sendMail` — nothing here changes.
 
 ## 2. Send from a job, never from a request
 
-`send` is a network call to a third party that can hang for seconds or fail transiently. Callers enqueue a job (see [jobs_svc.md](jobs_svc.md)) and send from its handler, so a slow relay never slows a request and a 4xx from the relay becomes a retry with backoff instead of a lost email.
+`sendMail` is a network call to a third party that can hang for seconds or fail transiently. Callers enqueue a job (see [jobs_svc.md](jobs_svc.md)) and send from its handler, so a slow relay never slows a request and a 4xx from the relay becomes a retry with backoff instead of a lost email.
 
 **Never put a secret in the job payload.** Admins can list jobs with full payloads, and rows persist in Mongo. A handler that sends a link containing a token should carry only an id in the payload and mint the token at send time.
 

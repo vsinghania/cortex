@@ -15,7 +15,7 @@ export type ProtectedResourceMetadataDocument = {
 export class ProtectedResourceMetadata {
   private constructor() {}
 
-  static build(input: {
+  static buildProtectedResourceMetadata(input: {
     resource: string;
     authorization_server: string;
     scopes: readonly string[];
@@ -31,7 +31,7 @@ export class ProtectedResourceMetadata {
   }
 
   /** `https://host/.well-known/oauth-protected-resource/mcp` for `https://host/mcp`. */
-  static urlFor(resource: URL): string {
+  static getProtectedResourceMetadataUrl(resource: URL): string {
     return getOAuthProtectedResourceMetadataUrl(resource);
   }
 }

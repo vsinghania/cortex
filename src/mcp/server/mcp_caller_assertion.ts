@@ -23,7 +23,7 @@ const ClaimsSchema = z.object({
 export class McpCallerAssertion {
   private constructor() {}
 
-  static sign(input: { secret: string; audience: string; caller: McpGatewayCaller }): string {
+  static signGatewayCallerAssertion(input: { secret: string; audience: string; caller: McpGatewayCaller }): string {
     return jwt.sign(
       {
         client_id: input.caller.client_id,
@@ -42,7 +42,7 @@ export class McpCallerAssertion {
     );
   }
 
-  static verify(input: { secret: string; audience: string; token: string }): McpGatewayCaller | null {
+  static verifyGatewayCallerAssertion(input: { secret: string; audience: string; token: string }): McpGatewayCaller | null {
     try {
       const decoded = jwt.verify(input.token, input.secret, { algorithms: ['HS256'], issuer: ISSUER, audience: input.audience });
       const claims = ClaimsSchema.safeParse(decoded);

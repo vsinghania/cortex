@@ -18,7 +18,7 @@ export type ResolvedDocuments = {
  */
 export interface DocumentResolver {
   readonly corpus: Corpus;
-  resolve(params: {
+  resolveDocuments(params: {
     user_id: string;
     document_ids: string[];
     chunk_ids: string[];

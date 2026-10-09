@@ -8,44 +8,44 @@ function smtpError(fields: { code?: string; responseCode?: number; message?: str
 }
 
 test('a 5xx reply is permanent and keeps its reply code', () => {
-  const classified = SmtpErrorClassifier.classify(smtpError({ code: 'EENVELOPE', responseCode: 550 }));
+  const classified = SmtpErrorClassifier.classifyDeliveryError(smtpError({ code: 'EENVELOPE', responseCode: 550 }));
   assert.equal(classified.retryable, false);
   assert.equal(classified.response_code, 550);
   assert.equal(classified.error_code, 'EENVELOPE');
 });
 
 test('a 4xx reply is retryable', () => {
-  const classified = SmtpErrorClassifier.classify(smtpError({ code: 'EMESSAGE', responseCode: 451 }));
+  const classified = SmtpErrorClassifier.classifyDeliveryError(smtpError({ code: 'EMESSAGE', responseCode: 451 }));
   assert.equal(classified.retryable, true);
 });
 
 test('the reply code outranks the error code', () => {
-  const rejected_login = SmtpErrorClassifier.classify(smtpError({ code: 'EAUTH', responseCode: 535 }));
-  const auth_unavailable = SmtpErrorClassifier.classify(smtpError({ code: 'EAUTH', responseCode: 454 }));
+  const rejected_login = SmtpErrorClassifier.classifyDeliveryError(smtpError({ code: 'EAUTH', responseCode: 535 }));
+  const auth_unavailable = SmtpErrorClassifier.classifyDeliveryError(smtpError({ code: 'EAUTH', responseCode: 454 }));
   assert.equal(rejected_login.retryable, false);
   assert.equal(auth_unavailable.retryable, true);
 });
 
 test('transport-level failures without a reply are retryable', () => {
   for (const code of ['ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'EDNS', 'ETLS']) {
-    assert.equal(SmtpErrorClassifier.classify(smtpError({ code })).retryable, true, code);
+    assert.equal(SmtpErrorClassifier.classifyDeliveryError(smtpError({ code })).retryable, true, code);
   }
 });
 
 test('envelope, message and config errors without a reply are permanent', () => {
   for (const code of ['EENVELOPE', 'EMESSAGE', 'EAUTH', 'ENOAUTH', 'ECONFIG']) {
-    assert.equal(SmtpErrorClassifier.classify(smtpError({ code })).retryable, false, code);
+    assert.equal(SmtpErrorClassifier.classifyDeliveryError(smtpError({ code })).retryable, false, code);
   }
 });
 
 test('an unrecognized throw is retryable with an unknown code', () => {
-  const classified = SmtpErrorClassifier.classify('boom');
+  const classified = SmtpErrorClassifier.classifyDeliveryError('boom');
   assert.equal(classified.retryable, true);
   assert.equal(classified.error_code, 'unknown');
 });
 
 test('the message never carries the server text or the recipient', () => {
-  const classified = SmtpErrorClassifier.classify(
+  const classified = SmtpErrorClassifier.classifyDeliveryError(
     smtpError({
       code: 'EENVELOPE',
       responseCode: 550,
@@ -59,5 +59,5 @@ test('the message never carries the server text or the recipient', () => {
 
 test('an already-classified error passes through unchanged', () => {
   const original = new MailDeliveryError({ error_code: 'recipient_rejected', retryable: false });
-  assert.equal(SmtpErrorClassifier.classify(original), original);
+  assert.equal(SmtpErrorClassifier.classifyDeliveryError(original), original);
 });

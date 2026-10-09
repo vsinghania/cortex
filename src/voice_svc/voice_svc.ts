@@ -22,7 +22,7 @@ const VOICE_MCP_CLIENT_NAME = 'Cortex voice';
 const VOICE_MCP_TOKEN_TTL_SEC = Time.hoursToSec(1);
 
 /** Mints a token that lets one voice session reach the public MCP as one user. */
-type VoiceMcpTokenIssuer = (user_id: string) => Promise<string>;
+type VoiceMcpAccessTokenIssuer = (user_id: string) => Promise<string>;
 
 export class VoiceSvc implements VoiceSvcInterface {
 
@@ -32,39 +32,39 @@ export class VoiceSvc implements VoiceSvcInterface {
   private readonly registry: VoiceAdapterRegistry;
   private readonly provider: VoiceProvider;
   private readonly mcp_public_url: string | undefined;
-  private readonly issueMcpToken: VoiceMcpTokenIssuer | undefined;
+  private readonly issue_mcp_access_token: VoiceMcpAccessTokenIssuer | undefined;
 
   private constructor(opts: {
     registry: VoiceAdapterRegistry;
     provider: VoiceProvider;
     mcp_public_url: string | undefined;
-    issueMcpToken: VoiceMcpTokenIssuer | undefined;
+    issue_mcp_access_token: VoiceMcpAccessTokenIssuer | undefined;
   }) {
     this.registry = opts.registry;
     this.provider = opts.provider;
     this.mcp_public_url = opts.mcp_public_url;
-    this.issueMcpToken = opts.issueMcpToken;
+    this.issue_mcp_access_token = opts.issue_mcp_access_token;
   }
 
   public static async getInstance(): Promise<VoiceSvc> {
     if (VoiceSvc.instance) return VoiceSvc.instance;
     if (VoiceSvc.in_flight) return VoiceSvc.in_flight;
-    VoiceSvc.in_flight = VoiceSvc.loadInstance();
+    VoiceSvc.in_flight = VoiceSvc.loadVoiceSvcInstance();
     return VoiceSvc.in_flight;
   }
 
-  private static async loadInstance(): Promise<VoiceSvc> {
+  private static async loadVoiceSvcInstance(): Promise<VoiceSvc> {
     try {
       const inst = new VoiceSvc({
         registry: VoiceAdapterRegistry.getInstance(),
-        provider: VoiceSvc.resolveProvider(),
+        provider: VoiceSvc.resolveVoiceProvider(),
         // Overridable so a local tunnel can stand in for the public URL OpenAI must reach.
-        mcp_public_url: process.env.VOICE_MCP_PUBLIC_URL || VoiceSvc.notesResourceUrl(),
-        issueMcpToken: OAuthSvc.isConfigured() ? VoiceSvc.issueFirstPartyToken : undefined,
+        mcp_public_url: process.env.VOICE_MCP_PUBLIC_URL || VoiceSvc.getNotesMcpResourceUrl(),
+        issue_mcp_access_token: OAuthSvc.isConfigured() ? VoiceSvc.issueVoiceMcpAccessToken : undefined,
       });
       VoiceSvc.instance = inst;
       logger.info(
-        { provider: inst.provider, mcp_attached: Boolean(inst.mcp_public_url && inst.issueMcpToken) },
+        { provider: inst.provider, mcp_attached: Boolean(inst.mcp_public_url && inst.issue_mcp_access_token) },
         'VoiceSvc initialized'
       );
       return inst;
@@ -74,9 +74,9 @@ export class VoiceSvc implements VoiceSvcInterface {
   }
 
   @logExecTime({ threshold_in_ms: SLOW_MINT_THRESHOLD_MS })
-  public async mintEphemeralToken(req: MintTokenRequest): Promise<MintTokenResponse> {
-    const adapter = this.resolveAdapter();
-    const mcp_attachment = await this.buildMcpAttachment(req.user_id);
+  public async mintEphemeralVoiceToken(req: MintTokenRequest): Promise<MintTokenResponse> {
+    const adapter = this.resolveVoiceAdapter();
+    const mcp_attachment = await this.buildVoiceMcpAttachment(req.user_id);
     const session = await adapter.mintEphemeralSession({
       user_id: req.user_id,
       instructions: VoiceCaptureInstructions.build(),
@@ -101,7 +101,7 @@ export class VoiceSvc implements VoiceSvcInterface {
     };
   }
 
-  private resolveAdapter(): RealtimeVoiceAdapter {
+  private resolveVoiceAdapter(): RealtimeVoiceAdapter {
     return this.registry.getAdapter(this.provider);
   }
 
@@ -110,8 +110,8 @@ export class VoiceSvc implements VoiceSvcInterface {
    * A per-user token scoped to the public MCP means a leaked one reaches one user's
    * notes for an hour, not every user's notes for as long as the service token lives.
    */
-  private async buildMcpAttachment(user_id: string): Promise<McpAttachmentSpec | undefined> {
-    if (!this.mcp_public_url || !this.issueMcpToken) {
+  private async buildVoiceMcpAttachment(user_id: string): Promise<McpAttachmentSpec | undefined> {
+    if (!this.mcp_public_url || !this.issue_mcp_access_token) {
       logger.warn('Public notes MCP or OAuth not configured; minting voice session without MCP tools');
       return undefined;
     }
@@ -120,7 +120,7 @@ export class VoiceSvc implements VoiceSvcInterface {
       return {
         server_label: MCP_SERVER_LABEL,
         server_url: this.mcp_public_url,
-        bearer_token: await this.issueMcpToken(user_id),
+        bearer_token: await this.issue_mcp_access_token(user_id),
         headers: {},
         require_approval: 'never',
       };
@@ -131,7 +131,7 @@ export class VoiceSvc implements VoiceSvcInterface {
     }
   }
 
-  private static async issueFirstPartyToken(user_id: string): Promise<string> {
+  private static async issueVoiceMcpAccessToken(user_id: string): Promise<string> {
     const oauth_svc = await OAuthSvc.create();
     const { access_token } = await oauth_svc.issueFirstPartyAccessToken({
       user_id,
@@ -144,11 +144,11 @@ export class VoiceSvc implements VoiceSvcInterface {
   }
 
   /** The public notes MCP (`https://mcp.cortexapp.me/notes`), when it is served. */
-  private static notesResourceUrl(): string | undefined {
-    return McpResourceCatalog.fromEnv().find('notes')?.url;
+  private static getNotesMcpResourceUrl(): string | undefined {
+    return McpResourceCatalog.fromEnv().findResourceById('notes')?.url;
   }
 
-  private static resolveProvider(): VoiceProvider {
+  private static resolveVoiceProvider(): VoiceProvider {
     const raw = process.env.VOICE_PROVIDER;
     if (!raw) return DEFAULT_VOICE_PROVIDER;
     const parsed = VoiceProviderSchema.safeParse(raw);

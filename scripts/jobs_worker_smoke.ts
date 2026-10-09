@@ -131,7 +131,7 @@ async function main(): Promise<void> {
     Time.secondsToMs(3)
   );
 
-  registry.registerMany([ok_handler, flaky_handler, permanent_handler, slow_handler]);
+  registry.registerHandlers([ok_handler, flaky_handler, permanent_handler, slow_handler]);
 
   const worker = await JobWorker.create();
   worker.start();
@@ -139,10 +139,10 @@ async function main(): Promise<void> {
   console.log('\nhappy path');
   await check('a queued job is claimed, run and completed', async () => {
     const job = buildJob('smoke_ok');
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
-    await waitFor(async () => (await repo.getById(job.id))?.status === JobStatus.Succeeded);
-    const done = await repo.getById(job.id);
+    await waitFor(async () => (await repo.getJobById(job.id))?.status === JobStatus.Succeeded);
+    const done = await repo.getJobById(job.id);
     assert.equal(done!.attempts, 1);
     assert.deepEqual(done!.result, { processed: 3 });
     assert.ok(done!.finished_at);
@@ -153,20 +153,20 @@ async function main(): Promise<void> {
   console.log('\nretry and failure');
   await check('a transient throw retries with backoff, then dead-letters', async () => {
     const job = buildJob('smoke_flaky', { max_attempts: 2 });
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
-    await waitFor(async () => (await repo.getById(job.id))?.status === JobStatus.Failed, 20000);
-    const done = await repo.getById(job.id);
+    await waitFor(async () => (await repo.getJobById(job.id))?.status === JobStatus.Failed, 20000);
+    const done = await repo.getJobById(job.id);
     assert.equal(done!.attempts, 2, 'should have used its whole attempt budget');
     assert.match(done!.last_error ?? '', /transient/);
   });
 
   await check('a PermanentJobError fails on the first attempt, without retrying', async () => {
     const job = buildJob('smoke_permanent', { max_attempts: 5 });
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
-    await waitFor(async () => (await repo.getById(job.id))?.status === JobStatus.Failed);
-    const done = await repo.getById(job.id);
+    await waitFor(async () => (await repo.getJobById(job.id))?.status === JobStatus.Failed);
+    const done = await repo.getJobById(job.id);
     assert.equal(done!.attempts, 1, 'a permanent error must not consume retries');
     assert.match(done!.last_error ?? '', /bad payload/);
   });
@@ -178,32 +178,32 @@ async function main(): Promise<void> {
     // worker that was down. The worker is the only component present at the
     // moment work starts, so it is the one that decides.
     const job = buildJob('smoke_ok', { deadline_at: new Date(Date.now() - 1000) });
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
-    await waitFor(async () => (await repo.getById(job.id))?.status === JobStatus.Cancelled);
-    const skipped = await repo.getById(job.id);
+    await waitFor(async () => (await repo.getJobById(job.id))?.status === JobStatus.Cancelled);
+    const skipped = await repo.getJobById(job.id);
     assert.equal(skipped!.result?.skipped, 'deadline_exceeded');
     assert.equal(ok_handler.runs, before_runs, 'the handler must never have been invoked');
   });
 
   await check('a job inside its deadline runs normally', async () => {
     const job = buildJob('smoke_ok', { deadline_at: new Date(Date.now() + Time.minutesToMs(5)) });
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
-    await waitFor(async () => (await repo.getById(job.id))?.status === JobStatus.Succeeded);
+    await waitFor(async () => (await repo.getJobById(job.id))?.status === JobStatus.Succeeded);
   });
 
   console.log('\nunknown handler');
   await check('a job with no registered handler is released, not failed', async () => {
     const job = buildJob('smoke_unregistered');
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
     await waitFor(async () => {
-      const current = await repo.getById(job.id);
+      const current = await repo.getJobById(job.id);
       return current?.status === JobStatus.Queued && current.locked_by === null && current.attempts >= 1;
     });
 
-    const released = await repo.getById(job.id);
+    const released = await repo.getJobById(job.id);
     assert.equal(released!.status, JobStatus.Queued, 'must go back to queued, never failed');
     assert.ok(released!.run_at.getTime() > Date.now(), 'should be deferred, not hot-looped');
   });
@@ -211,13 +211,13 @@ async function main(): Promise<void> {
   console.log('\ncancellation');
   await check('cancelling a running job stops it and keeps the work already done', async () => {
     const job = buildJob('smoke_slow');
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
-    await waitFor(async () => ((await repo.getById(job.id))?.progress.processed ?? 0) > 2);
-    await repo.requestCancel({ job_id: job.id, now: new Date(), retention_sec: 60 });
+    await waitFor(async () => ((await repo.getJobById(job.id))?.progress.processed ?? 0) > 2);
+    await repo.requestJobCancellation({ job_id: job.id, now: new Date(), retention_sec: 60 });
 
-    await waitFor(async () => (await repo.getById(job.id))?.status === JobStatus.Cancelled, 20000);
-    const cancelled = await repo.getById(job.id);
+    await waitFor(async () => (await repo.getJobById(job.id))?.status === JobStatus.Cancelled, 20000);
+    const cancelled = await repo.getJobById(job.id);
     assert.ok(cancelled!.progress.processed > 0, 'progress already made must be kept');
     assert.ok(cancelled!.progress.processed < 500, 'should have stopped early');
   });
@@ -225,12 +225,12 @@ async function main(): Promise<void> {
   console.log('\ndrain and resume');
   await check('SIGTERM releases in-flight work with its checkpoint, burning no attempt', async () => {
     const job = buildJob('smoke_slow');
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
-    await waitFor(async () => ((await repo.getById(job.id))?.progress.processed ?? 0) > 2);
+    await waitFor(async () => ((await repo.getJobById(job.id))?.progress.processed ?? 0) > 2);
     await worker.stop();
 
-    const released = await repo.getById(job.id);
+    const released = await repo.getJobById(job.id);
     assert.equal(released!.status, JobStatus.Queued, 'drain must hand the job back');
     assert.equal(released!.locked_by, null);
     assert.equal(released!.attempts, 1, 'a graceful hand-back must not burn an attempt');
@@ -248,11 +248,11 @@ async function main(): Promise<void> {
     worker_two.start();
 
     await waitFor(async () => {
-      const current = await repo.getById(stale!.id);
+      const current = await repo.getJobById(stale!.id);
       return (current?.progress.processed ?? 0) > progress_before;
     });
 
-    const running = await repo.getById(stale!.id);
+    const running = await repo.getJobById(stale!.id);
     assert.ok(
       running!.progress.processed > progress_before,
       `processed went backwards: ${running!.progress.processed} <= ${progress_before}`

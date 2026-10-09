@@ -132,7 +132,7 @@ export class AuthController {
       const body_rt = (req.body as any)?.refresh_token as string | undefined;
       const refresh_token = cookie_rt || body_rt;
       const auth_svc = await AuthSvc.create();
-      const result = await auth_svc.refresh(refresh_token ?? '', {
+      const result = await auth_svc.rotateRefreshSession(refresh_token ?? '', {
         ip: req.ip,
         user_agent: AuthController.userAgent(req)
       });
@@ -174,7 +174,7 @@ export class AuthController {
     try {
       const { email } = req.body as { email: string };
       const password_reset_svc = await PasswordResetSvc.create();
-      await password_reset_svc.requestReset(email);
+      await password_reset_svc.requestPasswordReset(email);
       // 202 whatever happened, so this endpoint cannot be used to probe which
       // emails have accounts.
       res.status(202).json({ response: { accepted: true } });
@@ -203,7 +203,7 @@ export class AuthController {
     try {
       const { token } = req.body as { token: string };
       const email_verification_svc = await EmailVerificationSvc.create();
-      await email_verification_svc.verify(token);
+      await email_verification_svc.verifyEmailToken(token);
       res.status(200).json({ response: { success: true } });
     } catch (e) {
       next(e);
@@ -254,7 +254,7 @@ export class AuthController {
     const links = AppLinks.fromEnv();
     try {
       if (!GoogleAuthSvc.isConfigured()) {
-        res.redirect(links.loginError('google_unavailable'));
+        res.redirect(links.buildLoginErrorUrl('google_unavailable'));
         return;
       }
       const return_to = typeof req.query.return_to === 'string' ? req.query.return_to : undefined;
@@ -264,7 +264,7 @@ export class AuthController {
       res.redirect(url);
     } catch (err) {
       logger.error({ err }, 'google login start failed');
-      res.redirect(links.loginError('google_failed'));
+      res.redirect(links.buildLoginErrorUrl('google_failed'));
     }
   }
 
@@ -276,12 +276,12 @@ export class AuthController {
     const { code, state, error } = req.query;
     if (typeof error === 'string') {
       logger.info({ reason: error }, 'google login abandoned');
-      res.redirect(links.loginError(error === 'access_denied' ? 'google_cancelled' : 'google_failed'));
+      res.redirect(links.buildLoginErrorUrl(error === 'access_denied' ? 'google_cancelled' : 'google_failed'));
       return;
     }
     if (!pending || typeof code !== 'string' || typeof state !== 'string') {
       logger.warn({ reason: pending ? 'missing_code' : 'missing_state_cookie' }, 'google login rejected');
-      res.redirect(links.loginError('google_failed'));
+      res.redirect(links.buildLoginErrorUrl('google_failed'));
       return;
     }
 
@@ -292,10 +292,10 @@ export class AuthController {
         { ip: req.ip, user_agent: AuthController.userAgent(req) }
       );
       res.cookie(REFRESH_COOKIE_NAME, result.tokens.refresh_token, AuthController.refreshCookieOptions());
-      res.redirect(links.appPath(result.return_to));
+      res.redirect(links.buildAppPathUrl(result.return_to));
     } catch (err) {
       logger.error({ err }, 'google login failed');
-      res.redirect(links.loginError('google_failed'));
+      res.redirect(links.buildLoginErrorUrl('google_failed'));
     }
   }
 }

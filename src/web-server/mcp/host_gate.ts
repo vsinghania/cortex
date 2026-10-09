@@ -10,7 +10,7 @@ import type express from 'express';
 export class HostGate {
   private constructor() {}
 
-  static for(host_url: URL, router: express.RequestHandler): express.RequestHandler {
+  static createHostRouter(host_url: URL, router: express.RequestHandler): express.RequestHandler {
     const hostname = host_url.hostname;
     return (req, res, next) => (req.hostname === hostname ? router(req, res, next) : next());
   }

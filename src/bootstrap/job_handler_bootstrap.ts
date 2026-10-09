@@ -27,13 +27,13 @@ export class JobHandlerBootstrap {
    */
   static async registerAll(): Promise<void> {
     const registry = JobHandlerRegistry.getInstance();
-    registry.register(await NotesReindexJobHandler.create());
-    registry.register(await NoteVectorizeJobHandler.create());
-    registry.register(await RefreshTokenPruneJobHandler.create());
-    registry.register(await PasswordResetEmailJobHandler.create());
-    registry.register(await EmailVerificationEmailJobHandler.create());
-    registry.register(await OneNoteSyncJobHandler.create());
-    registry.register(await OneNoteSyncSweepJobHandler.create());
-    logger.info({ job_names: registry.registeredNames() }, 'Job handlers registered');
+    registry.registerHandler(await NotesReindexJobHandler.create());
+    registry.registerHandler(await NoteVectorizeJobHandler.create());
+    registry.registerHandler(await RefreshTokenPruneJobHandler.create());
+    registry.registerHandler(await PasswordResetEmailJobHandler.create());
+    registry.registerHandler(await EmailVerificationEmailJobHandler.create());
+    registry.registerHandler(await OneNoteSyncJobHandler.create());
+    registry.registerHandler(await OneNoteSyncSweepJobHandler.create());
+    logger.info({ job_names: registry.listRegisteredJobNames() }, 'Job handlers registered');
   }
 }

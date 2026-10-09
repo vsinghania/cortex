@@ -43,47 +43,47 @@ export class McpResourceCatalog {
     const resources = (input.definitions ?? McpResourceCatalog.DEFINITIONS).flatMap((definition) => {
       const internal_url = env[definition.internal_url_env]?.trim();
       if (!internal_url) return [];
-      return [{ ...definition, url: McpResourceCatalog.urlOf(input.base_url, definition.path), internal_url }];
+      return [{ ...definition, url: McpResourceCatalog.buildResourceUrl(input.base_url, definition.path), internal_url }];
     });
     return new McpResourceCatalog(resources);
   }
 
-  all(): readonly McpResource[] {
+  listResources(): readonly McpResource[] {
     return this.resources;
   }
 
-  find(id: McpResourceId): McpResource | null {
+  findResourceById(id: McpResourceId): McpResource | null {
     return this.resources.find((resource) => resource.id === id) ?? null;
   }
 
   /** By canonical URL, so `…/notes/` and `…/notes` name the same resource. */
-  findByUrl(raw_url: string): McpResource | null {
+  findResourceByUrl(raw_url: string): McpResource | null {
     const canonical = CanonicalUrl.parse(raw_url);
     return canonical ? (this.resources.find((resource) => resource.url === canonical) ?? null) : null;
   }
 
-  scopesSupported(): string[] {
-    return [...new Set(this.resources.flatMap((resource) => McpResourceCatalog.allScopes(resource)))];
+  listSupportedScopes(): string[] {
+    return [...new Set(this.resources.flatMap((resource) => McpResourceCatalog.listResourceScopes(resource)))];
   }
 
   /** Keeps only this resource's scopes; an empty request means "whatever the user agrees to". Write implies read. */
-  static normalizeScopes(resource: McpResourceDefinition, requested: readonly string[]): string[] {
-    const known = requested.filter((scope) => McpResourceCatalog.allScopes(resource).includes(scope));
+  static resolveRequestedResourceScopes(resource: McpResourceDefinition, requested: readonly string[]): string[] {
+    const known = requested.filter((scope) => McpResourceCatalog.listResourceScopes(resource).includes(scope));
     const asks_write = known.length === 0 || known.includes(resource.scopes.write);
-    return asks_write ? McpResourceCatalog.allScopes(resource) : [resource.scopes.read];
+    return asks_write ? McpResourceCatalog.listResourceScopes(resource) : [resource.scopes.read];
   }
 
   /** What the consent screen's choice grants, never more than the client asked for. */
-  static scopesFor(resource: McpResourceDefinition, access: McpAccess, requested: readonly string[]): string[] {
-    const chosen = access === 'read_write' ? McpResourceCatalog.allScopes(resource) : [resource.scopes.read];
+  static resolveScopesForResourceAccess(resource: McpResourceDefinition, access: McpAccess, requested: readonly string[]): string[] {
+    const chosen = access === 'read_write' ? McpResourceCatalog.listResourceScopes(resource) : [resource.scopes.read];
     return chosen.filter((scope) => requested.includes(scope));
   }
 
-  static allScopes(resource: McpResourceDefinition): string[] {
+  static listResourceScopes(resource: McpResourceDefinition): string[] {
     return [resource.scopes.read, resource.scopes.write];
   }
 
-  private static urlOf(base_url: URL, path: string): string {
+  private static buildResourceUrl(base_url: URL, path: string): string {
     const base = CanonicalUrl.of(base_url);
     return CanonicalUrl.parse(`${base}${path}`) ?? `${base}${path}`;
   }

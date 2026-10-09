@@ -37,7 +37,7 @@ export class MongooseJobRepository implements JobRepository {
    * "do not create another", so both return created: false - `conflict_on` says
    * which, because they mean different things to an operator.
    */
-  async enqueue(params: { job: Job }): Promise<EnqueueOutcome> {
+  async enqueueJob(params: { job: Job }): Promise<EnqueueOutcome> {
     const { job } = params;
 
     try {
@@ -46,13 +46,13 @@ export class MongooseJobRepository implements JobRepository {
     } catch (err) {
       if (!MongooseUtils.isDuplicateKeyError(err)) throw err;
 
-      const conflict_on = MongooseJobRepository.conflictField(err);
-      const existing = await this.findConflicting(job, conflict_on);
+      const conflict_on = MongooseJobRepository.getConflictField(err);
+      const existing = await this.findConflictingJob(job, conflict_on);
       return { job: existing ?? job, created: false, conflict_on };
     }
   }
 
-  private async findConflicting(job: Job, conflict_on: ConflictField): Promise<Job | null> {
+  private async findConflictingJob(job: Job, conflict_on: ConflictField): Promise<Job | null> {
     const filter =
       conflict_on === 'scheduled_for'
         ? { schedule_id: job.schedule_id, scheduled_for: job.scheduled_for }
@@ -62,13 +62,13 @@ export class MongooseJobRepository implements JobRepository {
     return found ? MongooseJobRepository.toDomainJob(found) : null;
   }
 
-  async claimNext(params: ClaimParams): Promise<Job | null> {
+  async claimNextJob(params: ClaimParams): Promise<Job | null> {
     const { filter, update, options } = JobClaimQuery.build(params);
     const claimed = await this.model.findOneAndUpdate(filter, update, options);
     return claimed ? MongooseJobRepository.toDomainJob(claimed) : null;
   }
 
-  async heartbeat(
+  async renewJobLease(
     params: LeaseKey & { lease_ms: number; progress?: JobProgress; checkpoint?: JobCheckpoint }
   ): Promise<HeartbeatResult | null> {
     const lease_until = new Date(params.now.getTime() + params.lease_ms);
@@ -93,7 +93,7 @@ export class MongooseJobRepository implements JobRepository {
     return { id: updated.id, cancel_requested: !!updated.cancel_requested };
   }
 
-  async complete(
+  async completeJob(
     params: LeaseKey & {
       result?: JobSummary;
       errors?: Job['errors'];
@@ -101,14 +101,14 @@ export class MongooseJobRepository implements JobRepository {
       retention_sec: number;
     }
   ): Promise<boolean> {
-    return this.finalize(params, JobStatus.Succeeded, {
+    return this.finalizeJob(params, JobStatus.Succeeded, {
       result: params.result,
       errors: params.errors,
       progress: params.progress
     });
   }
 
-  async fail(
+  async failJob(
     params: LeaseKey & {
       message: string;
       errors?: Job['errors'];
@@ -116,23 +116,23 @@ export class MongooseJobRepository implements JobRepository {
       retention_sec: number;
     }
   ): Promise<boolean> {
-    return this.finalize(params, JobStatus.Failed, {
+    return this.finalizeJob(params, JobStatus.Failed, {
       last_error: params.message,
       errors: params.errors,
       progress: params.progress
     });
   }
 
-  async cancel(
+  async cancelJob(
     params: LeaseKey & { progress?: JobProgress; retention_sec: number; result?: JobSummary }
   ): Promise<boolean> {
-    return this.finalize(params, JobStatus.Cancelled, {
+    return this.finalizeJob(params, JobStatus.Cancelled, {
       progress: params.progress,
       result: params.result
     });
   }
 
-  async retryLater(
+  async scheduleJobRetry(
     params: LeaseKey & {
       run_at: Date;
       message: string;
@@ -157,7 +157,7 @@ export class MongooseJobRepository implements JobRepository {
     return updated.modifiedCount > 0;
   }
 
-  async release(
+  async releaseJobLease(
     params: LeaseKey & { progress?: JobProgress; checkpoint?: JobCheckpoint; delay_ms?: number }
   ): Promise<boolean> {
     const available_at = new Date(params.now.getTime() + (params.delay_ms ?? 0));
@@ -178,12 +178,12 @@ export class MongooseJobRepository implements JobRepository {
     return updated.modifiedCount > 0;
   }
 
-  async getById(job_id: string): Promise<Job | null> {
+  async getJobById(job_id: string): Promise<Job | null> {
     const found = await this.model.findOne({ id: job_id }).lean();
     return found ? MongooseJobRepository.toDomainJob(found) : null;
   }
 
-  async list(params: JobListParams): Promise<Job[]> {
+  async listJobs(params: JobListParams): Promise<Job[]> {
     const filter: Record<string, unknown> = {};
     if (params.name) filter.name = params.name;
     if (params.status) filter.status = params.status;
@@ -194,7 +194,7 @@ export class MongooseJobRepository implements JobRepository {
     return docs.map((doc: unknown) => MongooseJobRepository.toDomainJob(doc));
   }
 
-  async requestCancel(params: { job_id: string; now: Date; retention_sec: number }): Promise<Job | null> {
+  async requestJobCancellation(params: { job_id: string; now: Date; retention_sec: number }): Promise<Job | null> {
     // A queued job can be cancelled outright - nothing holds it, so skip straight to
     // terminal and release the dedup lock.
     const cancelled = await this.model
@@ -231,7 +231,7 @@ export class MongooseJobRepository implements JobRepository {
     return flagged ? MongooseJobRepository.toDomainJob(flagged) : null;
   }
 
-  async countByStatus(params?: { name?: JobName }): Promise<Record<JobStatus, number>> {
+  async countJobsByStatus(params?: { name?: JobName }): Promise<Record<JobStatus, number>> {
     const match = params?.name ? { name: params.name } : {};
     const rows = await this.model.aggregate([
       { $match: match },
@@ -253,7 +253,7 @@ export class MongooseJobRepository implements JobRepository {
    * via expires_at, drop the lease, and unset dedup_active so the next enqueue of
    * the same key is allowed.
    */
-  private async finalize(
+  private async finalizeJob(
     params: LeaseKey & { retention_sec: number },
     status: JobStatus,
     extra: Record<string, unknown>
@@ -301,7 +301,7 @@ export class MongooseJobRepository implements JobRepository {
   }
 
   /** Mongo reports the offending index's keys, which is how the two are told apart. */
-  private static conflictField(err: unknown): ConflictField {
+  private static getConflictField(err: unknown): ConflictField {
     const keys = Object.keys((err as { keyPattern?: Record<string, unknown> })?.keyPattern ?? {});
     return keys.includes('scheduled_for') ? 'scheduled_for' : 'dedup_key';
   }

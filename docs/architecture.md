@@ -112,7 +112,7 @@ SPA ─POST /api/v1/agent/run─► AgentSvc ─► OpenAiAgent ─MCP, x-user-i
                                               embed question → Qdrant top-k (user-filtered)
                                               → chunk text from Mongo → + note titles
                                                                  │
-              answer citing [c:<chunk_id>] ◄────────────────────┘  → ConversationStore.appendTurn
+              answer citing [c:<chunk_id>] ◄────────────────────┘  → ConversationStore.appendConversationTurn
 ```
 
 The `notes-recall` agent (a manifest row in Mongo, not code) is instructed to make exactly one `notes_search_semantic` call before answering and to cite every load-bearing claim as `[c:<chunk_id>]`. Grounding is enforced by prompt, but the cited ids are *verified*: [citation_svc](citation_svc.md) intersects the markers with the chunks that turn actually retrieved, so a fabricated id never becomes a citation. Only `{index, chunk_id, document_id, corpus}` is persisted — titles are resolved from live documents on every read.

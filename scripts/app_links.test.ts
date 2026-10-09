@@ -3,19 +3,19 @@ import test from 'node:test';
 import { AppLinks } from '../src/auth_svc/app_links.js';
 
 test('the reset token rides in the fragment, never the query string', () => {
-  const link = AppLinks.fromEnv({ APP_PUBLIC_URL: 'https://cortexapp.me' }).passwordReset('abc-_123');
+  const link = AppLinks.fromEnv({ APP_PUBLIC_URL: 'https://cortexapp.me' }).buildPasswordResetUrl('abc-_123');
   assert.equal(link, 'https://cortexapp.me/reset-password#token=abc-_123');
   assert.equal(new URL(link).search, '');
 });
 
 test('the verification token rides in the fragment too', () => {
-  const link = AppLinks.fromEnv({ APP_PUBLIC_URL: 'https://cortexapp.me' }).verifyEmail('abc-_123');
+  const link = AppLinks.fromEnv({ APP_PUBLIC_URL: 'https://cortexapp.me' }).buildEmailVerificationUrl('abc-_123');
   assert.equal(link, 'https://cortexapp.me/verify-email#token=abc-_123');
   assert.equal(new URL(link).search, '');
 });
 
 test('a trailing slash on the origin does not double up', () => {
-  const link = AppLinks.fromEnv({ APP_PUBLIC_URL: 'http://localhost:5173/' }).passwordReset('t');
+  const link = AppLinks.fromEnv({ APP_PUBLIC_URL: 'http://localhost:5173/' }).buildPasswordResetUrl('t');
   assert.equal(link, 'http://localhost:5173/reset-password#token=t');
 });
 

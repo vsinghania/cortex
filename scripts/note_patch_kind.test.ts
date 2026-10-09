@@ -19,12 +19,12 @@ test('undefined keys are ignored, and an empty patch is not organizational', () 
 });
 
 test('touchesBody covers the body only', () => {
-  assert.equal(NotePatchKind.touchesBody({ title: 't' }), false);
-  assert.equal(NotePatchKind.touchesBody({ body: '' }), true);
-  assert.equal(NotePatchKind.touchesBody({ is_archived: true }), false);
+  assert.equal(NotePatchKind.changesNoteBody({ title: 't' }), false);
+  assert.equal(NotePatchKind.changesNoteBody({ body: '' }), true);
+  assert.equal(NotePatchKind.changesNoteBody({ is_archived: true }), false);
 });
 
 test('touchesArchive sees both archive and unarchive', () => {
-  assert.equal(NotePatchKind.touchesArchive({ is_archived: false }), true);
-  assert.equal(NotePatchKind.touchesArchive({ is_pinned: true }), false);
+  assert.equal(NotePatchKind.changesArchiveState({ is_archived: false }), true);
+  assert.equal(NotePatchKind.changesArchiveState({ is_pinned: true }), false);
 });

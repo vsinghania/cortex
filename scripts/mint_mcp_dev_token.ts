@@ -26,14 +26,14 @@ class MintMcpDevToken {
     if (!user_id || (access !== 'read' && access !== 'read_write')) {
       throw new Error('Usage: mint_mcp_dev_token.ts <user_id> [read|read_write] [ttl_minutes] [resource_id]');
     }
-    const resource = McpResourceCatalog.fromEnv().find(resource_id as McpResourceId);
+    const resource = McpResourceCatalog.fromEnv().findResourceById(resource_id as McpResourceId);
     if (!resource) throw new Error(`No enabled MCP resource "${resource_id}"; are MCP_PUBLIC_BASE_URL and its internal URL set?`);
 
     await DatastoreBootstrap.connectMongo();
     try {
-      const stores = await OAuthStoresLoader.get();
-      const scopes = access === 'read_write' ? McpResourceCatalog.allScopes(resource) : [resource.scopes.read];
-      const grant = await stores.grants.upsert({
+      const stores = await OAuthStoresLoader.getStores();
+      const scopes = access === 'read_write' ? McpResourceCatalog.listResourceScopes(resource) : [resource.scopes.read];
+      const grant = await stores.grants.upsertGrant({
         user_id,
         client_id: DEV_CLIENT_ID,
         client_name: 'Cortex dev token',
@@ -41,7 +41,7 @@ class MintMcpDevToken {
         scopes,
         resource: resource.url
       });
-      const issued = await stores.tokens.start({
+      const issued = await stores.tokens.issueTokensInNewFamily({
         grant,
         scopes,
         now: new Date(),

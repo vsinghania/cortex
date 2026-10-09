@@ -26,7 +26,7 @@ class FakeJobs {
   readonly enqueued: EnqueueInput[] = [];
   constructor(private readonly conflict_for = new Set<string>()) {}
 
-  async enqueue(input: EnqueueInput) {
+  async enqueueJob(input: EnqueueInput) {
     if (input.user_id && this.conflict_for.has(input.user_id)) {
       throw new ConflictError('A job with this dedup key is already active');
     }
@@ -63,7 +63,7 @@ function context(overrides: Partial<JobContext> = {}): JobContext {
 }
 
 function syncSvc(run: (params: RunSyncParams) => Promise<OneNoteSyncResult>): OneNoteSyncSvc {
-  return { run } as unknown as OneNoteSyncSvc;
+  return { runSyncPass: run } as unknown as OneNoteSyncSvc;
 }
 
 // --- the sync job ----------------------------------------------------------
@@ -255,7 +255,7 @@ function connection(user_id: string): OneNoteConnection {
 }
 
 function repoWith(connections: OneNoteConnection[]): OneNoteConnectionRepository {
-  return { listSyncable: async () => connections } as unknown as OneNoteConnectionRepository;
+  return { listSyncableConnections: async () => connections } as unknown as OneNoteConnectionRepository;
 }
 
 test('the sweep enqueues one deduped sync per connected account', async () => {

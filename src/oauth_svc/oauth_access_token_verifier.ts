@@ -9,18 +9,18 @@ import { OAuthStoresLoader, type OAuthStores } from './oauth_stores.js';
  */
 export class OAuthAccessTokenVerifier implements McpTokenVerifier {
   constructor(
-    private readonly deps: { stores: () => Promise<OAuthStores>; now?: () => Date } = { stores: () => OAuthStoresLoader.get() }
+    private readonly deps: { stores: () => Promise<OAuthStores>; now?: () => Date } = { stores: () => OAuthStoresLoader.getStores() }
   ) {}
 
-  async verify(access_token: string): Promise<VerifiedMcpToken | null> {
+  async verifyAccessToken(access_token: string): Promise<VerifiedMcpToken | null> {
     const now = this.deps.now?.() ?? new Date();
     const { tokens, grants } = await this.deps.stores();
-    const token = await tokens.findActiveAccess({ access_token, now });
+    const token = await tokens.findActiveAccessToken({ access_token, now });
     if (!token) return null;
-    const grant = await grants.find(token.grant_id);
+    const grant = await grants.findGrantById(token.grant_id);
     if (!grant) return null;
 
-    grants.recordUse(grant, now);
+    grants.recordGrantUse(grant, now);
     return {
       user_id: grant.user_id,
       client_id: grant.client_id,

@@ -21,11 +21,11 @@ export class ConversationStore {
     if (ConversationStore.instance) return ConversationStore.instance;
     if (ConversationStore.in_flight) return ConversationStore.in_flight;
 
-    ConversationStore.in_flight = ConversationStore.loadInstance();
+    ConversationStore.in_flight = ConversationStore.loadConversationStoreInstance();
     return ConversationStore.in_flight;
   }
 
-  private static async loadInstance(): Promise<ConversationStore> {
+  private static async loadConversationStoreInstance(): Promise<ConversationStore> {
     try {
       const repo = await MongooseConversationRepository.create();
       const inst = new ConversationStore(repo);
@@ -73,14 +73,14 @@ export class ConversationStore {
     return this.repo.setTitleIfUnset(conversation_id, title);
   }
 
-  async loadHistory(conversation_id: string): Promise<Message[]> {
+  async loadConversationHistory(conversation_id: string): Promise<Message[]> {
     const messages = await this.repo.listMessages(conversation_id);
     return messages
       .filter((m) => m.role !== Role.System)
-      .map((m) => ConversationStore.toMessage(m));
+      .map((m) => ConversationStore.toAgentMessage(m));
   }
 
-  async listForUser(params: {
+  async listConversationsForUser(params: {
     user_id: string;
     limit?: number;
     before_updated_at?: Date;
@@ -90,15 +90,15 @@ export class ConversationStore {
     return this.repo.listConversationsForUser(params);
   }
 
-  async updateForUser(params: {
+  async updateConversationForUser(params: {
     conversation_id: string;
     user_id: string;
     patch: ConversationPatch;
   }): Promise<Conversation | null> {
-    return this.repo.updateForUser(params);
+    return this.repo.updateConversationForUser(params);
   }
 
-  async getForUser(params: {
+  async findConversationForUser(params: {
     conversation_id: string;
     user_id: string;
   }): Promise<Conversation | null> {
@@ -112,18 +112,18 @@ export class ConversationStore {
     return this.repo.listMessages(conversation_id);
   }
 
-  async deleteForUser(params: {
+  async deleteConversationForUser(params: {
     conversation_id: string;
     user_id: string;
   }): Promise<{ message_count: number } | null> {
-    const conv = await this.getForUser(params);
+    const conv = await this.findConversationForUser(params);
     if (!conv) return null;
     return this.repo.deleteConversation(conv.conversation_id);
   }
 
-  async appendTurn(input: AppendTurnInput): Promise<void> {
+  async appendConversationTurn(input: AppendTurnInput): Promise<void> {
     if (!input.messages.length) return;
-    const start_turn = await this.repo.nextTurn(input.conversation_id);
+    const start_turn = await this.repo.allocateNextTurnNumber(input.conversation_id);
     const last_index = input.messages.length - 1;
 
     const docs = input.messages.map((msg, i) => {
@@ -166,7 +166,7 @@ export class ConversationStore {
     return undefined;
   }
 
-  private static toMessage(m: ConversationMessage): Message {
+  private static toAgentMessage(m: ConversationMessage): Message {
     switch (m.role) {
       case Role.System:
         return { role: Role.System, content: m.content };

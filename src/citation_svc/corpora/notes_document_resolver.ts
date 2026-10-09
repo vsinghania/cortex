@@ -9,7 +9,7 @@ import { NotesSvc } from '../../notes_svc/notes_svc.js';
 export class NotesDocumentResolver implements DocumentResolver {
   readonly corpus = Corpus.Notes;
 
-  async resolve(params: {
+  async resolveDocuments(params: {
     user_id: string;
     document_ids: string[];
     chunk_ids: string[];

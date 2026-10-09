@@ -69,13 +69,13 @@ export class HtmlToMarkdown {
     // OneNote writes <span style="font-weight:bold"> and never <strong>, so without
     // these every emphasis in an imported page is silently flattened.
     service.addRule('styled_strong', {
-      filter: (node) => HtmlToMarkdown.hasStyle(node, BOLD_WEIGHTS),
-      replacement: (content) => HtmlToMarkdown.wrap(content, '**')
+      filter: (node) => HtmlToMarkdown.hasInlineStyle(node, BOLD_WEIGHTS),
+      replacement: (content) => HtmlToMarkdown.wrapEmphasis(content, '**')
     });
 
     service.addRule('styled_emphasis', {
-      filter: (node) => HtmlToMarkdown.hasStyle(node, ITALIC_STYLE),
-      replacement: (content) => HtmlToMarkdown.wrap(content, '*')
+      filter: (node) => HtmlToMarkdown.hasInlineStyle(node, ITALIC_STYLE),
+      replacement: (content) => HtmlToMarkdown.wrapEmphasis(content, '*')
     });
 
     if (options.drop_images) {
@@ -85,13 +85,13 @@ export class HtmlToMarkdown {
     return new HtmlToMarkdown(service);
   }
 
-  convert(html: string): string {
+  convertHtml(html: string): string {
     if (!html.trim()) return '';
-    return HtmlToMarkdown.tidy(this.service.turndown(html));
+    return HtmlToMarkdown.normalizeMarkdownWhitespace(this.service.turndown(html));
   }
 
   /** Inline elements only: a styled block would wrap whole paragraphs in asterisks. */
-  private static hasStyle(node: { nodeName: string; getAttribute(name: string): string | null }, pattern: RegExp): boolean {
+  private static hasInlineStyle(node: { nodeName: string; getAttribute(name: string): string | null }, pattern: RegExp): boolean {
     if (node.nodeName !== 'SPAN' && node.nodeName !== 'FONT') return false;
     return pattern.test(node.getAttribute('style') ?? '');
   }
@@ -100,7 +100,7 @@ export class HtmlToMarkdown {
    * Markers hug the text: `** bold **` is not emphasis in markdown, so any surrounding
    * space has to sit outside them. Whitespace-only content yields nothing to emphasise.
    */
-  private static wrap(content: string, marker: string): string {
+  private static wrapEmphasis(content: string, marker: string): string {
     const trimmed = content.trim();
     if (!trimmed) return content;
 
@@ -109,7 +109,7 @@ export class HtmlToMarkdown {
     return `${leading}${marker}${trimmed}${marker}${trailing}`;
   }
 
-  private static tidy(markdown: string): string {
+  private static normalizeMarkdownWhitespace(markdown: string): string {
     return markdown.replace(TRAILING_SPACES, '').replace(BLANK_RUN, '\n\n').trim();
   }
 }

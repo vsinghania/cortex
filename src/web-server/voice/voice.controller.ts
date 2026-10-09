@@ -28,7 +28,7 @@ export class VoiceController {
     try {
       const user_id = req.auth!.user_id;
       const voice_svc = await VoiceSvc.getInstance();
-      const result = await voice_svc.mintEphemeralToken({ user_id });
+      const result = await voice_svc.mintEphemeralVoiceToken({ user_id });
       res.status(200).json({ response: result });
     } catch (e) {
       next(e);

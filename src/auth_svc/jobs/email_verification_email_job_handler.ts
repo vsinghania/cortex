@@ -22,6 +22,6 @@ export class EmailVerificationEmailJobHandler implements JobHandler<AuthEmailPay
   }
 
   async handle(payload: AuthEmailPayload): Promise<JobResult> {
-    return MailJobResult.from(() => this.sender.send({ user_id: payload.user_id, purpose: 'email_verification' }));
+    return MailJobResult.fromDeliveryError(() => this.sender.sendTokenEmail({ user_id: payload.user_id, purpose: 'email_verification' }));
   }
 }

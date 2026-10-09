@@ -8,6 +8,7 @@ import { logger } from '../../common/logger.js';
 import { TraceContext } from '../../common/trace_context.js';
 import { TokenUtils } from '../../auth_svc/utils/token_utils.js';
 import { Id } from '../../lib/id.js';
+import { BearerToken } from '../../lib/bearer_token.js';
 import { McpCallers } from './mcp_caller.js';
 import { McpCallerAssertion } from './mcp_caller_assertion.js';
 import type { McpModule } from './mcp_module.js';
@@ -32,11 +33,11 @@ export abstract class BaseMcpHttpServer {
     await this.bootstrap();
     this.mcp_modules = await this.createMcpModules();
     this.mcp_handler = this.createHandler();
-    this.node_handler = toNodeHandler(this.mcp_handler, { onerror: this.reportError.bind(this) });
-    this.host_guard = BaseMcpHttpServer.createHostGuard(this.http_cfg);
+    this.node_handler = toNodeHandler(this.mcp_handler, { onerror: this.logMcpHandlerError.bind(this) });
+    this.host_guard = BaseMcpHttpServer.createHostHeaderGuard(this.http_cfg);
 
     this.app = express();
-    this.configureMiddleware(this.app);
+    this.configureHttpMiddleware(this.app);
     this.registerMcpRoute(this.app, this.http_cfg);
 
     this.http_server = this.app.listen(this.http_cfg.port, this.http_cfg.host, () => {
@@ -104,15 +105,15 @@ export abstract class BaseMcpHttpServer {
    * bearer is an internal caller; a valid gateway assertion is an external or first-party
    * one; anything else is refused. No header's absence ever widens access.
    */
-  private authenticate(req: Request): McpCaller | null {
+  private authenticateMcpCaller(req: Request): McpCaller | null {
     const cfg = this.requireHttpConfig();
-    const token = BaseMcpHttpServer.bearerToken(req);
+    const token = BearerToken.parseAuthorizationHeader(req.headers.authorization);
     if (!token) return null;
     if (TokenUtils.constantTimeEquals(token, cfg.auth_token)) {
-      return { kind: 'internal', user_id: BaseMcpHttpServer.singleHeader(req, 'x-user-id') };
+      return { kind: 'internal', user_id: BaseMcpHttpServer.getSingleRequestHeader(req, 'x-user-id') };
     }
     if (!cfg.assertion_secret || !cfg.assertion_audience) return null;
-    return McpCallerAssertion.verify({ secret: cfg.assertion_secret, audience: cfg.assertion_audience, token });
+    return McpCallerAssertion.verifyGatewayCallerAssertion({ secret: cfg.assertion_secret, audience: cfg.assertion_audience, token });
   }
 
   /**
@@ -124,24 +125,24 @@ export abstract class BaseMcpHttpServer {
   private createHandler(): McpHttpHandler {
     return createMcpHandler((ctx) => this.createMcpServer(ctx), {
       legacy: 'stateless',
-      onerror: this.reportError.bind(this)
+      onerror: this.logMcpHandlerError.bind(this)
     });
   }
 
-  private configureMiddleware(app: express.Express): void {
-    app.use(this.establishTraceContext.bind(this));
+  private configureHttpMiddleware(app: express.Express): void {
+    app.use(this.establishRequestTraceContext.bind(this));
     app.use(HttpLoggerMiddleware.build(logger));
   }
 
-  private establishTraceContext(req: Request, _res: Response, next: express.NextFunction): void {
+  private establishRequestTraceContext(req: Request, _res: Response, next: express.NextFunction): void {
     TraceContext.enter({
       trace_id: Id.generateRandom(),
-      upstream_trace_id: BaseMcpHttpServer.singleHeader(req, 'x-trace-id')
+      upstream_trace_id: BaseMcpHttpServer.getSingleRequestHeader(req, 'x-trace-id')
     });
     next();
   }
 
-  private static createHostGuard(cfg: McpHttpConfig): HostGuard | undefined {
+  private static createHostHeaderGuard(cfg: McpHttpConfig): HostGuard | undefined {
     if (cfg.allowed_hosts && cfg.allowed_hosts.length > 0) {
       return hostHeaderValidation(cfg.allowed_hosts);
     }
@@ -158,29 +159,29 @@ export abstract class BaseMcpHttpServer {
   }
 
   private registerMcpRoute(app: express.Express, cfg: McpHttpConfig): void {
-    const path = BaseMcpHttpServer.normalizePath(cfg.path);
-    app.all(path, this.handleRequest.bind(this));
-    app.all(`${path}/`, this.handleRequest.bind(this));
+    const path = BaseMcpHttpServer.normalizeMcpRoutePath(cfg.path);
+    app.all(path, this.handleMcpHttpRequest.bind(this));
+    app.all(`${path}/`, this.handleMcpHttpRequest.bind(this));
 
     logger.info({ path }, 'MCP HTTP route mounted.');
   }
 
-  private async handleRequest(req: Request, res: Response): Promise<void> {
+  private async handleMcpHttpRequest(req: Request, res: Response): Promise<void> {
     if (this.host_guard && !this.host_guard(req, res)) return;
 
-    const caller = this.authenticate(req);
+    const caller = this.authenticateMcpCaller(req);
     if (!caller) {
-      res.status(401).json(BaseMcpHttpServer.errorResponse(-32001, 'Unauthorized'));
+      res.status(401).json(BaseMcpHttpServer.buildJsonRpcErrorResponse(-32001, 'Unauthorized'));
       return;
     }
     if (caller.user_id) TraceContext.setUserId(caller.user_id);
 
     try {
-      await this.requireNodeHandler()(BaseMcpHttpServer.toNodeRequest(req, McpCallers.toAuthInfo(caller)), res);
+      await this.requireNodeHandler()(BaseMcpHttpServer.toAuthenticatedNodeRequest(req, McpCallers.toSdkAuthInfo(caller)), res);
     } catch (error) {
       logger.error({ err: error }, `${this.requireServerInfo().log_name}_http_request_failed`);
       if (!res.headersSent) {
-        res.status(500).json(BaseMcpHttpServer.errorResponse(-32603, 'Internal server error'));
+        res.status(500).json(BaseMcpHttpServer.buildJsonRpcErrorResponse(-32603, 'Internal server error'));
       }
     }
   }
@@ -189,7 +190,7 @@ export abstract class BaseMcpHttpServer {
    * The adapter reads the verified caller from `auth`. Express's own `req.auth` carries
    * this app's session shape, so the adapter gets a view of the request instead.
    */
-  private static toNodeRequest(req: Request, auth: AuthInfo): NodeIncomingMessageLike {
+  private static toAuthenticatedNodeRequest(req: Request, auth: AuthInfo): NodeIncomingMessageLike {
     return {
       method: req.method,
       url: req.url,
@@ -201,7 +202,7 @@ export abstract class BaseMcpHttpServer {
 
   /** One fresh server per request, carrying only what this caller may use. */
   private async createMcpServer(ctx: McpRequestContext): Promise<McpServer> {
-    const caller = McpCallers.fromAuthInfo(ctx.authInfo);
+    const caller = McpCallers.fromSdkAuthInfo(ctx.authInfo);
     if (!caller) throw new Error('MCP request reached the server factory without an authenticated caller.');
     const server_info = this.requireServerInfo();
     const instructions = this.getInstructions(caller);
@@ -218,12 +219,12 @@ export abstract class BaseMcpHttpServer {
     );
 
     for (const mcp_module of this.mcp_modules) {
-      await mcp_module.register(server, caller);
+      await mcp_module.registerCapabilities(server, caller);
     }
     return server;
   }
 
-  private reportError(error: Error): void {
+  private logMcpHandlerError(error: Error): void {
     logger.warn({ err: error }, `${this.server_info?.log_name ?? 'mcp'}_handler_error`);
   }
 
@@ -234,11 +235,11 @@ export abstract class BaseMcpHttpServer {
   }
 
   private registerShutdownHandlers(): void {
-    process.once('SIGINT', this.shutdownProcess.bind(this));
-    process.once('SIGTERM', this.shutdownProcess.bind(this));
+    process.once('SIGINT', this.shutdownServerProcess.bind(this));
+    process.once('SIGTERM', this.shutdownServerProcess.bind(this));
   }
 
-  private async shutdownProcess(): Promise<void> {
+  private async shutdownServerProcess(): Promise<void> {
     try {
       await this.stop();
     } finally {
@@ -270,20 +271,13 @@ export abstract class BaseMcpHttpServer {
     return this.node_handler;
   }
 
-  private static bearerToken(req: Request): string | null {
-    const header = req.headers.authorization;
-    if (!header) return null;
-    const [scheme, token] = header.split(' ');
-    return /^Bearer$/i.test(scheme ?? '') && token ? token : null;
-  }
-
-  private static singleHeader(req: Request, name: string): string | undefined {
+  private static getSingleRequestHeader(req: Request, name: string): string | undefined {
     const value = req.headers[name];
     const first = Array.isArray(value) ? value[0] : value;
     return first && first.length > 0 ? first : undefined;
   }
 
-  private static errorResponse(code: number, message: string) {
+  private static buildJsonRpcErrorResponse(code: number, message: string) {
     return {
       jsonrpc: '2.0',
       error: {
@@ -294,7 +288,7 @@ export abstract class BaseMcpHttpServer {
     };
   }
 
-  private static normalizePath(path: string): string {
+  private static normalizeMcpRoutePath(path: string): string {
     if (!path.startsWith('/')) {
       return `/${path}`;
     }

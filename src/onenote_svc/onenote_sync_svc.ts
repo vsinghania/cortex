@@ -68,14 +68,14 @@ export class OneNoteSyncSvc {
    * user is editing. Past the budget this returns `completed: false` with a checkpoint
    * and the caller re-enqueues, which keeps a big first import a series of short jobs.
    */
-  async run(params: RunSyncParams): Promise<OneNoteSyncResult> {
+  async runSyncPass(params: RunSyncParams): Promise<OneNoteSyncResult> {
     const started_ms = performance.now();
     const budget_ms = params.budget_ms ?? DEFAULT_BUDGET_MS;
     const connection = await this.requireSyncableConnection(params.user_id);
-    const graph = this.deps.connection_svc.graphFor(params.user_id);
+    const graph = this.deps.connection_svc.createGraphClientForUser(params.user_id);
 
-    const targets = OneNoteSyncSvc.targetNotebooks(connection, params.notebook_ids);
-    const sections_by_notebook = await this.sectionsByNotebook({ graph, targets, signal: params.signal });
+    const targets = OneNoteSyncSvc.selectTargetNotebooks(connection, params.notebook_ids);
+    const sections_by_notebook = await this.loadSectionsByNotebook({ graph, targets, signal: params.signal });
 
     const stats: OneNoteSyncStats = {
       notebooks: targets.length,
@@ -91,116 +91,114 @@ export class OneNoteSyncSvc {
     const folder_cache = new Map<string, NoteFolder>();
     let checkpoint: OneNoteSyncCheckpoint = { ...params.checkpoint };
 
-    for (const notebook of OneNoteSyncSvc.remainingById(targets, checkpoint.notebook_cursor)) {
-     try {
-      // Published so the card can light up this notebook alone, rather than every
-      // selected one, while the pass works through them in turn.
-      checkpoint = { ...checkpoint, current_notebook_id: notebook.id };
-      params.onCheckpoint?.(checkpoint);
+    for (const notebook of OneNoteSyncSvc.getItemsAfterCursor(targets, checkpoint.notebook_cursor)) {
+      try {
+        // Published so the card can light up this notebook alone, rather than every
+        // selected one, while the pass works through them in turn.
+        checkpoint = { ...checkpoint, current_notebook_id: notebook.id };
+        params.onCheckpoint?.(checkpoint);
 
-      const sections = sections_by_notebook.get(notebook.id) ?? [];
-      const modified_after = params.mode === 'full' ? undefined : OneNoteSyncSvc.windowStart(notebook);
-      // Each notebook keeps its own high-water mark, so finishing one says nothing about
-      // how far the others have been read.
-      let watermark = OneNoteSyncSvc.toDate(checkpoint.watermark_candidate) ?? notebook.sync_watermark;
+        const sections = sections_by_notebook.get(notebook.id) ?? [];
+        const modified_after = params.mode === 'full' ? undefined : OneNoteSyncSvc.getSyncWindowStart(notebook);
+        // Each notebook keeps its own high-water mark, so finishing one says nothing about
+        // how far the others have been read.
+        let watermark = Time.parseOptionalDate(checkpoint.watermark_candidate) ?? notebook.sync_watermark;
 
-      for (const section of OneNoteSyncSvc.remainingById(sections, checkpoint.section_cursor)) {
-       // A section Cortex may not read - a password-protected one, most often - is not a
-       // reason to abandon the pass: it is recorded and stepped over.
-       try {
-        const folder = await this.folderForSection({ user_id: params.user_id, section, cache: folder_cache });
-        let next_link = checkpoint.page_next_link;
+        for (const section of OneNoteSyncSvc.getItemsAfterCursor(sections, checkpoint.section_cursor)) {
+          // A section Cortex may not read - a password-protected one, most often - is not a
+          // reason to abandon the pass: it is recorded and stepped over.
+          try {
+            const folder = await this.ensureSectionFolder({ user_id: params.user_id, section, cache: folder_cache });
+            let next_link = checkpoint.page_next_link;
 
-        for (;;) {
-          params.signal?.throwIfAborted();
-          const batch = await graph.listPages({
-            section_id: section.id,
-            modified_after,
-            next_link,
-            signal: params.signal
-          });
+            for (;;) {
+              params.signal?.throwIfAborted();
+              const batch = await graph.listPages({
+                section_id: section.id,
+                modified_after,
+                next_link,
+                signal: params.signal
+              });
 
-          for (const page of batch.pages) {
-            const outcome = await this.syncPage({ params, graph, page, section, folder });
-            stats[outcome] += 1;
-            stats.pages_seen += 1;
-            if (page.modified_at && (!watermark || page.modified_at > watermark)) watermark = page.modified_at;
-            params.onProgress?.({
-              processed: stats.pages_seen,
-              succeeded: stats.created + stats.updated + stats.unchanged,
-              failed: stats.failed
+              for (const page of batch.pages) {
+                const outcome = await this.syncPage({ params, graph, page, section, folder });
+                stats[outcome] += 1;
+                stats.pages_seen += 1;
+                if (page.modified_at && (!watermark || page.modified_at > watermark)) watermark = page.modified_at;
+                params.onProgress?.({
+                  processed: stats.pages_seen,
+                  succeeded: stats.created + stats.updated + stats.unchanged,
+                  failed: stats.failed
+                });
+              }
+
+              next_link = batch.next_link;
+              checkpoint = {
+                notebook_cursor: checkpoint.notebook_cursor,
+                section_cursor: checkpoint.section_cursor,
+                page_next_link: next_link,
+                watermark_candidate: watermark?.toISOString(),
+                pages_seen: stats.pages_seen
+              };
+
+              params.onCheckpoint?.(checkpoint);
+              if (!next_link) break;
+              if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.buildPausedSyncResult(checkpoint, stats, started_ms);
+            }
+
+            // Section drained: the cursor moves, and a mid-section link must not outlive it.
+            checkpoint = OneNoteSyncSvc.buildSectionCheckpoint({
+              checkpoint,
+              section_id: section.id,
+              watermark,
+              pages_seen: stats.pages_seen
             });
+            params.onCheckpoint?.(checkpoint);
+            if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.buildPausedSyncResult(checkpoint, stats, started_ms);
+          } catch (err) {
+            if (!OneNoteSyncSvc.isSkippableSection(err)) throw err;
+
+            stats.sections_skipped += 1;
+            params.onError?.({ item_id: section.id, message: `${section.display_name}: ${(err as Error).message}` });
+            logger.info(
+              { user_id: params.user_id, section_id: section.id, graph_code: OneNoteSyncSvc.getGraphErrorCode(err) },
+              'onenote section skipped'
+            );
+
+            checkpoint = OneNoteSyncSvc.buildSectionCheckpoint({
+              checkpoint,
+              section_id: section.id,
+              watermark,
+              pages_seen: stats.pages_seen
+            });
+            params.onCheckpoint?.(checkpoint);
           }
-
-          next_link = batch.next_link;
-          checkpoint = {
-            notebook_cursor: checkpoint.notebook_cursor,
-            section_cursor: checkpoint.section_cursor,
-            page_next_link: next_link,
-            watermark_candidate: watermark?.toISOString(),
-            pages_seen: stats.pages_seen
-          };
-
-          params.onCheckpoint?.(checkpoint);
-          if (!next_link) break;
-          if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
         }
 
-        // Section drained: the cursor moves, and a mid-section link must not outlive it.
-        checkpoint = {
-          notebook_cursor: checkpoint.notebook_cursor,
-          section_cursor: section.id,
-          page_next_link: undefined,
-          watermark_candidate: watermark?.toISOString(),
-          pages_seen: stats.pages_seen
-        };
-        params.onCheckpoint?.(checkpoint);
-        if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
-       } catch (err) {
-        if (!OneNoteSyncSvc.isSkippableSection(err)) throw err;
-
-        stats.sections_skipped += 1;
-        params.onError?.({ item_id: section.id, message: `${section.display_name}: ${(err as Error).message}` });
-        logger.info(
-          { user_id: params.user_id, section_id: section.id, graph_code: OneNoteSyncSvc.graphCode(err) },
-          'onenote section skipped'
-        );
-
-        checkpoint = {
-          notebook_cursor: checkpoint.notebook_cursor,
-          section_cursor: section.id,
-          page_next_link: undefined,
-          watermark_candidate: watermark?.toISOString(),
-          pages_seen: stats.pages_seen
-        };
-        params.onCheckpoint?.(checkpoint);
-       }
-      }
-
-      // Only a notebook read to its end may move its watermark: advancing it early would
-      // permanently skip whatever the abandoned part of the walk had not reached.
-      await this.deps.connection_svc.recordNotebookSynced({
-        user_id: params.user_id,
-        notebook_id: notebook.id,
-        sync_watermark: watermark,
-        last_synced_at: new Date()
-      });
-
-      checkpoint = { notebook_cursor: notebook.id, current_notebook_id: undefined, pages_seen: stats.pages_seen };
-      params.onCheckpoint?.(checkpoint);
-      if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.paused(checkpoint, stats, started_ms);
-     } catch (err) {
-      // Whatever ended the pass, it ended on this notebook - record it there before it
-      // propagates, so the reason outlives the job row that carried it.
-      if (!params.signal?.aborted) {
-        await this.deps.connection_svc.recordNotebookFailed({
+        // Only a notebook read to its end may move its watermark: advancing it early would
+        // permanently skip whatever the abandoned part of the walk had not reached.
+        await this.deps.connection_svc.recordNotebookSyncCompleted({
           user_id: params.user_id,
           notebook_id: notebook.id,
-          reason: OneNoteSyncSvc.failureReason(err)
+          sync_watermark: watermark,
+          last_synced_at: new Date()
         });
+
+        checkpoint = { notebook_cursor: notebook.id, current_notebook_id: undefined, pages_seen: stats.pages_seen };
+        params.onCheckpoint?.(checkpoint);
+        if (Time.elapsedMs(started_ms) > budget_ms) return OneNoteSyncSvc.buildPausedSyncResult(checkpoint, stats, started_ms);
+      } catch (err) {
+        // Whatever ended the pass, it ended on this notebook - record it there before it
+        // propagates, so the reason outlives the job row that carried it.
+        if (!params.signal?.aborted) {
+          await this.deps.connection_svc.recordNotebookSyncFailure({
+            user_id: params.user_id,
+            notebook_id: notebook.id,
+            reason: OneNoteSyncSvc.classifySyncFailureReason(err)
+          });
+        }
+        throw err;
       }
-      throw err;
-     }
     }
 
     await this.deps.connection_svc.recordSyncCompleted({
@@ -225,14 +223,14 @@ export class OneNoteSyncSvc {
   }
 
   /** A short code the UI turns into a sentence; the same vocabulary the job uses. */
-  private static failureReason(err: unknown): string {
+  private static classifySyncFailureReason(err: unknown): string {
     if (err instanceof OneNoteReauthRequiredError) return 'reauth_required';
     if (err instanceof GraphThrottledError) return 'throttled';
-    const code = OneNoteSyncSvc.graphCode(err);
+    const code = OneNoteSyncSvc.getGraphErrorCode(err);
     return code ? `graph_${code}` : 'sync_failed';
   }
 
-  private static graphCode(err: unknown): string | undefined {
+  private static getGraphErrorCode(err: unknown): string | undefined {
     if (err instanceof GraphForbiddenError || err instanceof GraphRequestFailedError) return err.graph_code;
     return undefined;
   }
@@ -248,8 +246,8 @@ export class OneNoteSyncSvc {
       throw new NotFoundError('Note not found');
     }
 
-    const graph = this.deps.connection_svc.graphFor(params.user_id);
-    const section = OneNoteSyncSvc.sectionOf(note);
+    const graph = this.deps.connection_svc.createGraphClientForUser(params.user_id);
+    const section = OneNoteSyncSvc.getNoteSourceSection(note);
     const folder = note.folder_id ? { id: note.folder_id } as NoteFolder : null;
     if (!folder) throw new BadRequestError('This note is not filed under a synced section');
 
@@ -271,7 +269,7 @@ export class OneNoteSyncSvc {
   }
 
   /** The note already records which section it came from; reuse it rather than re-walking. */
-  private static sectionOf(note: Note): GraphSection {
+  private static getNoteSourceSection(note: Note): GraphSection {
     return {
       id: note.container?.container_id ?? '',
       display_name: note.container?.container_name ?? '',
@@ -290,7 +288,7 @@ export class OneNoteSyncSvc {
     const { params, graph, page, section, folder } = args;
     try {
       const html = await graph.getPageContent({ page_id: page.id, signal: params.signal });
-      const content_hash = OneNoteSyncSvc.hash(html);
+      const content_hash = OneNoteSyncSvc.computePageContentVersionHash(html);
       const existing = await this.deps.notes_svc.getNote(params.user_id, {
         source: NoteSource.OneNote,
         external_id: page.id
@@ -314,7 +312,7 @@ export class OneNoteSyncSvc {
           source: NoteSource.OneNote,
           external_id: page.id,
           title: page.title,
-          body: OneNoteSyncSvc.converter().convert(html),
+          body: OneNoteSyncSvc.getMarkdownConverter().convertHtml(html),
           body_raw: html,
           folder_id: folder.id,
           container: {
@@ -343,13 +341,13 @@ export class OneNoteSyncSvc {
   }
 
   /** `OneNote / <notebook> / <section group?> / <section>`, resolved by provider id. */
-  private async folderForSection(args: {
+  private async ensureSectionFolder(args: {
     user_id: string;
     section: GraphSection;
     cache: Map<string, NoteFolder>;
   }): Promise<NoteFolder> {
     const { user_id, section, cache } = args;
-    const root = await this.ensureFolder({
+    const root = await this.ensureCachedProviderFolder({
       user_id,
       cache,
       external_id: ROOT_EXTERNAL_ID,
@@ -359,7 +357,7 @@ export class OneNoteSyncSvc {
 
     let parent = root;
     if (section.notebook) {
-      parent = await this.ensureFolder({
+      parent = await this.ensureCachedProviderFolder({
         user_id,
         cache,
         external_id: section.notebook.id,
@@ -369,7 +367,7 @@ export class OneNoteSyncSvc {
       });
     }
     if (section.section_group) {
-      parent = await this.ensureFolder({
+      parent = await this.ensureCachedProviderFolder({
         user_id,
         cache,
         external_id: section.section_group.id,
@@ -378,7 +376,7 @@ export class OneNoteSyncSvc {
         parent_id: parent.id
       });
     }
-    return this.ensureFolder({
+    return this.ensureCachedProviderFolder({
       user_id,
       cache,
       external_id: section.id,
@@ -389,7 +387,7 @@ export class OneNoteSyncSvc {
   }
 
   /** Cached per run: resolving a path costs a query per level, and sections share ancestors. */
-  private async ensureFolder(args: {
+  private async ensureCachedProviderFolder(args: {
     user_id: string;
     cache: Map<string, NoteFolder>;
     external_id: string;
@@ -416,7 +414,7 @@ export class OneNoteSyncSvc {
    * A scope narrows to notebooks already chosen for syncing; asking for one that is not
    * selected is a contradiction, not a request to sync it this once.
    */
-  private static targetNotebooks(connection: OneNoteConnection, scope?: string[]): OneNoteNotebookState[] {
+  private static selectTargetNotebooks(connection: OneNoteConnection, scope?: string[]): OneNoteNotebookState[] {
     const selected = new Set(connection.selected_notebook_ids);
     const wanted = scope?.length ? new Set(scope.filter((id) => selected.has(id))) : selected;
 
@@ -426,7 +424,7 @@ export class OneNoteSyncSvc {
   }
 
   /** One Graph call for the whole account, then grouped; sections come with their parents. */
-  private async sectionsByNotebook(args: {
+  private async loadSectionsByNotebook(args: {
     graph: GraphOneNoteAdapterInterface;
     targets: OneNoteNotebookState[];
     signal?: AbortSignal;
@@ -456,13 +454,13 @@ export class OneNoteSyncSvc {
     return connection;
   }
 
-  private static windowStart(notebook: OneNoteNotebookState): Date | undefined {
+  private static getSyncWindowStart(notebook: OneNoteNotebookState): Date | undefined {
     if (!notebook.sync_watermark) return undefined;
     return new Date(notebook.sync_watermark.getTime() - WATERMARK_OVERLAP_MS);
   }
 
   /** Everything after the cursor, in id order. */
-  private static remainingById<T extends { id: string }>(items: T[], cursor?: string): T[] {
+  private static getItemsAfterCursor<T extends { id: string }>(items: T[], cursor?: string): T[] {
     if (!cursor) return items;
     const at = items.findIndex((item) => item.id === cursor);
     // An unknown cursor means that item is gone; restarting the walk is safe because
@@ -470,7 +468,22 @@ export class OneNoteSyncSvc {
     return at < 0 ? items : items.slice(at + 1);
   }
 
-  private static paused(
+  private static buildSectionCheckpoint(params: {
+    checkpoint: OneNoteSyncCheckpoint;
+    section_id: string;
+    watermark?: Date;
+    pages_seen: number;
+  }): OneNoteSyncCheckpoint {
+    return {
+      notebook_cursor: params.checkpoint.notebook_cursor,
+      section_cursor: params.section_id,
+      page_next_link: undefined,
+      watermark_candidate: params.watermark?.toISOString(),
+      pages_seen: params.pages_seen
+    };
+  }
+
+  private static buildPausedSyncResult(
     checkpoint: OneNoteSyncCheckpoint,
     stats: OneNoteSyncStats,
     started_ms: number
@@ -479,7 +492,7 @@ export class OneNoteSyncSvc {
     return { completed: false, checkpoint, stats };
   }
 
-  private static converter(): HtmlToMarkdown {
+  private static getMarkdownConverter(): HtmlToMarkdown {
     // Images have nowhere to live until the attachments phase, so they are dropped
     // rather than left pointing at a Graph URL that needs a bearer token.
     OneNoteSyncSvc.converter_instance ??= HtmlToMarkdown.create({ drop_images: true });
@@ -488,13 +501,7 @@ export class OneNoteSyncSvc {
 
   private static converter_instance?: HtmlToMarkdown;
 
-  private static hash(html: string): string {
+  private static computePageContentVersionHash(html: string): string {
     return `${CONVERTER_VERSION}:${createHash('sha256').update(html).digest('base64url')}`;
-  }
-
-  private static toDate(iso?: string): Date | undefined {
-    if (!iso) return undefined;
-    const at = new Date(iso);
-    return Number.isNaN(at.getTime()) ? undefined : at;
   }
 }

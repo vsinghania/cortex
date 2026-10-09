@@ -11,7 +11,7 @@ export class ContextDocumentResolverBootstrap {
 
   static registerAll(): void {
     const registry = ContextDocumentResolverRegistry.getInstance();
-    registry.register(new NotesContextDocumentResolver());
+    registry.registerDocumentResolver(new NotesContextDocumentResolver());
     logger.info({ corpora: registry.registeredCorpora() }, 'Context document resolvers registered');
   }
 }

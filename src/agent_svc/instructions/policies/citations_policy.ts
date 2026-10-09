@@ -7,8 +7,8 @@ export class CitationsPolicy implements InstructionPolicy {
 
   // Built from CitationExtractor so the syntax taught here cannot drift from the one it parses.
   body(): string {
-    const first = CitationExtractor.markerFor('abc123');
-    const second = CitationExtractor.markerFor('def456');
+    const first = CitationExtractor.buildCitationMarker('abc123');
+    const second = CitationExtractor.buildCitationMarker('def456');
     return [
       `- Cite each load-bearing claim that comes from a retrieved content chunk inline with ${CitationExtractor.MARKER_SYNTAX}, using the exact chunk_id from the tool result. Example: "You chose ECS first to keep operations simple. ${first}"`,
       `- When several chunks support one claim, place the markers side by side: ${first}${second}`,

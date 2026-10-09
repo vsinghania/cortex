@@ -24,17 +24,17 @@ export class EmailTokenIssuer {
     return new EmailTokenIssuer(repo);
   }
 
-  static ttlMs(purpose: EmailTokenPurpose): number {
+  static getTokenTtlMs(purpose: EmailTokenPurpose): number {
     return TOKEN_TTL_MS[purpose];
   }
 
   /** Replaces any earlier token for the same user and purpose. */
-  async issue(params: { user_id: string; purpose: EmailTokenPurpose; now?: Date }): Promise<{ token: string; expires_at: Date }> {
+  async issueEmailToken(params: { user_id: string; purpose: EmailTokenPurpose; now?: Date }): Promise<{ token: string; expires_at: Date }> {
     const now = params.now ?? new Date();
     const token = TokenUtils.generateOpaqueToken();
-    const expires_at = new Date(now.getTime() + EmailTokenIssuer.ttlMs(params.purpose));
+    const expires_at = new Date(now.getTime() + EmailTokenIssuer.getTokenTtlMs(params.purpose));
 
-    await this.repo.replaceForUser({
+    await this.repo.replaceEmailTokenForUser({
       user_id: params.user_id,
       purpose: params.purpose,
       token_hash: TokenUtils.sha256Base64Url(token),
@@ -44,8 +44,8 @@ export class EmailTokenIssuer {
   }
 
   /** The owning user_id if the token is valid for this purpose; it cannot be used again. */
-  async consume(params: { token: string; purpose: EmailTokenPurpose; now?: Date }): Promise<string | null> {
-    const consumed = await this.repo.consume({
+  async consumeEmailToken(params: { token: string; purpose: EmailTokenPurpose; now?: Date }): Promise<string | null> {
+    const consumed = await this.repo.consumeEmailToken({
       token_hash: TokenUtils.sha256Base64Url(params.token),
       purpose: params.purpose,
       now: params.now ?? new Date()

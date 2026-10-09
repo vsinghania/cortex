@@ -47,7 +47,7 @@ All of it is our own code. MCP SDK v2 ships resource-server helpers only, and v1
   - the document's `client_id` must equal its URL exactly;
   - `client_name` and `redirect_uris` are required;
   - the client must be able to act as a public client (`token_endpoint_auth_method: "none"`), and use the `authorization_code` grant. A client preferring `private_key_jwt` is accepted when its document also lists `"none"` in `token_endpoint_auth_methods_supported`, as ChatGPT's does; its `client_assertion` is not checked until `private_key_jwt` is supported;
-  - every redirect URI must pass [OAuthRedirectUriPolicy](../src/oauth_svc/oauth_redirect_uri_policy.ts).
+  - every redirect URI must pass [OAuthRedirects](../src/oauth_svc/oauth_redirects.ts).
 
   Documents are cached by `Cache-Control`, clamped to 1 minute–24 hours, and not at all for `no-store`. **There is no Dynamic Client Registration**: the 2026-07-28 spec deprecates it, so clients that only do DCR cannot connect.
 - **The resource is required.** `/authorize` must name one of the enabled resources' canonical URLs (`resource=https://mcp.cortexapp.me/notes`); a missing or unknown one goes back to the client as `invalid_target`. The MCP spec requires clients to send it, and with several resources a default would be a guess.
@@ -56,6 +56,7 @@ All of it is our own code. MCP SDK v2 ships resource-server helpers only, and v1
   - `oauth_tokens` holds every issued token, grouped into **families**: one per code exchange, meaning one per device or install. Each refresh rotates within its family.
   - Revoking the grant ends every family. With CIMD every install of an app shares one client id, so separate families are what let a user's laptop and phone stay connected at once.
 - **Each collection has one owner.** Only [OAuthAuthorizationRequests](../src/oauth_svc/oauth_authorization_requests.ts), [OAuthAuthorizationCodes](../src/oauth_svc/oauth_authorization_codes.ts), [OAuthGrants](../src/oauth_svc/oauth_grants.ts) and [OAuthTokenFamilies](../src/oauth_svc/oauth_token_families.ts) touch their repositories; the authorization server, `OAuthSvc` and the verifier go through them. Each owner keeps its collection's rules: hashing raw codes and tokens, expiry, rotation and reuse detection all live in one place. [oauth_stores.ts](../src/oauth_svc/oauth_stores.ts) hands each repository to its owner, and a layering test fails any other import.
+- **Method names spell out the operation and object.** Owners expose `createAuthorizationRequest()`, `consumeAuthorizationCode()`, `issueTokensInNewFamily()`, `issueTokensInExistingFamily()` and `findActiveAccessToken()`. `consumeRefreshTokenForRotation()` performs atomic consumption; the authorization server's `rotateRefreshToken()` performs the full exchange. `revokeTokenFamily()` accepts a family id, while `revokeTokenFamilyForToken()` resolves an access or refresh token to its family.
 - **Effective scopes are the token's scopes ∩ the grant's.** A later, narrower consent narrows tokens already issued.
 - **Refresh rotation with reuse detection.** Claiming a refresh token is one conditional write, so of two racing refreshes exactly one wins.
   - Replaying a rotated token within 30 seconds is treated as a retry and refused.
@@ -67,7 +68,7 @@ All of it is our own code. MCP SDK v2 ships resource-server helpers only, and v1
 - **Tokens are opaque and stored as hashes**, like refresh sessions ([auth.md](auth.md) §1), so Disconnect in Settings takes effect on the next request. The `cx_at_` / `cx_rt_` / `cx_ac_` prefixes make a leaked token recognisable.
 - **Scopes are per resource** (`notes:read` / `notes:write`, later `articles:read` / …), and write implies read. A request's scopes are normalized against the resource it names, so another resource's scopes are dropped; metadata `scopes_supported` is the union across resources. Each server owns its vocabulary in its contract class ([notes_mcp_contract.ts](../src/mcp/server/notes/notes_mcp_contract.ts)).
 - **First-party grants.** Voice gets a one-hour, access-only token per session under a hidden `first_party` grant for the notes resource, so the token baked into the OpenAI session reaches one user's notes for an hour. The notes server gives first-party callers the full view their prompt was written for. See [voice.md](voice.md).
-- **The consent screen is server-driven.** `describeRequest` returns the resource's name and the access options with their wording from the catalog, marking read & write unavailable when the client asked only to read; the page renders them and knows nothing about any one resource.
+- **The consent screen is server-driven.** `describeAuthorizationRequest` returns the resource's name and the access options with their wording from the catalog, marking read & write unavailable when the client asked only to read; the page renders them and knows nothing about any one resource.
 
 ## 4. CIMD and SSRF
 

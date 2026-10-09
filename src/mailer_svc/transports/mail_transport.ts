@@ -3,7 +3,7 @@ import type { MailSendResult, MailTransportKind, OutboundMail } from '../types/m
 /** Implementations throw MailDeliveryError and nothing else. */
 export interface MailTransport {
   readonly kind: MailTransportKind;
-  send(mail: OutboundMail): Promise<MailSendResult>;
+  sendMail(mail: OutboundMail): Promise<MailSendResult>;
   /** Checks connectivity and credentials without sending anything. */
-  verify(): Promise<void>;
+  verifyTransportConnection(): Promise<void>;
 }

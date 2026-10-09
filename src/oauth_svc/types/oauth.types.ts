@@ -163,3 +163,10 @@ export type OAuthTokenResponse = {
   refresh_token?: string;
   scope: string;
 };
+
+export type OAuthErrorRedirectInput = {
+  redirect_uri: string;
+  state?: string;
+  error: string;
+  description: string;
+};

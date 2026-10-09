@@ -74,7 +74,7 @@ class FakeGoogle implements GoogleOAuthAdapterInterface {
     return `https://accounts.google.test/auth?state=${params.state}`;
   }
 
-  async exchangeCode(params: { code: string; code_verifier: string }) {
+  async exchangeAuthorizationCode(params: { code: string; code_verifier: string }) {
     this.exchanged_with = params;
     return this.identity;
   }
@@ -86,7 +86,7 @@ class RecordingSessions {
   async createSession() {
     return undefined;
   }
-  async revokeAllForUser(user_id: string) {
+  async revokeSessionsForUser(user_id: string) {
     this.revoked_for.push(user_id);
     return 2;
   }

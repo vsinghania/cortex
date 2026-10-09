@@ -35,7 +35,7 @@ export class NoteListSort {
    * Builds an explicit sort from loose inputs. A missing order follows the field's natural
    * reading (A→Z for titles, newest first for dates); a bare order applies to `updated_at`.
    */
-  static fromParts(parts: { field?: NoteSortField; order?: NoteSortOrder }): NoteListSortOption | undefined {
+  static fromFieldAndOrder(parts: { field?: NoteSortField; order?: NoteSortOrder }): NoteListSortOption | undefined {
     if (!parts.field && !parts.order) return undefined;
     const field = parts.field ?? NoteListSort.DEFAULT.field;
     return { field, order: parts.order ?? (field === 'title' ? 'asc' : 'desc') };
@@ -46,7 +46,7 @@ export class NoteListSort {
    * relevance first, as it always has, with pins only breaking ties. `id` is the final
    * tiebreak so offset pages never overlap.
    */
-  static resolve(params: { sort?: NoteListSortOption; has_query: boolean }): ResolvedNoteSort {
+  static resolveDatabaseSort(params: { sort?: NoteListSortOption; has_query: boolean }): ResolvedNoteSort {
     if (params.has_query && !params.sort) {
       return {
         sort: { score: { $meta: 'textScore' }, is_pinned: -1, edited_at: -1, id: -1 },

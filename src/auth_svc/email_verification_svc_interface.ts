@@ -6,5 +6,5 @@ export interface EmailVerificationSvcInterface {
   requestVerificationForEmail(email: string): Promise<void>;
 
   /** Throws BadRequestError for an invalid, used or expired token. */
-  verify(token: string): Promise<void>;
+  verifyEmailToken(token: string): Promise<void>;
 }

@@ -42,7 +42,7 @@ export class JobWorkerConfigLoader {
 
     return {
       worker_id: JobWorkerConfigLoader.buildWorkerId(),
-      scheduler_enabled: JobWorkerConfigLoader.readBool(parsed.JOBS_SCHEDULER_ENABLED, true),
+      scheduler_enabled: JobWorkerConfigLoader.parseBooleanSetting(parsed.JOBS_SCHEDULER_ENABLED, true),
 
       // 1 by design: the re-index is serial, and parallel embedding risks rate limits.
       concurrency: parsed.JOBS_CONCURRENCY ?? 1,
@@ -72,7 +72,7 @@ export class JobWorkerConfigLoader {
     return `${os.hostname()}:${process.pid}:${Id.generateRandom(WORKER_ID_SUFFIX_LEN)}`;
   }
 
-  private static readBool(raw: string | undefined, fallback: boolean): boolean {
+  private static parseBooleanSetting(raw: string | undefined, fallback: boolean): boolean {
     if (raw === undefined || raw.trim() === '') return fallback;
     return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
   }

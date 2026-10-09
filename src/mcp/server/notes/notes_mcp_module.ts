@@ -158,8 +158,8 @@ export class NotesMcpModule extends McpModule {
     const mongo_port = Number(process.env.MONGO_PORT ?? 27017);
     const db = DbNameResolver.resolve('notes');
 
-    await this.bootstrapMongo(mongo_host, mongo_port);
-    await NotesMcpModule.bootstrapQdrantCollection();
+    await this.bootstrapMongoConnection(mongo_host, mongo_port);
+    await NotesMcpModule.bootstrapNoteChunksCollection();
     const svc_params = { db, host: mongo_host, port: mongo_port };
     [this.notes_svc, this.folders_svc] = await Promise.all([
       NotesSvc.create(svc_params),
@@ -171,13 +171,13 @@ export class NotesMcpModule extends McpModule {
     }
   }
 
-  private static async bootstrapQdrantCollection(): Promise<void> {
+  private static async bootstrapNoteChunksCollection(): Promise<void> {
     try {
       const dim = EmbeddingsSvc.getInstance().dimensions;
       await QdrantCollectionBootstrap.ensureCollection({ name: 'note_chunks_vec', dim });
     } catch (err) {
       logger.warn(
-        { err: (err as Error)?.message },
+        { err },
         'Qdrant collection bootstrap failed in MCP server; semantic search will error until Qdrant is reachable'
       );
     }
@@ -210,7 +210,7 @@ export class NotesMcpModule extends McpModule {
       required_scope: NotesMcpContract.READ,
       config: {
         title: 'Semantic Search Notes',
-        description: this.describe(
+        description: this.buildToolDescription(
           caller,
           'Search note CONTENT by semantic similarity when the user is trying to recall ' +
           'ideas, facts, decisions, opinions, or topics and their wording may differ from ' +
@@ -228,7 +228,7 @@ export class NotesMcpModule extends McpModule {
         annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const args = zSearchSemanticInput.parse(raw ?? {});
         const chunks = await this.requireNotesSvc().retrieveChunks({
           user_id,
@@ -237,7 +237,7 @@ export class NotesMcpModule extends McpModule {
           source_filter: args.source_filter,
           include_archived: args.include_archived
         });
-        return NotesMcpModule.toStructuredTextResult({ chunks: chunks.map((chunk) => this.presentChunk(caller, chunk)) });
+        return NotesMcpModule.toStructuredToolResult({ chunks: chunks.map((chunk) => this.toCallerChunkView(caller, chunk)) });
       }
     });
   }
@@ -248,7 +248,7 @@ export class NotesMcpModule extends McpModule {
       required_scope: NotesMcpContract.READ,
       config: {
         title: 'List Notes',
-        description: this.describe(
+        description: this.buildToolDescription(
           caller,
           'List and browse notes for the authenticated user, with optional filtering and pagination. ' +
           'Use this for collection-level questions such as how many notes exist, recent notes, ' +
@@ -269,19 +269,19 @@ export class NotesMcpModule extends McpModule {
         annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const args = zListInput.parse(raw ?? {});
         const result = await this.requireNotesSvc().listNotes({
           user_id,
           query: args.query,
-          filter: NotesMcpModule.toListFilter(args),
-          sort: NoteListSort.fromParts({ field: args.sort, order: args.order }),
+          filter: NotesMcpModule.toNoteListFilter(args),
+          sort: NoteListSort.fromFieldAndOrder({ field: args.sort, order: args.order }),
           limit: args.limit,
           offset: args.offset
         });
-        return NotesMcpModule.toStructuredTextResult({
+        return NotesMcpModule.toStructuredToolResult({
           total: result.total,
-          items: result.items.map((note) => this.presentNote(caller, note))
+          items: result.items.map((note) => this.toCallerNoteView(caller, note))
         });
       }
     });
@@ -302,10 +302,10 @@ export class NotesMcpModule extends McpModule {
         annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const args = zTagsInput.parse(raw ?? {});
         const tags = await this.requireNotesSvc().listTags({ ...args, user_id });
-        return NotesMcpModule.toStructuredTextResult({ tags });
+        return NotesMcpModule.toStructuredToolResult({ tags });
       }
     });
   }
@@ -316,7 +316,7 @@ export class NotesMcpModule extends McpModule {
       required_scope: NotesMcpContract.READ,
       config: {
         title: 'Get Note',
-        description: this.describe(
+        description: this.buildToolDescription(
           caller,
           'Retrieve one specific note by a known locator: { id } or { source, external_id }. ' +
           'Use this when the target note has already been identified. Do not search again when ' +
@@ -328,10 +328,10 @@ export class NotesMcpModule extends McpModule {
         annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const { locator } = zGetInput.parse(raw ?? {});
         const note = await this.requireNotesSvc().getNote(user_id, locator);
-        return NotesMcpModule.toStructuredTextResult({ found: !!note, note: note ? this.presentNote(caller, note) : null });
+        return NotesMcpModule.toStructuredToolResult({ found: !!note, note: note ? this.toCallerNoteView(caller, note) : null });
       }
     });
   }
@@ -349,10 +349,10 @@ export class NotesMcpModule extends McpModule {
         annotations: ADDITIVE_WRITE_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const input = zCreateInput.parse(raw ?? {});
         const note = await this.requireNotesSvc().createNote({ ...input, user_id });
-        return NotesMcpModule.toStructuredTextResult({ note: this.presentNote(caller, note) });
+        return NotesMcpModule.toStructuredToolResult({ note: this.toCallerNoteView(caller, note) });
       }
     });
   }
@@ -372,12 +372,12 @@ export class NotesMcpModule extends McpModule {
         annotations: DESTRUCTIVE_WRITE_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const { locator, patch } = zUpdateInput.parse(raw ?? {});
         const updated = await this.requireNotesSvc().updateNote(user_id, locator, patch);
-        return NotesMcpModule.toStructuredTextResult({
+        return NotesMcpModule.toStructuredToolResult({
           found: !!updated,
-          note: updated ? this.presentNote(caller, updated) : null
+          note: updated ? this.toCallerNoteView(caller, updated) : null
         });
       }
     });
@@ -397,10 +397,10 @@ export class NotesMcpModule extends McpModule {
         annotations: DESTRUCTIVE_WRITE_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const { locator } = zDeleteInput.parse(raw ?? {});
         const success = await this.requireNotesSvc().deleteNote(user_id, locator);
-        return NotesMcpModule.toStructuredTextResult({ success });
+        return NotesMcpModule.toStructuredToolResult({ success });
       }
     });
   }
@@ -420,14 +420,14 @@ export class NotesMcpModule extends McpModule {
         annotations: READ_ONLY_TOOL
       },
       handler: async () => {
-        const user_id = McpCallers.requireUserId(caller);
-        const nodes = await this.requireFoldersSvc().listTree({ user_id });
+        const user_id = McpCallers.requireCallerUserId(caller);
+        const nodes = await this.requireFoldersSvc().listFolderTree({ user_id });
         const folders = nodes.map((n) => ({
           id: n.id,
           path: n.path.join(NoteFolderTree.PATH_SEPARATOR),
           note_count: n.note_count
         }));
-        return NotesMcpModule.toStructuredTextResult({ folders });
+        return NotesMcpModule.toStructuredToolResult({ folders });
       }
     });
   }
@@ -447,10 +447,10 @@ export class NotesMcpModule extends McpModule {
         annotations: { ...ADDITIVE_WRITE_TOOL, idempotentHint: true }
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const { path } = zFolderCreateInput.parse(raw ?? {});
-        const ensured = await this.requireFoldersSvc().ensurePath({ user_id, path });
-        return NotesMcpModule.toStructuredTextResult({
+        const ensured = await this.requireFoldersSvc().ensureFolderPath({ user_id, path });
+        return NotesMcpModule.toStructuredToolResult({
           folder: { id: ensured.folder.id, path: ensured.path.join(NoteFolderTree.PATH_SEPARATOR) },
           created_count: ensured.created_count
         });
@@ -475,14 +475,14 @@ export class NotesMcpModule extends McpModule {
         annotations: ADDITIVE_WRITE_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const input = zBulkUpdateInput.parse(raw ?? {});
         const result = await this.requireNotesSvc().bulkUpdate({
           user_id,
           ids: input.ids,
-          action: NotesMcpModule.toBulkAction(input)
+          action: NotesMcpModule.toNoteBulkAction(input)
         });
-        return NotesMcpModule.toStructuredTextResult(result);
+        return NotesMcpModule.toStructuredToolResult(result);
       }
     });
   }
@@ -493,7 +493,7 @@ export class NotesMcpModule extends McpModule {
       required_scope: NotesMcpContract.READ,
       config: {
         title: 'Search Notes',
-        description: this.describe(
+        description: this.buildToolDescription(
           caller,
           'Full-text lexical search across note titles and bodies for the authenticated user. ' +
           'Use this when the user provides words, phrases, names, titles, code symbols, or other ' +
@@ -507,12 +507,12 @@ export class NotesMcpModule extends McpModule {
         annotations: READ_ONLY_TOOL
       },
       handler: async (raw) => {
-        const user_id = McpCallers.requireUserId(caller);
+        const user_id = McpCallers.requireCallerUserId(caller);
         const args = zSearchInput.parse(raw ?? {});
         const result = await this.requireNotesSvc().searchNotes({ ...args, user_id });
-        return NotesMcpModule.toStructuredTextResult({
+        return NotesMcpModule.toStructuredToolResult({
           total: result.total,
-          items: result.items.map((note) => this.presentNote(caller, note))
+          items: result.items.map((note) => this.toCallerNoteView(caller, note))
         });
       }
     });
@@ -525,28 +525,25 @@ export class NotesMcpModule extends McpModule {
    * says what the field is, not how to cite it: a tool describes its data and the
    * calling agent decides what referencing means.
    */
-  private describe(caller: McpCaller, description: string, url_hint: string): string {
-    return McpCallers.isExternal(caller) && this.links ? `${description} ${url_hint}` : description;
+  private buildToolDescription(caller: McpCaller, description: string, url_hint: string): string {
+    return McpCallers.isExternalCaller(caller) && this.links ? `${description} ${url_hint}` : description;
   }
 
   /** Internal and first-party callers keep the full note they have always had; external ones get the trimmed, linked view. */
-  private presentNote(caller: McpCaller, note: Note) {
-    return McpCallers.isExternal(caller) ? NotesMcpExternalView.note(note, this.links) : note;
+  private toCallerNoteView(caller: McpCaller, note: Note) {
+    return McpCallers.isExternalCaller(caller) ? NotesMcpExternalView.toExternalNoteView(note, this.links) : note;
   }
 
-  private presentChunk(caller: McpCaller, chunk: RetrievedChunk) {
-    return McpCallers.isExternal(caller) ? NotesMcpExternalView.chunk(chunk, this.links) : chunk;
+  private toCallerChunkView(caller: McpCaller, chunk: RetrievedChunk) {
+    return McpCallers.isExternalCaller(caller) ? NotesMcpExternalView.toExternalChunkView(chunk, this.links) : chunk;
   }
 
-  private async bootstrapMongo(host: string, port: number): Promise<void> {
+  private async bootstrapMongoConnection(host: string, port: number): Promise<void> {
     try {
       await MongooseConnectionManager.getInstance({ host, port });
-      logger.info({ msg: 'Mongo base connection bootstrapped for MCP server', host, port });
-    } catch (error) {
-      logger.warn({
-        msg: 'Mongo bootstrap failed for MCP server; continuing. Tools may error.',
-        error: (error as Error)?.message
-      });
+      logger.info({ host, port }, 'Mongo base connection bootstrapped for MCP server');
+    } catch (err) {
+      logger.warn({ err }, 'Mongo bootstrap failed for MCP server; continuing. Tools may error.');
     }
   }
 
@@ -558,7 +555,7 @@ export class NotesMcpModule extends McpModule {
     return this.folders_svc;
   }
 
-  private static toListFilter(args: z.infer<typeof zListInput>): NoteListFilter {
+  private static toNoteListFilter(args: z.infer<typeof zListInput>): NoteListFilter {
     return {
       tags: args.tags?.length ? args.tags : undefined,
       archived: args.archived,
@@ -573,7 +570,7 @@ export class NotesMcpModule extends McpModule {
   }
 
   /** Re-checks the fields each action needs, since the flat MCP input shape cannot express them. */
-  private static toBulkAction(input: z.infer<typeof zBulkUpdateInput>): NoteBulkAction {
+  private static toNoteBulkAction(input: z.infer<typeof zBulkUpdateInput>): NoteBulkAction {
     switch (input.action) {
       case 'move':
         if (input.folder_id === undefined) {
@@ -602,7 +599,7 @@ export class NotesMcpModule extends McpModule {
    * agents SDK drops `structuredContent` and re-encodes this text), so indentation is
    * paid for in tokens on every tool call.
    */
-  private static toStructuredTextResult<T extends Record<string, unknown>>(result: T): CallToolResult {
+  private static toStructuredToolResult<T extends Record<string, unknown>>(result: T): CallToolResult {
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       structuredContent: result

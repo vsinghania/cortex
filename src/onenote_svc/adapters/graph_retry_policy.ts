@@ -31,12 +31,12 @@ export type GraphRetryInput = {
 export class GraphRetryPolicy {
   private constructor() {}
 
-  static decide(input: GraphRetryInput): GraphRetryDecision {
+  static decideRequestRetry(input: GraphRetryInput): GraphRetryDecision {
     if (!GraphRetryPolicy.isRetryableStatus(input.status)) return { outcome: 'permanent' };
     if (input.attempt >= MAX_ATTEMPTS) return { outcome: 'give_up' };
 
-    const asked_ms = GraphRetryPolicy.retryAfterMs(input.retry_after_header);
-    const delay_ms = Math.min(asked_ms ?? GraphRetryPolicy.backoffMs(input.attempt), MAX_SLEEP_MS);
+    const asked_ms = GraphRetryPolicy.parseRetryAfterMs(input.retry_after_header);
+    const delay_ms = Math.min(asked_ms ?? GraphRetryPolicy.calculateBackoffMs(input.attempt), MAX_SLEEP_MS);
 
     // Better to hand a long wait back to the queue than to hold a worker slot through it.
     if (input.waited_ms + delay_ms > MAX_TOTAL_WAIT_MS) return { outcome: 'give_up' };
@@ -49,7 +49,7 @@ export class GraphRetryPolicy {
   }
 
   /** Retry-After is either a count of seconds or an HTTP date. */
-  private static retryAfterMs(header?: string | null): number | undefined {
+  private static parseRetryAfterMs(header?: string | null): number | undefined {
     if (!header) return undefined;
 
     const seconds = Number(header.trim());
@@ -60,7 +60,7 @@ export class GraphRetryPolicy {
     return Math.max(0, at - Date.now());
   }
 
-  private static backoffMs(attempt: number): number {
+  private static calculateBackoffMs(attempt: number): number {
     return DEFAULT_BACKOFF_MS * 2 ** (attempt - 1);
   }
 }

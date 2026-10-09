@@ -2,7 +2,7 @@
 
 Hands-free capture and recall. The service does one thing: mint a short-lived, pre-configured OpenAI Realtime session for the authenticated user. The conversation then happens directly between the browser and OpenAI — Cortex is not in the audio path.
 
-Source: [src/voice_svc/](../src/voice_svc/) plus [voice_session.ts](../web/src/lib/voice_session.ts) in the SPA. Contract: `VoiceSvcInterface.mintEphemeralToken({ user_id })` → `{ session_id, client_secret, expires_at, model, provider }`, exposed as `POST /api/v1/voice/session`.
+Source: [src/voice_svc/](../src/voice_svc/) plus [voice_session.ts](../web/src/lib/voice_session.ts) in the SPA. Contract: `VoiceSvcInterface.mintEphemeralVoiceToken({ user_id })` → `{ session_id, client_secret, expires_at, model, provider }`, exposed as `POST /api/v1/voice/session`.
 
 ---
 

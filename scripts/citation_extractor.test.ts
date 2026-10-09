@@ -25,7 +25,7 @@ const CHUNK_B = {
 };
 
 test('stores identity only, dropping presentation fields from the payload', () => {
-  const citations = CitationExtractor.extract({
+  const citations = CitationExtractor.extractCitations({
     tool_payloads: [{ chunks: [CHUNK_A] }],
     answer_text: 'We dropped Redis [c:chunk-a].',
   });
@@ -40,7 +40,7 @@ test('stores identity only, dropping presentation fields from the payload', () =
 });
 
 test('carries the corpus through from the retrieval payload', () => {
-  const [citation] = CitationExtractor.extract({
+  const [citation] = CitationExtractor.extractCitations({
     tool_payloads: [{ chunks: [{ chunk_id: 'c', document_id: 'd', corpus: Corpus.Chats }] }],
     answer_text: 'From a chat [c:c].',
   });
@@ -49,7 +49,7 @@ test('carries the corpus through from the retrieval payload', () => {
 });
 
 test('defaults to notes when a payload predates the corpus field', () => {
-  const [citation] = CitationExtractor.extract({
+  const [citation] = CitationExtractor.extractCitations({
     tool_payloads: [{ chunks: [{ chunk_id: 'c', document_id: 'd' }] }],
     answer_text: 'Legacy payload [c:c].',
   });
@@ -58,7 +58,7 @@ test('defaults to notes when a payload predates the corpus field', () => {
 });
 
 test('resolves several markers in order', () => {
-  const citations = CitationExtractor.extract({
+  const citations = CitationExtractor.extractCitations({
     tool_payloads: [{ chunks: [CHUNK_A, CHUNK_B] }],
     answer_text: 'We dropped Redis [c:chunk-a] and will revisit later [c:chunk-b].',
   });
@@ -73,7 +73,7 @@ test('resolves several markers in order', () => {
 });
 
 test('numbers by first appearance and dedupes repeats', () => {
-  const citations = CitationExtractor.extract({
+  const citations = CitationExtractor.extractCitations({
     tool_payloads: [{ chunks: [CHUNK_A, CHUNK_B] }],
     answer_text: 'Later point [c:chunk-b]. Earlier point [c:chunk-a]. Again [c:chunk-b].',
   });
@@ -88,7 +88,7 @@ test('numbers by first appearance and dedupes repeats', () => {
 });
 
 test('drops markers with no matching retrieved chunk', () => {
-  const citations = CitationExtractor.extract({
+  const citations = CitationExtractor.extractCitations({
     tool_payloads: [{ chunks: [CHUNK_A] }],
     answer_text: 'Known [c:chunk-a] and hallucinated [c:chunk-zzz].',
   });
@@ -98,7 +98,7 @@ test('drops markers with no matching retrieved chunk', () => {
 
 test('returns nothing when the answer cites nothing', () => {
   assert.deepEqual(
-    CitationExtractor.extract({
+    CitationExtractor.extractCitations({
       tool_payloads: [{ chunks: [CHUNK_A] }],
       answer_text: 'A plain answer with no markers.',
     }),
@@ -107,7 +107,7 @@ test('returns nothing when the answer cites nothing', () => {
 });
 
 test('tolerates unrelated and malformed tool payloads', () => {
-  const citations = CitationExtractor.extract({
+  const citations = CitationExtractor.extractCitations({
     tool_payloads: [
       undefined,
       'not an object',

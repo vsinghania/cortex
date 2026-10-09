@@ -13,7 +13,7 @@ async function harness(scopes = ['notes:read', 'notes:write']) {
   const { stores, repos } = InMemoryOAuthStores.create();
   const clock = { now: new Date('2026-10-07T10:00:00Z') };
   const verifier = new OAuthAccessTokenVerifier({ stores: async () => stores, now: () => clock.now });
-  const grant = await stores.grants.upsert({
+  const grant = await stores.grants.upsertGrant({
     user_id: 'u-1',
     client_id: 'https://claude.test/c.json',
     client_name: 'Claude',
@@ -21,13 +21,13 @@ async function harness(scopes = ['notes:read', 'notes:write']) {
     scopes,
     resource: RESOURCE
   });
-  const issued = await stores.tokens.start({ grant, scopes, now: clock.now, with_refresh: true });
+  const issued = await stores.tokens.issueTokensInNewFamily({ grant, scopes, now: clock.now, with_refresh: true });
   return { stores, repos, verifier, grant, issued, clock };
 }
 
 test('a live access token verifies as its grant\'s user, client, scopes and resource', async () => {
   const { verifier, grant, issued } = await harness();
-  assert.deepEqual(await verifier.verify(issued.access.value), {
+  assert.deepEqual(await verifier.verifyAccessToken(issued.access.value), {
     user_id: 'u-1',
     client_id: 'https://claude.test/c.json',
     grant_id: grant.grant_id,
@@ -39,32 +39,32 @@ test('a live access token verifies as its grant\'s user, client, scopes and reso
 
 test('unknown, refresh, expired and revoked tokens do not verify', async () => {
   const { verifier, issued, stores, clock } = await harness();
-  assert.equal(await verifier.verify('cx_at_unknown'), null);
-  assert.equal(await verifier.verify(issued.refresh!.value), null, 'a refresh token is not an access token');
+  assert.equal(await verifier.verifyAccessToken('cx_at_unknown'), null);
+  assert.equal(await verifier.verifyAccessToken(issued.refresh!.value), null, 'a refresh token is not an access token');
 
-  await stores.tokens.revokeFamily({ family_id: issued.family_id, now: clock.now });
-  assert.equal(await verifier.verify(issued.access.value), null);
+  await stores.tokens.revokeTokenFamily({ family_id: issued.family_id, now: clock.now });
+  assert.equal(await verifier.verifyAccessToken(issued.access.value), null);
 
   const fresh = await harness();
   fresh.clock.now = new Date(fresh.clock.now.getTime() + Time.hoursToMs(1) + 1);
-  assert.equal(await fresh.verifier.verify(fresh.issued.access.value), null);
+  assert.equal(await fresh.verifier.verifyAccessToken(fresh.issued.access.value), null);
 });
 
 test('deleting its grant ends the token', async () => {
   const { verifier, grant, issued, stores } = await harness();
-  await stores.grants.deleteExternal({ user_id: 'u-1', grant_id: grant.grant_id });
-  assert.equal(await verifier.verify(issued.access.value), null);
+  await stores.grants.deleteExternalGrantForUser({ user_id: 'u-1', grant_id: grant.grant_id });
+  assert.equal(await verifier.verifyAccessToken(issued.access.value), null);
 });
 
 test('effective scopes are what both the token and the current grant allow', async () => {
   const { verifier, grant, issued, stores } = await harness();
-  await stores.grants.upsert({ ...grant, scopes: ['notes:read'] });
-  assert.deepEqual((await verifier.verify(issued.access.value))?.scopes, ['notes:read']);
+  await stores.grants.upsertGrant({ ...grant, scopes: ['notes:read'] });
+  assert.deepEqual((await verifier.verifyAccessToken(issued.access.value))?.scopes, ['notes:read']);
 });
 
 test('use is recorded on the grant', async () => {
   const { verifier, issued, repos } = await harness();
-  await verifier.verify(issued.access.value);
+  await verifier.verifyAccessToken(issued.access.value);
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(repos.grants.rows[0].last_used_at);
 });

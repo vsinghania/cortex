@@ -67,18 +67,18 @@ export class OneNoteController {
   }
 
   private registerRoutes() {
-    this.router.post('/start', RequireAuthMiddleware.requireAuth, this.start.bind(this));
-    this.router.get('/callback', this.callback.bind(this));
-    this.router.get('/status', RequireAuthMiddleware.requireAuth, this.status.bind(this));
+    this.router.post('/start', RequireAuthMiddleware.requireAuth, this.startAuthorization.bind(this));
+    this.router.get('/callback', this.completeAuthorization.bind(this));
+    this.router.get('/status', RequireAuthMiddleware.requireAuth, this.getConnectionStatus.bind(this));
     this.router.get('/notebooks', RequireAuthMiddleware.requireAuth, this.listNotebooks.bind(this));
     this.router.put('/notebooks', RequireAuthMiddleware.requireAuth, this.selectNotebooks.bind(this));
     this.router.post('/sync', RequireAuthMiddleware.requireAuth, this.startSync.bind(this));
-    this.router.get('/sync/:job_id', RequireAuthMiddleware.requireAuth, this.syncStatus.bind(this));
+    this.router.get('/sync/:job_id', RequireAuthMiddleware.requireAuth, this.getSyncJobStatus.bind(this));
     this.router.post('/notes/:note_id/sync', RequireAuthMiddleware.requireAuth, this.syncNote.bind(this));
     this.router.delete('/', RequireAuthMiddleware.requireAuth, this.disconnect.bind(this));
   }
 
-  private static stateCookieOptions() {
+  private static buildStateCookieOptions() {
     return CookieOptions.oauthState({ path: STATE_COOKIE_PATH, max_age_ms: STATE_TTL_MS });
   }
 
@@ -99,7 +99,7 @@ export class OneNoteController {
    * Answers with the URL rather than redirecting: the SPA calls this with its bearer
    * token and then navigates itself, which is how the callback can know the user.
    */
-  private async start(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async startAuthorization(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const user_id = req.auth!.user_id;
       // Missing encryption keys would otherwise surface as an opaque 500 from SecretBox.
@@ -114,7 +114,7 @@ export class OneNoteController {
         user_id: STATE_SCOPE,
         field: STATE_FIELD
       });
-      res.cookie(STATE_COOKIE_NAME, sealed, OneNoteController.stateCookieOptions());
+      res.cookie(STATE_COOKIE_NAME, sealed, OneNoteController.buildStateCookieOptions());
 
       res.status(200).json({ response: { url } });
     } catch (e) {
@@ -124,20 +124,20 @@ export class OneNoteController {
 
   // A browser navigation, so failures redirect back to the SPA rather than answering
   // with a problem document nobody would see.
-  private async callback(req: express.Request, res: express.Response) {
+  private async completeAuthorization(req: express.Request, res: express.Response) {
     const links = AppLinks.fromEnv();
     const pending = OneNoteController.readPendingState(req);
-    res.clearCookie(STATE_COOKIE_NAME, OneNoteController.stateCookieOptions());
+    res.clearCookie(STATE_COOKIE_NAME, OneNoteController.buildStateCookieOptions());
 
     const { code, state, error } = req.query;
     if (typeof error === 'string') {
       logger.info({ reason: error }, 'onenote connect abandoned');
-      res.redirect(links.settings({ error: error === 'access_denied' ? 'onenote_cancelled' : 'onenote_failed' }));
+      res.redirect(links.buildSettingsUrl({ error: error === 'access_denied' ? 'onenote_cancelled' : 'onenote_failed' }));
       return;
     }
     if (!pending || typeof code !== 'string' || typeof state !== 'string') {
       logger.warn({ reason: pending ? 'missing_code' : 'missing_state_cookie' }, 'onenote connect rejected');
-      res.redirect(links.settings({ error: 'onenote_failed' }));
+      res.redirect(links.buildSettingsUrl({ error: 'onenote_failed' }));
       return;
     }
 
@@ -145,18 +145,18 @@ export class OneNoteController {
       // The refresh cookie is SameSite=lax, so it rides along on this top-level
       // navigation back from Microsoft and says who this browser is signed in as.
       const refresh_token = (req as any).cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
-      const session_user_id = await (await AuthSvc.create()).sessionUserId(refresh_token);
+      const session_user_id = await (await AuthSvc.create()).findSessionUserId(refresh_token);
 
       const onenote_svc = await OneNoteConnectionSvc.create();
       await onenote_svc.completeAuthorization({ user_id: pending.user_id, session_user_id, code, state, pending });
-      res.redirect(links.settings({ connected: 'onenote' }));
+      res.redirect(links.buildSettingsUrl({ connected: 'onenote' }));
     } catch (err) {
       logger.error({ err }, 'onenote connect failed');
-      res.redirect(links.settings({ error: 'onenote_failed' }));
+      res.redirect(links.buildSettingsUrl({ error: 'onenote_failed' }));
     }
   }
 
-  private async status(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async getConnectionStatus(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const available = OneNoteConnectionSvc.isConfigured();
       if (!available) {
@@ -167,7 +167,7 @@ export class OneNoteController {
       const onenote_svc = await OneNoteConnectionSvc.create();
       const connection = await onenote_svc.getConnection(req.auth!.user_id);
       res.status(200).json({
-        response: { available, connection, last_sync: await OneNoteController.lastSync(req.auth!.user_id) }
+        response: { available, connection, last_sync: await OneNoteController.getLastSyncJob(req.auth!.user_id) }
       });
     } catch (e) {
       next(e);
@@ -218,7 +218,7 @@ export class OneNoteController {
 
       const jobs_svc = await JobsSvc.getInstance();
       try {
-        const job = await jobs_svc.enqueue({
+        const job = await jobs_svc.enqueueJob({
           name: OneNoteJobName.OneNoteSync,
           user_id,
           payload: { user_id, mode, reason: 'manual', notebook_ids: body.notebook_ids ?? null },
@@ -238,7 +238,7 @@ export class OneNoteController {
   }
 
   /** Scoped to the caller: the admin job routes are not reusable for a user-facing poll. */
-  private async syncStatus(req: express.Request, res: express.Response, next: express.NextFunction) {
+  private async getSyncJobStatus(req: express.Request, res: express.Response, next: express.NextFunction) {
     try {
       const jobs_svc = await JobsSvc.getInstance();
       const job_id = String(req.params.job_id ?? '');
@@ -271,7 +271,7 @@ export class OneNoteController {
    * failure vanished on reload: the error lived in the tab that saw it, and the card
    * went back to looking idle with no explanation for stale notebooks.
    */
-  private static async lastSync(user_id: string) {
+  private static async getLastSyncJob(user_id: string) {
     const jobs_svc = await JobsSvc.getInstance();
     const recent = await jobs_svc.listJobs({ name: OneNoteJobName.OneNoteSync, user_id, limit: SYNC_LOOKBACK });
     // Prefer one still going; otherwise the newest finished, which `list` sorts first.

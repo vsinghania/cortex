@@ -31,12 +31,12 @@ const FAST_BCRYPT_ROUNDS = 4;
 class InMemoryEmailTokenRepo implements EmailTokenRepository {
   rows: EmailToken[] = [];
 
-  async replaceForUser(input: { user_id: string; purpose: EmailTokenPurpose; token_hash: string; expires_at: Date }) {
+  async replaceEmailTokenForUser(input: { user_id: string; purpose: EmailTokenPurpose; token_hash: string; expires_at: Date }) {
     this.rows = this.rows.filter((r) => !(r.user_id === input.user_id && r.purpose === input.purpose));
     this.rows.push({ ...input, created_at: new Date(), updated_at: new Date() });
   }
 
-  async consume(input: { token_hash: string; purpose: EmailTokenPurpose; now: Date }) {
+  async consumeEmailToken(input: { token_hash: string; purpose: EmailTokenPurpose; now: Date }) {
     const row = this.rows.find(
       (r) => r.token_hash === input.token_hash && r.purpose === input.purpose && !r.consumed_at && r.expires_at > input.now
     );
@@ -94,19 +94,19 @@ class RecordingMailer implements MailerSvcInterface {
   sent: MailMessage[] = [];
   constructor(private readonly failure?: MailDeliveryError) {}
 
-  async send(message: MailMessage) {
+  async sendMail(message: MailMessage) {
     if (this.failure) throw this.failure;
     this.sent.push(message);
     return { message_id: `<m${this.sent.length}@test>` };
   }
-  async verify() {}
+  async verifyTransportConnection() {}
 }
 
 class RecordingJobs {
   enqueued: EnqueueInput[] = [];
   constructor(private readonly conflict = false) {}
 
-  async enqueue(input: EnqueueInput) {
+  async enqueueJob(input: EnqueueInput) {
     if (this.conflict) throw new ConflictError('A password_reset_email job is already active');
     this.enqueued.push(input);
     return { job_id: `job-${this.enqueued.length}`, created: true };
@@ -132,7 +132,7 @@ async function buildHarness(opts: { mail_failure?: MailDeliveryError; enqueue_co
   const jobs = new RecordingJobs(opts.enqueue_conflict);
   const revoked_for: string[] = [];
   const rt_repo = {
-    revokeAllForUser: async (user_id: string) => {
+    revokeSessionsForUser: async (user_id: string) => {
       revoked_for.push(user_id);
       return 2;
     }
@@ -163,13 +163,13 @@ function tokenFromLastEmail(h: Harness): string {
 
 test('an unknown email enqueues nothing', async () => {
   const h = await buildHarness();
-  await h.svc.requestReset('nobody@example.com');
+  await h.svc.requestPasswordReset('nobody@example.com');
   assert.equal(h.jobs.enqueued.length, 0);
 });
 
 test('a known email enqueues a single-flight, deadlined job carrying only the user id', async () => {
   const h = await buildHarness();
-  await h.svc.requestReset('  ADA@example.com ');
+  await h.svc.requestPasswordReset('  ADA@example.com ');
 
   assert.equal(h.jobs.enqueued.length, 1);
   const job = h.jobs.enqueued[0];
@@ -182,12 +182,12 @@ test('a known email enqueues a single-flight, deadlined job carrying only the us
 
 test('a request while a send is already in flight is a quiet no-op', async () => {
   const h = await buildHarness({ enqueue_conflict: true });
-  await assert.doesNotReject(h.svc.requestReset('ada@example.com'));
+  await assert.doesNotReject(h.svc.requestPasswordReset('ada@example.com'));
 });
 
 test('the delivered email goes to the user and links to the SPA with the token in the fragment', async () => {
   const h = await buildHarness();
-  await h.svc.requestReset('ada@example.com');
+  await h.svc.requestPasswordReset('ada@example.com');
   const result = await deliverQueued(h);
 
   assert.deepEqual(result, { outcome: 'succeeded', summary: { message_id: '<m1@test>' } });
@@ -200,7 +200,7 @@ test('the delivered email goes to the user and links to the SPA with the token i
 
 test('the full flow changes the password, revokes sessions, and the link works once', async () => {
   const h = await buildHarness();
-  await h.svc.requestReset('ada@example.com');
+  await h.svc.requestPasswordReset('ada@example.com');
   await deliverQueued(h);
   const token = tokenFromLastEmail(h);
 
@@ -214,13 +214,13 @@ test('the full flow changes the password, revokes sessions, and the link works o
 
 test('reading the reset link also verifies the address, and does not move an existing timestamp', async () => {
   const h = await buildHarness();
-  await h.svc.requestReset('ada@example.com');
+  await h.svc.requestPasswordReset('ada@example.com');
   await deliverQueued(h);
   await h.svc.resetPassword({ token: tokenFromLastEmail(h), new_password: 'new-password' });
   assert.ok(h.user.email_verified_at, 'clicking the link proves the address is theirs');
 
   const verified_at = h.user.email_verified_at;
-  await h.svc.requestReset('ada@example.com');
+  await h.svc.requestPasswordReset('ada@example.com');
   await deliverQueued(h);
   await h.svc.resetPassword({ token: tokenFromLastEmail(h), new_password: 'newer-password' });
   assert.equal(h.user.email_verified_at, verified_at, 'already-verified users keep their original timestamp');
@@ -228,7 +228,7 @@ test('reading the reset link also verifies the address, and does not move an exi
 
 test('a newer email invalidates the older link', async () => {
   const h = await buildHarness();
-  await h.svc.requestReset('ada@example.com');
+  await h.svc.requestPasswordReset('ada@example.com');
   await deliverQueued(h);
   const first = tokenFromLastEmail(h);
   await deliverQueued(h);
@@ -240,8 +240,8 @@ test('a newer email invalidates the older link', async () => {
 
 test('an expired token is rejected even if the TTL reaper has not removed it yet', async () => {
   const h = await buildHarness();
-  const issued_at = new Date(Date.now() - EmailTokenIssuer.ttlMs('password_reset') - Time.secondsToMs(1));
-  const { token } = await h.token_issuer.issue({ user_id: 'user-1', purpose: 'password_reset', now: issued_at });
+  const issued_at = new Date(Date.now() - EmailTokenIssuer.getTokenTtlMs('password_reset') - Time.secondsToMs(1));
+  const { token } = await h.token_issuer.issueEmailToken({ user_id: 'user-1', purpose: 'password_reset', now: issued_at });
 
   await assert.rejects(h.svc.resetPassword({ token, new_password: 'new-password' }), BadRequestError);
   assert.deepEqual(h.revoked_for, []);

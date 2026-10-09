@@ -30,7 +30,7 @@ function emptyLookups(): AdminUserLookups {
 }
 
 test('a user with nothing gets zero counts and no integrations', () => {
-  const row = AdminUserRowBuilder.build(userRecord(), emptyLookups());
+  const row = AdminUserRowBuilder.buildUserRow(userRecord(), emptyLookups());
   assert.deepEqual(row.notes, { total: 0, archived: 0, by_source: {} });
   assert.equal(row.conversation_count, 0);
   assert.deepEqual(row.integrations, {});
@@ -41,11 +41,11 @@ test('a user with nothing gets zero counts and no integrations', () => {
 
 test('a legacy user stored without a name still gets a string name', () => {
   const legacy = { ...userRecord(), name: undefined } as unknown as AdminUserRecord;
-  assert.equal(AdminUserRowBuilder.build(legacy, emptyLookups()).name, '');
+  assert.equal(AdminUserRowBuilder.buildUserRow(legacy, emptyLookups()).name, '');
 });
 
 test('sign-in methods and role come from the record', () => {
-  const row = AdminUserRowBuilder.build(
+  const row = AdminUserRowBuilder.buildUserRow(
     userRecord({ has_google: true, has_password: false, roles: ['user', 'admin'], email_verified_at: EARLIER }),
     emptyLookups()
   );
@@ -57,24 +57,24 @@ test('sign-in methods and role come from the record', () => {
 test('last active is the later of sign-in and session activity', () => {
   const lookups = emptyLookups();
   lookups.sessions.set('u1', { user_id: 'u1', last_active_at: LATER });
-  assert.equal(AdminUserRowBuilder.build(userRecord({ last_login_at: EARLIER }), lookups).last_active_at, LATER);
+  assert.equal(AdminUserRowBuilder.buildUserRow(userRecord({ last_login_at: EARLIER }), lookups).last_active_at, LATER);
 
   lookups.sessions.set('u1', { user_id: 'u1', last_active_at: EARLIER });
-  assert.equal(AdminUserRowBuilder.build(userRecord({ last_login_at: LATER }), lookups).last_active_at, LATER);
+  assert.equal(AdminUserRowBuilder.buildUserRow(userRecord({ last_login_at: LATER }), lookups).last_active_at, LATER);
 });
 
 test('last active falls back to whichever one exists', () => {
-  assert.equal(AdminUserRowBuilder.build(userRecord({ last_login_at: EARLIER }), emptyLookups()).last_active_at, EARLIER);
+  assert.equal(AdminUserRowBuilder.buildUserRow(userRecord({ last_login_at: EARLIER }), emptyLookups()).last_active_at, EARLIER);
 
   const lookups = emptyLookups();
   lookups.sessions.set('u1', { user_id: 'u1', last_active_at: LATER });
-  assert.equal(AdminUserRowBuilder.build(userRecord(), lookups).last_active_at, LATER);
+  assert.equal(AdminUserRowBuilder.buildUserRow(userRecord(), lookups).last_active_at, LATER);
 });
 
 test('the OneNote integration carries only its status and last sync', () => {
   const lookups = emptyLookups();
   lookups.onenote.set('u1', { user_id: 'u1', status: OneNoteConnectionStatus.NeedsReauth, last_synced_at: EARLIER });
-  const row = AdminUserRowBuilder.build(userRecord(), lookups);
+  const row = AdminUserRowBuilder.buildUserRow(userRecord(), lookups);
   assert.deepEqual(row.integrations, {
     onenote: { status: OneNoteConnectionStatus.NeedsReauth, last_synced_at: EARLIER }
   });
@@ -93,7 +93,7 @@ test('listUsers joins each lookup onto its own user and passes paging through', 
     },
     conversation_repo: { countConversationsByUser: async () => [{ user_id: 'u1', count: 4 }] },
     onenote_repo: { listSummariesByUserIds: async () => [] },
-    session_repo: { latestActivityByUser: async () => [] }
+    session_repo: { findLatestSessionActivityByUser: async () => [] }
   });
 
   const page = await svc.listUsers({ limit: 2, offset: 4 });

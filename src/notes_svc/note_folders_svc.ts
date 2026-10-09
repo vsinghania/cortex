@@ -54,7 +54,7 @@ export class NoteFoldersSvc {
     return new NoteFoldersSvc(folder_repo, notes_svc);
   }
 
-  async listTree(params: { user_id: string }): Promise<NoteFolderNode[]> {
+  async listFolderTree(params: { user_id: string }): Promise<NoteFolderNode[]> {
     const [folders, counts] = await Promise.all([
       this.folder_repo.listFolders(params),
       this.notes_svc.countNotesByFolder(params)
@@ -74,7 +74,7 @@ export class NoteFoldersSvc {
    * Walks `Work/Clients`, creating any missing segment; idempotent. Returns the leaf and its
    * path as stored, which keeps existing folders' casing rather than the caller's.
    */
-  async ensurePath(params: { user_id: string; path: string }): Promise<{ folder: NoteFolder; path: string[]; created_count: number }> {
+  async ensureFolderPath(params: { user_id: string; path: string }): Promise<{ folder: NoteFolder; path: string[]; created_count: number }> {
     const segments = NoteFolderTree.parsePath(params.path);
     let parent: NoteFolder | null = null;
     const path: string[] = [];
@@ -88,7 +88,7 @@ export class NoteFoldersSvc {
       if (existing) {
         parent = existing;
       } else {
-        parent = await this.insertOrFetchConcurrent({ user_id: params.user_id, name, parent });
+        parent = await this.insertFolderOrFindConcurrentMatch({ user_id: params.user_id, name, parent });
         created_count++;
       }
       path.push(parent.name);
@@ -223,7 +223,7 @@ export class NoteFoldersSvc {
   }
 
   /** Two concurrent ensurePath calls can race to create the same segment; the loser reuses the winner's. */
-  private async insertOrFetchConcurrent(params: { user_id: string; name: string; parent: NoteFolder | null }): Promise<NoteFolder> {
+  private async insertFolderOrFindConcurrentMatch(params: { user_id: string; name: string; parent: NoteFolder | null }): Promise<NoteFolder> {
     try {
       return await this.insertFolder(params);
     } catch (err) {

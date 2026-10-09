@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Env } from '../../lib/env.js';
 import type { MailTransportKind } from '../types/mail.types.js';
 import { Time } from '../../lib/time.js';
 
@@ -22,22 +23,15 @@ export type MailerConfig = {
   smtp: SmtpConfig;
 };
 
-/**
- * Compose interpolates an unset `${VAR:-}` to an empty string, so '' has to mean
- * "not configured" rather than a value to validate.
- */
-const optionalEnv = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess((value) => (value === '' ? undefined : value), schema);
-
 const EnvSchema = z
   .object({
-    MAIL_TRANSPORT: optionalEnv(z.enum(['smtp']).default('smtp')),
+    MAIL_TRANSPORT: Env.normalizeEmptyStringAsUndefined(z.enum(['smtp']).default('smtp')),
     MAIL_FROM: z.string().trim().min(1),
     SMTP_HOST: z.string().trim().min(1),
-    SMTP_PORT: optionalEnv(z.coerce.number().int().min(1).max(65535).optional()),
-    SMTP_SECURE: optionalEnv(z.string().optional()),
-    SMTP_USER: optionalEnv(z.string().optional()),
-    SMTP_PASS: optionalEnv(z.string().optional())
+    SMTP_PORT: Env.normalizeEmptyStringAsUndefined(z.coerce.number().int().min(1).max(65535).optional()),
+    SMTP_SECURE: Env.normalizeEmptyStringAsUndefined(z.string().optional()),
+    SMTP_USER: Env.normalizeEmptyStringAsUndefined(z.string().optional()),
+    SMTP_PASS: Env.normalizeEmptyStringAsUndefined(z.string().optional())
   })
   .refine((env) => Boolean(env.SMTP_USER) === Boolean(env.SMTP_PASS), {
     message: 'SMTP_USER and SMTP_PASS must be set together',
@@ -57,7 +51,7 @@ export class MailerConfigLoader {
       smtp: {
         host: parsed.SMTP_HOST,
         port,
-        secure: MailerConfigLoader.readBool(parsed.SMTP_SECURE, port === IMPLICIT_TLS_SMTP_PORT),
+        secure: MailerConfigLoader.parseBooleanSetting(parsed.SMTP_SECURE, port === IMPLICIT_TLS_SMTP_PORT),
         auth: parsed.SMTP_USER && parsed.SMTP_PASS ? { user: parsed.SMTP_USER, pass: parsed.SMTP_PASS } : undefined,
         connection_timeout_ms: Time.secondsToMs(10),
         greeting_timeout_ms: Time.secondsToMs(10),
@@ -68,7 +62,7 @@ export class MailerConfigLoader {
     };
   }
 
-  private static readBool(raw: string | undefined, fallback: boolean): boolean {
+  private static parseBooleanSetting(raw: string | undefined, fallback: boolean): boolean {
     if (raw === undefined || raw.trim() === '') return fallback;
     return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
   }

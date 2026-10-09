@@ -22,7 +22,7 @@ export class OAuthProtocolError extends Error {
     this.name = 'OAuthProtocolError';
   }
 
-  toResponse(): { error: OAuthErrorCode; error_description: string } {
+  toOAuthErrorResponse(): { error: OAuthErrorCode; error_description: string } {
     return { error: this.code, error_description: this.description };
   }
 }

@@ -122,7 +122,7 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     return result.modifiedCount > 0;
   }
 
-  async updateForUser(params: {
+  async updateConversationForUser(params: {
     conversation_id: string;
     user_id: string;
     patch: ConversationPatch;
@@ -150,7 +150,7 @@ export class MongooseConversationRepository implements ConversationRepositoryInt
     return docs.map((d) => MongooseUtils.toDomain<ConversationMessage>(d));
   }
 
-  async nextTurn(conversation_id: string): Promise<number> {
+  async allocateNextTurnNumber(conversation_id: string): Promise<number> {
     const last = await this.msg_model
       .findOne({ conversation_id })
       .sort({ turn: -1 })

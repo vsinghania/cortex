@@ -54,7 +54,7 @@ export class NoteFilingSuggester {
 
   private constructor() {}
 
-  static async suggest(input: NoteFilingInput): Promise<{ suggestion: NoteFilingSuggestion; model: string }> {
+  static async suggestNoteFiling(input: NoteFilingInput): Promise<{ suggestion: NoteFilingSuggestion; model: string }> {
     const ai_svc = await AiSvc.getInstance();
     const { data, model } = await ai_svc.generateStructured<NoteFilingRawSuggestion>({
       messages: [
@@ -68,7 +68,7 @@ export class NoteFilingSuggester {
       },
       options: { max_tokens: NoteFilingSuggester.MAX_OUTPUT_TOKENS }
     });
-    return { suggestion: NoteFilingSuggester.sanitize(data, input), model };
+    return { suggestion: NoteFilingSuggester.sanitizeFilingSuggestion(data, input), model };
   }
 
   static hasTitle(title: string | undefined): boolean {
@@ -80,8 +80,8 @@ export class NoteFilingSuggester {
    * (folding case) and snapped to an existing tag's spelling, and a title is only kept
    * when the note did not already have one.
    */
-  static sanitize(raw: NoteFilingRawSuggestion, input: Pick<NoteFilingInput, 'title' | 'folders' | 'tags'>): NoteFilingSuggestion {
-    const folder = NoteFilingSuggester.matchedFolder(raw, input.folders);
+  static sanitizeFilingSuggestion(raw: NoteFilingRawSuggestion, input: Pick<NoteFilingInput, 'title' | 'folders' | 'tags'>): NoteFilingSuggestion {
+    const folder = NoteFilingSuggester.findClearlyMatchedFolder(raw, input.folders);
     return {
       title: NoteFilingSuggester.hasTitle(input.title) ? null : NoteFilingSuggester.sanitizeTitle(raw.title),
       folder: folder ? { id: folder.id, path: folder.path } : null,
@@ -89,7 +89,7 @@ export class NoteFilingSuggester {
     };
   }
 
-  private static matchedFolder(raw: NoteFilingRawSuggestion, folders: NoteFolderNode[]): NoteFolderNode | undefined {
+  private static findClearlyMatchedFolder(raw: NoteFilingRawSuggestion, folders: NoteFolderNode[]): NoteFolderNode | undefined {
     if (raw.folder_match !== 'clear' || !raw.folder_id) return undefined;
     return folders.find((f) => f.id === raw.folder_id);
   }

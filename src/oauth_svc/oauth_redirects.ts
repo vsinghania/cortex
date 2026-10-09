@@ -1,21 +1,37 @@
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+/** Schemes that run or read something locally instead of handing the code to an app. */
+const FORBIDDEN_SCHEMES = new Set(['javascript:', 'data:', 'file:', 'vbscript:', 'blob:', 'about:']);
 
 export class OAuthRedirects {
   private constructor() {}
+
+  /** Web redirects use HTTPS; native apps may use loopback HTTP or a private-use scheme. */
+  static isAllowedRedirectUri(raw: string): boolean {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      return false;
+    }
+    if (url.hash) return false;
+    if (url.protocol === 'https:') return true;
+    if (url.protocol === 'http:') return LOOPBACK_HOSTS.has(url.hostname);
+    return !FORBIDDEN_SCHEMES.has(url.protocol);
+  }
 
   /**
    * Exact match, except that a loopback redirect may use any port (RFC 8252 §7.3):
    * native apps and CLIs bind whatever port the OS hands them.
    */
-  static matchesRegistered(requested: string, registered: readonly string[]): boolean {
-    return registered.some((candidate) => candidate === requested || OAuthRedirects.sameLoopbackTarget(requested, candidate));
+  static matchesRegisteredRedirectUri(requested: string, registered: readonly string[]): boolean {
+    return registered.some((candidate) => candidate === requested || OAuthRedirects.matchesLoopbackRedirectTarget(requested, candidate));
   }
 
   /**
    * The authorization response back to the client. Always carries `iss` (RFC 9207), so a
    * client talking to several authorization servers can tell which one answered.
    */
-  static authorizationResponse(input: {
+  static buildAuthorizationResponseRedirect(input: {
     redirect_uri: string;
     issuer: string;
     state?: string;
@@ -28,7 +44,7 @@ export class OAuthRedirects {
     return url.toString();
   }
 
-  private static sameLoopbackTarget(requested: string, registered: string): boolean {
+  private static matchesLoopbackRedirectTarget(requested: string, registered: string): boolean {
     let req: URL;
     let reg: URL;
     try {

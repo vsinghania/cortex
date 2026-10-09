@@ -19,18 +19,18 @@ export class MongooseJobScheduleRepository implements JobScheduleRepository {
     return new MongooseJobScheduleRepository(MongooseJobScheduleRepository.factory.getModel(conn));
   }
 
-  async upsert(params: { schedule: JobSchedule }): Promise<JobSchedule> {
+  async upsertSchedule(params: { schedule: JobSchedule }): Promise<JobSchedule> {
     const { id, created_at, updated_at, ...rest } = params.schedule;
 
     const saved = await this.model
       .findOneAndUpdate(
         { id },
         {
-          $set: MongooseJobScheduleRepository.mutableFields(rest),
+          $set: MongooseJobScheduleRepository.getMutableScheduleFields(rest),
           // Seeded on insert only. next_run_at, so a redeploy does not reset the
           // clock every schedule is counting down to; enabled, so an operator who
           // disabled a schedule through the API is not silently overruled by the
-          // next boot. Toggling it afterwards goes through setEnabled.
+          // next boot. Toggling it afterwards goes through setScheduleEnabled.
           $setOnInsert: { id, next_run_at: rest.next_run_at, enabled: rest.enabled }
         },
         { upsert: true, returnDocument: 'after', lean: true }
@@ -40,7 +40,7 @@ export class MongooseJobScheduleRepository implements JobScheduleRepository {
     return MongooseUtils.toDomain<JobSchedule>(saved);
   }
 
-  async listDue(params: { now: Date; limit: number }): Promise<JobSchedule[]> {
+  async listDueSchedules(params: { now: Date; limit: number }): Promise<JobSchedule[]> {
     const docs = await this.model
       .find({ enabled: true, next_run_at: { $lte: params.now } })
       .sort({ next_run_at: 1 })
@@ -49,7 +49,7 @@ export class MongooseJobScheduleRepository implements JobScheduleRepository {
     return docs.map((d: unknown) => MongooseUtils.toDomain<JobSchedule>(d));
   }
 
-  async claimDue(params: {
+  async advanceDueSchedule(params: {
     id: string;
     expected_next_run_at: Date;
     next_run_at: Date;
@@ -68,22 +68,22 @@ export class MongooseJobScheduleRepository implements JobScheduleRepository {
     return claimed ? MongooseUtils.toDomain<JobSchedule>(claimed) : null;
   }
 
-  async recordRun(params: { id: string; last_job_id: string }): Promise<void> {
+  async recordScheduleRun(params: { id: string; last_job_id: string }): Promise<void> {
     await this.model.updateOne({ id: params.id }, { $set: { last_job_id: params.last_job_id } });
   }
 
-  async getById(id: string): Promise<JobSchedule | null> {
+  async getScheduleById(id: string): Promise<JobSchedule | null> {
     const found = await this.model.findOne({ id }).lean();
     return found ? MongooseUtils.toDomain<JobSchedule>(found) : null;
   }
 
-  async list(params?: { enabled?: boolean }): Promise<JobSchedule[]> {
+  async listSchedules(params?: { enabled?: boolean }): Promise<JobSchedule[]> {
     const filter = params?.enabled === undefined ? {} : { enabled: params.enabled };
     const docs = await this.model.find(filter).sort({ next_run_at: 1 }).lean();
     return docs.map((d: unknown) => MongooseUtils.toDomain<JobSchedule>(d));
   }
 
-  async setEnabled(params: { id: string; enabled: boolean; next_run_at?: Date }): Promise<JobSchedule | null> {
+  async setScheduleEnabled(params: { id: string; enabled: boolean; next_run_at?: Date }): Promise<JobSchedule | null> {
     const set: Record<string, unknown> = { enabled: params.enabled };
     // Re-enabling takes a fresh next_run_at, or a schedule disabled for a week
     // would fire the moment it came back.
@@ -95,13 +95,13 @@ export class MongooseJobScheduleRepository implements JobScheduleRepository {
     return updated ? MongooseUtils.toDomain<JobSchedule>(updated) : null;
   }
 
-  async delete(id: string): Promise<boolean> {
+  async deleteSchedule(id: string): Promise<boolean> {
     const result = await this.model.deleteOne({ id });
     return result.deletedCount > 0;
   }
 
   /** Everything a re-registration may overwrite - see the $setOnInsert above. */
-  private static mutableFields(
+  private static getMutableScheduleFields(
     rest: Omit<JobSchedule, 'id' | 'created_at' | 'updated_at'>
   ): Record<string, unknown> {
     const { next_run_at, enabled, ...mutable } = rest;

@@ -1,22 +1,16 @@
 import { z } from 'zod';
+import { Env } from '../../lib/env.js';
 import type { OneNoteOAuthConfig } from '../types/onenote_connection.types.js';
-
-/**
- * Compose interpolates an unset `${VAR:-}` to an empty string, so '' has to mean
- * "not configured" rather than a value to validate.
- */
-const optionalEnv = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess((value) => (value === '' ? undefined : value), schema);
 
 /** Both personal and work/school accounts, which is what `common` buys. */
 const DEFAULT_AUTHORITY = 'https://login.microsoftonline.com/common';
 
 const EnvSchema = z
   .object({
-    MS_OAUTH_CLIENT_ID: optionalEnv(z.string().trim().min(1).optional()),
-    MS_OAUTH_CLIENT_SECRET: optionalEnv(z.string().trim().min(1).optional()),
-    MS_OAUTH_REDIRECT_URI: optionalEnv(z.string().url().optional()),
-    MS_OAUTH_AUTHORITY: optionalEnv(z.string().url().optional())
+    MS_OAUTH_CLIENT_ID: Env.normalizeEmptyStringAsUndefined(z.string().trim().min(1).optional()),
+    MS_OAUTH_CLIENT_SECRET: Env.normalizeEmptyStringAsUndefined(z.string().trim().min(1).optional()),
+    MS_OAUTH_REDIRECT_URI: Env.normalizeEmptyStringAsUndefined(z.string().url().optional()),
+    MS_OAUTH_AUTHORITY: Env.normalizeEmptyStringAsUndefined(z.string().url().optional())
   })
   .refine((env) => Boolean(env.MS_OAUTH_CLIENT_ID) === Boolean(env.MS_OAUTH_CLIENT_SECRET), {
     message: 'MS_OAUTH_CLIENT_ID and MS_OAUTH_CLIENT_SECRET must be set together',

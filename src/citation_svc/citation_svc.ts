@@ -24,7 +24,7 @@ export class CitationSvc {
   static async getInstance(): Promise<CitationSvc> {
     if (CitationSvc.instance) return CitationSvc.instance;
     if (CitationSvc.in_flight) return CitationSvc.in_flight;
-    CitationSvc.in_flight = CitationSvc.loadInstance();
+    CitationSvc.in_flight = CitationSvc.loadCitationSvcInstance();
     return CitationSvc.in_flight;
   }
 
@@ -37,11 +37,11 @@ export class CitationSvc {
   }
 
   /** Pure and stateless, so it needs no instance. */
-  static extract(params: { tool_payloads: unknown[]; answer_text?: string }): Citation[] {
-    return CitationExtractor.extract(params);
+  static extractCitations(params: { tool_payloads: unknown[]; answer_text?: string }): Citation[] {
+    return CitationExtractor.extractCitations(params);
   }
 
-  register(resolver: DocumentResolver): void {
+  registerDocumentResolver(resolver: DocumentResolver): void {
     if (this.resolvers.has(resolver.corpus)) {
       logger.warn(
         { corpus: resolver.corpus },
@@ -56,8 +56,8 @@ export class CitationSvc {
     return Array.from(this.resolvers.keys());
   }
 
-  async resolve(params: { user_id: string; citations: Citation[] }): Promise<CitationView[]> {
-    const [views] = await this.resolveGroups({ user_id: params.user_id, groups: [params.citations] });
+  async resolveCitations(params: { user_id: string; citations: Citation[] }): Promise<CitationView[]> {
+    const [views] = await this.resolveCitationGroups({ user_id: params.user_id, groups: [params.citations] });
     return views;
   }
 
@@ -65,7 +65,7 @@ export class CitationSvc {
    * Resolves several citation lists with one query pass per corpus, so a whole transcript
    * costs the same as a single message. Output groups line up with the input groups.
    */
-  async resolveGroups(params: {
+  async resolveCitationGroups(params: {
     user_id: string;
     groups: Citation[][];
   }): Promise<CitationView[][]> {
@@ -73,10 +73,10 @@ export class CitationSvc {
     if (all.length === 0) return params.groups.map(() => []);
 
     const start_ms = performance.now();
-    const resolved_by_corpus = await this.resolveByCorpus(params.user_id, all);
+    const resolved_by_corpus = await this.resolveDocumentsByCorpus(params.user_id, all);
     const out = params.groups.map((group) =>
       group.map((citation) =>
-        CitationSvc.toView(citation, resolved_by_corpus.get(citation.corpus))
+        CitationSvc.toCitationView(citation, resolved_by_corpus.get(citation.corpus))
       )
     );
 
@@ -91,7 +91,7 @@ export class CitationSvc {
     return out;
   }
 
-  private async resolveByCorpus(
+  private async resolveDocumentsByCorpus(
     user_id: string,
     citations: Citation[]
   ): Promise<Map<Corpus, ResolvedDocuments>> {
@@ -111,7 +111,7 @@ export class CitationSvc {
           logger.warn({ corpus }, 'CitationSvc: no resolver registered for corpus');
           return null;
         }
-        const resolved = await resolver.resolve({
+        const resolved = await resolver.resolveDocuments({
           user_id,
           document_ids: Array.from(new Set(group.map((c) => c.document_id))),
           chunk_ids: Array.from(new Set(group.map((c) => c.chunk_id)))
@@ -123,7 +123,7 @@ export class CitationSvc {
     return new Map(entries.filter((e): e is NonNullable<typeof e> => e !== null));
   }
 
-  private static toView(citation: Citation, resolved?: ResolvedDocuments): CitationView {
+  private static toCitationView(citation: Citation, resolved?: ResolvedDocuments): CitationView {
     const title = resolved?.titles.get(citation.document_id);
     return {
       ...citation,
@@ -134,10 +134,10 @@ export class CitationSvc {
     };
   }
 
-  private static async loadInstance(): Promise<CitationSvc> {
+  private static async loadCitationSvcInstance(): Promise<CitationSvc> {
     try {
       const inst = new CitationSvc();
-      inst.register(new NotesDocumentResolver());
+      inst.registerDocumentResolver(new NotesDocumentResolver());
       CitationSvc.instance = inst;
       logger.info({ corpora: inst.listCorpora() }, 'CitationSvc bootstrap complete');
       return inst;

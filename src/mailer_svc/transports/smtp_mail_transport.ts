@@ -23,7 +23,7 @@ export class SmtpMailTransport implements MailTransport {
     return new SmtpMailTransport(transporter);
   }
 
-  async send(mail: OutboundMail): Promise<MailSendResult> {
+  async sendMail(mail: OutboundMail): Promise<MailSendResult> {
     let info: SMTPSentMessageInfo;
     try {
       info = await this.transporter.sendMail({
@@ -34,7 +34,7 @@ export class SmtpMailTransport implements MailTransport {
         html: mail.html
       });
     } catch (err) {
-      throw SmtpErrorClassifier.classify(err);
+      throw SmtpErrorClassifier.classifyDeliveryError(err);
     }
 
     if (info.rejected.length > 0) {
@@ -43,11 +43,11 @@ export class SmtpMailTransport implements MailTransport {
     return { message_id: info.messageId };
   }
 
-  async verify(): Promise<void> {
+  async verifyTransportConnection(): Promise<void> {
     try {
       await this.transporter.verify();
     } catch (err) {
-      throw SmtpErrorClassifier.classify(err);
+      throw SmtpErrorClassifier.classifyDeliveryError(err);
     }
   }
 }

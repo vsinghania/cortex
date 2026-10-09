@@ -79,9 +79,9 @@ async function main(): Promise<void> {
     // silently lost `payload` on the create() path while the upsert path kept it.
     await conn.collection('jobs').deleteMany({});
     const job = buildJob({ payload: {} });
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
-    const stored = await repo.getById(job.id);
+    const stored = await repo.getJobById(job.id);
     assert.deepEqual(stored!.payload, {}, 'payload must not vanish');
 
     const raw = await conn.collection('jobs').findOne({ id: job.id });
@@ -91,13 +91,13 @@ async function main(): Promise<void> {
   console.log('\nclaim');
   await check('two workers racing claim different jobs, never the same one', async () => {
     await conn.collection('jobs').deleteMany({});
-    await repo.enqueue({ job: buildJob() });
-    await repo.enqueue({ job: buildJob() });
+    await repo.enqueueJob({ job: buildJob() });
+    await repo.enqueueJob({ job: buildJob() });
 
     const now = new Date();
     const [a, b] = await Promise.all([
-      repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now }),
-      repo.claimNext({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now })
+      repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now }),
+      repo.claimNextJob({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now })
     ]);
 
     assert.ok(a && b, 'both workers should get a job');
@@ -108,23 +108,23 @@ async function main(): Promise<void> {
 
   await check('a claimed job is invisible until its lease lapses', async () => {
     await conn.collection('jobs').deleteMany({});
-    await repo.enqueue({ job: buildJob() });
+    await repo.enqueueJob({ job: buildJob() });
     const now = new Date();
 
-    assert.ok(await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now }));
-    assert.equal(await repo.claimNext({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now }), null);
+    assert.ok(await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now }));
+    assert.equal(await repo.claimNextJob({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now }), null);
   });
 
   await check('an expired lease is reclaimed by the claim itself, with no reaper', async () => {
     await conn.collection('jobs').deleteMany({});
     const job = buildJob();
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
     const t0 = new Date();
-    const first = await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: t0 });
+    const first = await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: t0 });
 
     const after_expiry = new Date(t0.getTime() + LEASE_MS + 1000);
-    const reclaimed = await repo.claimNext({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now: after_expiry });
+    const reclaimed = await repo.claimNextJob({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now: after_expiry });
 
     assert.ok(reclaimed, 'expired lease was not reclaimed');
     assert.equal(reclaimed!.id, job.id);
@@ -140,24 +140,24 @@ async function main(): Promise<void> {
     await conn.collection('jobs').deleteMany({});
     const now = new Date();
     const later = new Date(now.getTime() + Time.minutesToMs(5));
-    await repo.enqueue({ job: buildJob({ run_at: later, visible_at: later }) });
+    await repo.enqueueJob({ job: buildJob({ run_at: later, visible_at: later }) });
 
-    assert.equal(await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now }), null);
-    assert.ok(await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: later }));
+    assert.equal(await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now }), null);
+    assert.ok(await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: later }));
   });
 
   console.log('\nfencing');
   await check('a stalled worker cannot complete a job that was reclaimed', async () => {
     await conn.collection('jobs').deleteMany({});
     const job = buildJob();
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
     const t0 = new Date();
-    await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: t0 });
+    await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: t0 });
     const after_expiry = new Date(t0.getTime() + LEASE_MS + 1000);
-    await repo.claimNext({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now: after_expiry });
+    await repo.claimNextJob({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now: after_expiry });
 
-    const stale_write = await repo.complete({
+    const stale_write = await repo.completeJob({
       job_id: job.id,
       worker_id: 'ctr-a',
       now: after_expiry,
@@ -165,7 +165,7 @@ async function main(): Promise<void> {
     });
     assert.equal(stale_write, false, 'the zombie worker overwrote the new owner');
 
-    const still_running = await repo.getById(job.id);
+    const still_running = await repo.getJobById(job.id);
     assert.equal(still_running!.status, JobStatus.Running);
     assert.equal(still_running!.locked_by, 'ctr-b');
   });
@@ -173,14 +173,14 @@ async function main(): Promise<void> {
   await check('a lost lease surfaces as a null heartbeat', async () => {
     await conn.collection('jobs').deleteMany({});
     const job = buildJob();
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
     const t0 = new Date();
-    await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: t0 });
+    await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: t0 });
     const after_expiry = new Date(t0.getTime() + LEASE_MS + 1000);
-    await repo.claimNext({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now: after_expiry });
+    await repo.claimNextJob({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now: after_expiry });
 
-    const beat = await repo.heartbeat({
+    const beat = await repo.renewJobLease({
       job_id: job.id,
       worker_id: 'ctr-a',
       now: after_expiry,
@@ -192,8 +192,8 @@ async function main(): Promise<void> {
   console.log('\nsingle-flight');
   await check('a second active job with the same dedup key is refused', async () => {
     await conn.collection('jobs').deleteMany({});
-    const first = await repo.enqueue({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
-    const second = await repo.enqueue({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
+    const first = await repo.enqueueJob({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
+    const second = await repo.enqueueJob({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
 
     assert.equal(first.created, true);
     assert.equal(second.created, false, 'duplicate enqueue was allowed');
@@ -203,19 +203,19 @@ async function main(): Promise<void> {
 
   await check('the lock spans the run, not just the queued window', async () => {
     await conn.collection('jobs').deleteMany({});
-    await repo.enqueue({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
-    await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: new Date() });
+    await repo.enqueueJob({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
+    await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: new Date() });
 
-    const during = await repo.enqueue({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
+    const during = await repo.enqueueJob({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
     assert.equal(during.created, false, 'a second sweep was enqueued while one was running');
   });
 
   await check('the same key scoped to two users does not collide', async () => {
     await conn.collection('jobs').deleteMany({});
-    const xyz = await repo.enqueue({
+    const xyz = await repo.enqueueJob({
       job: buildJob({ dedup_key: 'reindex', dedup_active: true, user_id: 'xyz' })
     });
-    const abc = await repo.enqueue({
+    const abc = await repo.enqueueJob({
       job: buildJob({ dedup_key: 'reindex', dedup_active: true, user_id: 'abc' })
     });
 
@@ -226,18 +226,18 @@ async function main(): Promise<void> {
   await check('finishing a job frees the key for the next enqueue', async () => {
     await conn.collection('jobs').deleteMany({});
     const job = buildJob({ dedup_key: 'sweep', dedup_active: true });
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
     const now = new Date();
-    await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now });
-    await repo.complete({ job_id: job.id, worker_id: 'ctr-a', now, retention_sec: 60 });
+    await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now });
+    await repo.completeJob({ job_id: job.id, worker_id: 'ctr-a', now, retention_sec: 60 });
 
-    const done = await repo.getById(job.id);
+    const done = await repo.getJobById(job.id);
     assert.equal(done!.status, JobStatus.Succeeded);
     assert.equal((done as any).dedup_active, undefined, 'dedup_active must be unset at terminal');
     assert.ok(done!.expires_at, 'expires_at must be set to arm the TTL');
 
-    const next = await repo.enqueue({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
+    const next = await repo.enqueueJob({ job: buildJob({ dedup_key: 'sweep', dedup_active: true }) });
     assert.equal(next.created, true, 'the key was not released');
   });
 
@@ -245,45 +245,45 @@ async function main(): Promise<void> {
   await check('release hands the job back without burning an attempt', async () => {
     await conn.collection('jobs').deleteMany({});
     const job = buildJob();
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
     const now = new Date();
-    const claimed = await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now });
+    const claimed = await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now });
     assert.equal(claimed!.attempts, 1);
 
-    await repo.release({
+    await repo.releaseJobLease({
       job_id: job.id,
       worker_id: 'ctr-a',
       now,
       checkpoint: { after_id: 'note-42' }
     });
 
-    const released = await repo.getById(job.id);
+    const released = await repo.getJobById(job.id);
     assert.equal(released!.status, JobStatus.Queued);
     assert.equal(released!.attempts, 1, 'release must not burn an attempt');
     assert.equal(released!.locked_by, null);
     assert.deepEqual(released!.checkpoint, { after_id: 'note-42' });
 
-    assert.ok(await repo.claimNext({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now }));
+    assert.ok(await repo.claimNextJob({ worker_id: 'ctr-b', lease_ms: LEASE_MS, now }));
   });
 
   await check('a queued job cancels outright; a running one is only flagged', async () => {
     await conn.collection('jobs').deleteMany({});
     const queued = buildJob();
     const running = buildJob();
-    await repo.enqueue({ job: queued });
-    await repo.enqueue({ job: running });
+    await repo.enqueueJob({ job: queued });
+    await repo.enqueueJob({ job: running });
 
     const now = new Date();
-    const cancelled = await repo.requestCancel({ job_id: queued.id, now, retention_sec: 60 });
+    const cancelled = await repo.requestJobCancellation({ job_id: queued.id, now, retention_sec: 60 });
     assert.equal(cancelled!.status, JobStatus.Cancelled);
 
-    await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now });
-    const flagged = await repo.requestCancel({ job_id: running.id, now, retention_sec: 60 });
+    await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now });
+    const flagged = await repo.requestJobCancellation({ job_id: running.id, now, retention_sec: 60 });
     assert.equal(flagged!.status, JobStatus.Running);
     assert.equal(flagged!.cancel_requested, true);
 
-    const beat = await repo.heartbeat({
+    const beat = await repo.renewJobLease({
       job_id: running.id,
       worker_id: 'ctr-a',
       now,
@@ -296,13 +296,13 @@ async function main(): Promise<void> {
   await check('heartbeat extends the lease and flushes progress', async () => {
     await conn.collection('jobs').deleteMany({});
     const job = buildJob();
-    await repo.enqueue({ job });
+    await repo.enqueueJob({ job });
 
     const t0 = new Date();
-    await repo.claimNext({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: t0 });
+    await repo.claimNextJob({ worker_id: 'ctr-a', lease_ms: LEASE_MS, now: t0 });
 
     const t1 = new Date(t0.getTime() + Time.secondsToMs(30));
-    await repo.heartbeat({
+    await repo.renewJobLease({
       job_id: job.id,
       worker_id: 'ctr-a',
       now: t1,
@@ -311,7 +311,7 @@ async function main(): Promise<void> {
       checkpoint: { after_id: 'note-12' }
     });
 
-    const beaten = await repo.getById(job.id);
+    const beaten = await repo.getJobById(job.id);
     assert.equal(beaten!.progress.processed, 12);
     assert.equal(beaten!.progress.total, 100);
     assert.deepEqual(beaten!.checkpoint, { after_id: 'note-12' });

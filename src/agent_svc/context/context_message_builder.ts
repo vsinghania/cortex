@@ -17,7 +17,7 @@ export class ContextMessageBuilder {
 
   private constructor() {}
 
-  static build(doc: ContextDocument, max_tokens = ContextMessageBuilder.MAX_DOCUMENT_TOKENS): ContextMessage {
+  static buildContextMessage(doc: ContextDocument, max_tokens = ContextMessageBuilder.MAX_DOCUMENT_TOKENS): ContextMessage {
     const body = Tokenizer.truncate(doc.body, max_tokens);
     const truncated = body !== doc.body;
     const text = [

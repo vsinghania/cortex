@@ -13,8 +13,8 @@ const POLICY: RetryPolicy = {
   jitter: 'none'
 };
 
-const decide = (over: Partial<Parameters<typeof JobRetryDecision.decide>[0]>) =>
-  JobRetryDecision.decide({
+const decide = (over: Partial<Parameters<typeof JobRetryDecision.decideJobRetry>[0]>) =>
+  JobRetryDecision.decideJobRetry({
     attempts: 1,
     max_attempts: POLICY.max_attempts,
     policy: POLICY,
