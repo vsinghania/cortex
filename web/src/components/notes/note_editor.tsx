@@ -4,6 +4,7 @@ import type { Note, NotePatchBody } from '../../lib/note.types';
 import type { NoteFolderNode } from '../../lib/note_folder.types';
 import type { ReturnLinkState } from '../../lib/navigation.types';
 import { DateFormat } from '../../lib/date_format';
+import { ApiError } from '../../lib/api_client';
 import type { FolderTreeNode, NoteDraftFields, OutlineRequest } from '../../lib/note_workspace.types';
 import { useNoteAutosave } from '../../lib/use_note_autosave';
 import { useFilingSuggestion } from '../../lib/use_filing_suggestion';
@@ -19,6 +20,7 @@ import { MobileNoteBar } from './mobile_note_bar';
 import { TagEditor } from './tag_editor';
 import { CitationSourceView } from './citation_source_view';
 import { FilingSuggestionCard } from './filing_suggestion_card';
+import { useToast } from '../toast';
 import type { EditorMode } from './note_mode_switch';
 
 const RELATIVE_TIME_TICK_MS = 30_000;
@@ -36,6 +38,11 @@ type Props = {
   list_collapsed: boolean;
   outline_request: OutlineRequest | null;
   chat_open: boolean;
+  preferred_mode: EditorMode;
+  onModeChange: (mode: EditorMode) => void;
+  onRefresh: () => Promise<Note | null>;
+  deleted: boolean;
+  onDeleted: () => void;
   /** Receives this editor's autosave flush, so the note chat can save pending edits before asking. */
   flush_ref: MutableRefObject<(() => Promise<void>) | null>;
   onToggleList: () => void;
@@ -52,7 +59,7 @@ type Props = {
 };
 
 /**
- * Owns the title and body while open and never re-reads them from props, so a save
+ * Owns the title and body while open and only replaces them on an explicit refresh, so a save
  * response or a list refresh can't yank text out from under the cursor. The page keys
  * this component by note, which is what resets it.
  */
@@ -63,6 +70,7 @@ export function NoteEditor(props: Props) {
   // it with a 403; this just stops inviting it.
   const imported = !!note && note.source !== 'native';
   const is_mobile = useIsMobile();
+  const toast = useToast();
   const [title, set_title] = useState(note?.title === UNTITLED_NOTE_TITLE ? '' : note?.title ?? '');
   const [body, set_body] = useState(note?.body ?? '');
 
@@ -76,7 +84,10 @@ export function NoteEditor(props: Props) {
     set_title(imported_title === UNTITLED_NOTE_TITLE ? '' : imported_title);
     set_body(imported_body);
   }, [imported_title, imported_body]);
-  const [mode, set_mode] = useState<EditorMode>('edit');
+  const [mode, set_mode] = useState<EditorMode>(() => note ? props.preferred_mode : 'edit');
+  const [refreshing, set_refreshing] = useState(false);
+  const refreshing_ref = useRef(false);
+  const mounted_ref = useRef(true);
   const [create_error, set_create_error] = useState<string | null>(null);
   const title_value_ref = useRef(title);
   const body_value_ref = useRef(body);
@@ -86,7 +97,14 @@ export function NoteEditor(props: Props) {
   const title_el_ref = useRef<HTMLTextAreaElement>(null);
   const body_el_ref = useRef<HTMLTextAreaElement>(null);
   const scroll_ref = useRef<HTMLDivElement>(null);
-  const autosave = useNoteAutosave({ note_id: note?.id ?? null, onSaved: props.onSaved });
+  const autosave = useNoteAutosave({
+    note_id: note?.id ?? null,
+    disabled: props.deleted,
+    onSaved: props.onSaved,
+    onSaveFailed: (err) => {
+      if (err instanceof ApiError && err.status === 404) props.onDeleted();
+    },
+  });
   const filing = useFilingSuggestion();
   // Tag adds build on the last tags sent, so a second click doesn't overwrite a first still in flight.
   const tags_basis_ref = useRef(note?.tags ?? []);
@@ -95,12 +113,48 @@ export function NoteEditor(props: Props) {
 
   const { flush_ref } = props;
   useEffect(() => {
-    const flush = autosave.flush;
+    const flush = async () => { await autosave.flush(); };
     flush_ref.current = flush;
     return () => {
       if (flush_ref.current === flush) flush_ref.current = null;
     };
   }, [flush_ref, autosave.flush]);
+
+  useEffect(() => {
+    mounted_ref.current = true;
+    return () => { mounted_ref.current = false; };
+  }, []);
+
+  const changeEditorMode = (next: EditorMode) => {
+    set_mode(next);
+    props.onModeChange(next);
+  };
+
+  const refreshNoteContent = async () => {
+    if (!note || props.deleted || refreshing_ref.current) return;
+    refreshing_ref.current = true;
+    set_refreshing(true);
+    try {
+      const saved = await autosave.flush();
+      if (!mounted_ref.current) return;
+      if (!saved) {
+        toast.show({ message: "Couldn't save your edits. Refresh stopped so you can retry saving.", tone: 'error' });
+        return;
+      }
+      const fresh_note = await props.onRefresh();
+      if (!fresh_note || !mounted_ref.current) return;
+      const fresh_title = fresh_note.title === UNTITLED_NOTE_TITLE ? '' : fresh_note.title;
+      set_title(fresh_title);
+      set_body(fresh_note.body);
+      title_value_ref.current = fresh_title;
+      body_value_ref.current = fresh_note.body;
+    } catch (err) {
+      if (mounted_ref.current) toast.show({ message: err instanceof Error ? err.message : "Couldn't refresh the note.", tone: 'error' });
+    } finally {
+      refreshing_ref.current = false;
+      if (mounted_ref.current) set_refreshing(false);
+    }
+  };
 
   // Every save returns a fresh tags array; only a real change should reset the basis.
   const note_tags_key = JSON.stringify(note?.tags ?? []);
@@ -145,6 +199,7 @@ export function NoteEditor(props: Props) {
   }
 
   function handleTitleChange(value: string) {
+    if (refreshing_ref.current || props.deleted) return;
     set_title(value);
     title_value_ref.current = value;
     if (!note) return void createFromDraft({ retry: false });
@@ -153,6 +208,7 @@ export function NoteEditor(props: Props) {
   }
 
   function handleBodyChange(value: string) {
+    if (refreshing_ref.current || props.deleted) return;
     set_body(value);
     body_value_ref.current = value;
     if (!note) return void createFromDraft({ retry: false });
@@ -207,7 +263,7 @@ export function NoteEditor(props: Props) {
   const filing_done = filing_applied && !!pending_filing && NoteFiling.isEmpty(pending_filing);
   // The citation view is read-only, so there is nothing to suggest a filing for.
   const suggest_control = chunk_id ? null : {
-    disabled: !title.trim() && !body.trim(),
+    disabled: props.deleted || refreshing || (!title.trim() && !body.trim()),
     busy: filing.state.status === 'loading',
     onRequest: requestFiling,
   };
@@ -227,12 +283,15 @@ export function NoteEditor(props: Props) {
           folders_by_id={props.folders_by_id}
           folder_tree={props.folder_tree}
           mode={mode}
+          refreshing={refreshing}
+          deleted={props.deleted}
+          onRefresh={() => void refreshNoteContent()}
           show_mode={!chunk_id && !imported}
           suggest={suggest_control}
           onBack={props.onBack ?? (() => void 0)}
           onOpenChat={props.onOpenChat ?? (() => void 0)}
           onOpenDetails={props.onOpenDetails ?? (() => void 0)}
-          onModeChange={set_mode}
+          onModeChange={changeEditorMode}
           onOrganize={props.onOrganize}
           onDelete={props.onDelete}
         />
@@ -243,12 +302,15 @@ export function NoteEditor(props: Props) {
           folders_by_id={props.folders_by_id}
           folder_tree={props.folder_tree}
           mode={mode}
+          refreshing={refreshing}
+          deleted={props.deleted}
+          onRefresh={() => void refreshNoteContent()}
           show_mode={!chunk_id && !imported}
           list_collapsed={props.list_collapsed}
           chat_open={props.chat_open}
           onToggleList={props.onToggleList}
           onToggleChat={props.onToggleChat}
-          onModeChange={set_mode}
+          onModeChange={changeEditorMode}
           suggest={suggest_control}
           onOrganize={props.onOrganize}
           onDelete={props.onDelete}
@@ -257,6 +319,12 @@ export function NoteEditor(props: Props) {
 
       <div className="editor-scroll" ref={scroll_ref}>
         <div className="editor-column">
+          {props.deleted && (
+            <div className="form-error" role="alert">
+              This note was deleted. Your open text is kept here to copy; changes cannot be saved.{' '}
+              <button type="button" className="link-btn" onClick={props.onBack}>Back to notes</button>
+            </div>
+          )}
           <textarea
             ref={title_el_ref}
             className={`editor-title${note?.is_archived ? ' editor-title-archived' : ''}`}
@@ -265,13 +333,13 @@ export function NoteEditor(props: Props) {
             placeholder={UNTITLED_NOTE_TITLE}
             aria-label="Title"
             spellCheck={false}
-            readOnly={!!chunk_id || imported}
+            readOnly={!!chunk_id || imported || refreshing || props.deleted}
             onChange={(e) => handleTitleChange(e.target.value.replace(/\n/g, ' '))}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                set_mode('edit');
-                body_el_ref.current?.focus();
+                changeEditorMode('edit');
+                window.requestAnimationFrame(() => body_el_ref.current?.focus());
               }
             }}
           />
@@ -289,8 +357,8 @@ export function NoteEditor(props: Props) {
             {note && (
               <>
                 <span className="meta-dot" aria-hidden="true">·</span>
-                <TagEditor tags={note.tags} onChange={(tags) => props.onOrganize({ tags })} />
-                {imported && (
+                {props.deleted ? <span className="mono-meta">{note.tags.join(', ')}</span> : <TagEditor tags={note.tags} onChange={(tags) => props.onOrganize({ tags })} />}
+                {imported && !props.deleted && (
                   <>
                     <span className="meta-dot" aria-hidden="true">·</span>
                     <ImportedNoteMeta note={note} onSynced={props.onSaved} />
@@ -300,7 +368,7 @@ export function NoteEditor(props: Props) {
             )}
           </div>
 
-          {note && !chunk_id && filing.state.status !== 'idle' && (
+          {note && !props.deleted && !refreshing && !chunk_id && filing.state.status !== 'idle' && (
             <FilingSuggestionCard
               state={filing.state}
               pending={pending_filing}
@@ -327,6 +395,7 @@ export function NoteEditor(props: Props) {
               placeholder="Start writing… markdown supported."
               aria-label="Note body"
               spellCheck
+              readOnly={refreshing || props.deleted}
               onChange={(e) => handleBodyChange(e.target.value)}
               onBlur={() => void autosave.flush()}
             />
@@ -337,12 +406,14 @@ export function NoteEditor(props: Props) {
       </div>
 
       <div className="editor-status">
-        <AutosaveStatusLine
-          note={note}
-          status={create_error ? 'error' : autosave.status}
-          onRetry={() => void (note ? autosave.flush() : createFromDraft({ retry: true }))}
-          is_empty_draft={!note && !title.trim() && !body.trim()}
-        />
+        {props.deleted ? <span>note deleted · copy text before leaving</span> : (
+          <AutosaveStatusLine
+            note={note}
+            status={create_error ? 'error' : autosave.status}
+            onRetry={() => void (note ? autosave.flush() : createFromDraft({ retry: true }))}
+            is_empty_draft={!note && !title.trim() && !body.trim()}
+          />
+        )}
         <span>markdown</span>
       </div>
     </main>

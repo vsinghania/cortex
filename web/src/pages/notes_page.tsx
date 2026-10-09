@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ApiClient } from '../lib/api_client';
+import { ApiClient, ApiError } from '../lib/api_client';
 import type { Note, NoteBulkAction, NotePatchBody, NoteTagCount } from '../lib/note.types';
 import type { NoteFolderNode } from '../lib/note_folder.types';
 import type { ReturnLinkState } from '../lib/navigation.types';
@@ -51,12 +51,16 @@ export function NotesPage() {
   const [search_params] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const location_key_ref = useRef(location.key);
+  location_key_ref.current = location.key;
   const toast = useToast();
   const is_mobile = useIsMobile();
   const chrome = useChromeCollapse<HTMLDivElement>();
 
   const filters = useMemo(() => NoteFilterParams.fromSearch(search_params), [search_params]);
   const filter_search = NoteFilterParams.toSearch(filters);
+  const filter_search_ref = useRef(filter_search);
+  filter_search_ref.current = filter_search;
   const chunk_id = search_params.get('chunk');
   const return_link = location.state as ReturnLinkState | null;
   const is_draft = route_note_id === AppRoutes.NEW_NOTE_SEGMENT;
@@ -66,6 +70,11 @@ export function NotesPage() {
   const [tags, set_tags] = useState<NoteTagCount[]>([]);
   const [list_collapsed, set_list_collapsed] = usePersistedFlag('cortex.listCollapsed', false);
   const [chat_open, set_chat_open] = usePersistedFlag('cortex.noteChatOpen', false);
+  const [preview_preferred, set_preview_preferred] = usePersistedFlag('cortex.notePreviewPreferred', false);
+  const [folder_refreshing, set_folder_refreshing] = useState(false);
+  const [deleted_note_id, set_deleted_note_id] = useState<string | null>(null);
+  const selected_id_ref = useRef(selected_id);
+  selected_id_ref.current = selected_id;
   const [sheet_tab, set_sheet_tab] = useState<NoteRailTab | null>(null);
   const [folder_sheet_open, set_folder_sheet_open] = useState(false);
   const [draft_session, set_draft_session] = useState(0);
@@ -86,20 +95,24 @@ export function NotesPage() {
   const folders_by_id = useMemo(() => FolderTree.byId(folders), [folders]);
   const folder_tree = useMemo(() => FolderTree.build(folders), [folders]);
 
-  const loadFolders = useCallback(async () => {
+  const loadFolders = useCallback(async (revalidate = false) => {
     try {
-      const res = await ApiClient.listFolders();
+      const res = await ApiClient.listFolders(revalidate);
       set_folders(res.folders);
-    } catch {
+      return res.folders;
+    } catch (err) {
+      if (revalidate) throw err;
       // The tree is navigation only; notes still list and open without it.
+      return null;
     }
   }, []);
 
-  const loadTags = useCallback(async () => {
+  const loadTags = useCallback(async (revalidate = false) => {
     try {
-      const res = await ApiClient.listNoteTags();
+      const res = await ApiClient.listNoteTags(revalidate);
       set_tags(res.tags);
-    } catch {
+    } catch (err) {
+      if (revalidate) throw err;
       set_tags([]);
     }
   }, []);
@@ -144,6 +157,52 @@ export function NotesPage() {
   const flushEditor = useCallback(async () => {
     await flush_ref.current?.();
   }, []);
+
+  const refreshFolder = async () => {
+    if (folder_refreshing || list.loading) return;
+    set_folder_refreshing(true);
+    try {
+      const results = await Promise.allSettled([list.refresh(), loadFolders(true), loadTags(true), checkOpenNoteExists()]);
+      const folder_result = results[1];
+      if (location_key_ref.current === location.key && filter_search_ref.current === filter_search
+        && folder_result.status === 'fulfilled' && folder_result.value && NoteFilterParams.isRealFolder(filters.folder)
+        && !folder_result.value.some((folder) => folder.id === filters.folder)) {
+        replaceFilters({ ...filters, folder: null });
+        toast.show({ message: 'This folder was deleted. Showing All notes.' });
+      }
+      if (results.some((result) => result.status === 'rejected')) {
+        toast.show({ message: "Couldn't refresh folders or tags. Try again.", tone: 'error' });
+      }
+    } finally {
+      set_folder_refreshing(false);
+    }
+  };
+
+  const checkOpenNoteExists = async () => {
+    if (!selected_id) return;
+    try {
+      await ApiClient.getNote(selected_id, true);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404 && selected_id_ref.current === selected_id) {
+        set_deleted_note_id(selected_id);
+      }
+    }
+  };
+
+  const refreshOpenNote = async () => {
+    try {
+      const note = await current.refreshNote();
+      if (note) list.updateLocal(note);
+      return note;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404 && selected_id_ref.current === selected_id) {
+        set_deleted_note_id(selected_id);
+        if (selected_id) list.removeLocal(selected_id);
+        return null;
+      }
+      throw err;
+    }
+  };
 
   async function handleCreate(fields: NoteDraftFields): Promise<Note> {
     const { note } = await ApiClient.createNote({
@@ -342,8 +401,16 @@ export function NotesPage() {
         />
       );
     }
-    if (selected_id && current.error) {
-      return <EmptyPanel icon="notes" title="Note not found">{current.error}</EmptyPanel>;
+    if (selected_id && current.error && !editor_note) {
+      return (
+        <EmptyPanel
+          icon="notes"
+          title={current.missing ? 'Note not found' : 'Could not load note'}
+          actions={<button type="button" className="btn btn-outline" onClick={() => navigate(AppRoutes.notes(filter_search))}>Back to notes</button>}
+        >
+          {current.error}
+        </EmptyPanel>
+      );
     }
     if (!is_draft && !editor_note) {
       return <div className="editor-loading" aria-busy="true"><span className="dots"><i /><i /><i /></span></div>;
@@ -359,6 +426,11 @@ export function NotesPage() {
         list_collapsed={list_collapsed}
         outline_request={outline_request}
         chat_open={chat_open}
+        preferred_mode={preview_preferred ? 'preview' : 'edit'}
+        onModeChange={(mode) => set_preview_preferred(mode === 'preview')}
+        onRefresh={refreshOpenNote}
+        deleted={current.missing || (selected_id !== null && deleted_note_id === selected_id)}
+        onDeleted={() => selected_id_ref.current === selected_id && set_deleted_note_id(selected_id)}
         flush_ref={flush_ref}
         onToggleList={() => set_list_collapsed((c) => !c)}
         onToggleChat={() => set_chat_open((open) => !open)}
@@ -406,6 +478,8 @@ export function NotesPage() {
       selected_id={selected_id}
       search_ref={search_ref}
       folder_tree={folder_tree}
+      refreshing={folder_refreshing}
+      onRefresh={() => void refreshFolder()}
       onSelect={openNote}
       onOrganizeNote={(note, patch) => void organizeNote(note, patch)}
       onDeleteNote={set_note_to_delete}

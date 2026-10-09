@@ -17,6 +17,9 @@ type Props = {
   folders_by_id: Map<string, NoteFolderNode>;
   folder_tree: FolderTreeNode[];
   mode: EditorMode;
+  refreshing: boolean;
+  deleted: boolean;
+  onRefresh: () => void;
   show_mode: boolean;
   suggest: SuggestControl | null;
   onBack: () => void;
@@ -58,6 +61,19 @@ export function MobileNoteBar(props: Props) {
             <button
               type="button"
               className="m-action"
+              disabled={props.refreshing || props.deleted}
+              aria-busy={props.refreshing}
+              onClick={() => {
+                set_actions_open(false);
+                props.onRefresh();
+              }}
+            >
+              {props.refreshing ? <span className="spin-ring spin-ring-sm" aria-hidden="true" /> : <Icon name="refresh" size={17} />}
+              {props.refreshing ? 'Refreshing…' : 'Refresh current note'}
+            </button>
+            <button
+              type="button"
+              className="m-action"
               onClick={() => {
                 set_actions_open(false);
                 props.onOpenDetails();
@@ -66,7 +82,7 @@ export function MobileNoteBar(props: Props) {
               <Icon name="info" size={17} />
               Note details
             </button>
-            <button type="button" className="m-action" onClick={() => organize({ is_pinned: !note.is_pinned })}>
+            <button type="button" className="m-action" disabled={props.deleted} onClick={() => organize({ is_pinned: !note.is_pinned })}>
               <Icon name="pin" size={17} />
               {note.is_pinned ? 'Unpin note' : 'Pin note'}
             </button>
@@ -84,13 +100,14 @@ export function MobileNoteBar(props: Props) {
                 {props.suggest.busy ? 'Suggesting…' : 'Suggest title, folder and tags'}
               </button>
             )}
-            <button type="button" className="m-action" onClick={() => organize({ is_archived: !note.is_archived })}>
+            <button type="button" className="m-action" disabled={props.deleted} onClick={() => organize({ is_archived: !note.is_archived })}>
               <Icon name="archive" size={17} />
               {note.is_archived ? 'Unarchive note' : 'Archive note'}
             </button>
             <button
               type="button"
               className="m-action m-action-danger"
+              disabled={props.deleted}
               onClick={() => {
                 set_actions_open(false);
                 props.onDelete();
@@ -100,13 +117,17 @@ export function MobileNoteBar(props: Props) {
               Delete note
             </button>
 
-            <div className="m-actions-heading">Move to</div>
-            <FolderMoveList
-              tree={props.folder_tree}
-              current_folder_id={note.folder_id}
-              onMove={(folder_id) => organize({ folder_id })}
-              close={() => set_actions_open(false)}
-            />
+            {!props.deleted && (
+              <>
+                <div className="m-actions-heading">Move to</div>
+                <FolderMoveList
+                  tree={props.folder_tree}
+                  current_folder_id={note.folder_id}
+                  onMove={(folder_id) => organize({ folder_id })}
+                  close={() => set_actions_open(false)}
+                />
+              </>
+            )}
           </div>
         </BottomSheet>
       )}

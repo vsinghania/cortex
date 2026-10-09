@@ -327,7 +327,7 @@ export class ApiClient {
     await ApiClient.request<{ accepted: true }>('/auth/email/verify/resend', { method: 'POST' });
   }
 
-  static async listNotes(params: NoteListQuery = {}): Promise<NoteListResponse> {
+  static async listNotes(params: NoteListQuery = {}, revalidate = false): Promise<NoteListResponse> {
     const query = new URLSearchParams();
     if (params.limit != null) query.set('limit', String(params.limit));
     if (params.offset != null) query.set('offset', String(params.offset));
@@ -341,15 +341,15 @@ export class ApiClient {
     if (params.sort) query.set('sort', params.sort);
     if (params.order) query.set('order', params.order);
     const qs = query.toString();
-    return ApiClient.request<NoteListResponse>(`/notes${qs ? `?${qs}` : ''}`);
+    return ApiClient.request<NoteListResponse>(`/notes${qs ? `?${qs}` : ''}`, { cache: revalidate ? 'no-cache' : 'default' });
   }
 
-  static async listNoteTags(): Promise<{ tags: NoteTagCount[] }> {
-    return ApiClient.request<{ tags: NoteTagCount[] }>('/notes/tags');
+  static async listNoteTags(revalidate = false): Promise<{ tags: NoteTagCount[] }> {
+    return ApiClient.request<{ tags: NoteTagCount[] }>('/notes/tags', { cache: revalidate ? 'no-cache' : 'default' });
   }
 
-  static async getNote(id: string): Promise<{ note: Note }> {
-    return ApiClient.request<{ note: Note }>(`/notes/${encodeURIComponent(id)}`);
+  static async getNote(id: string, revalidate = false): Promise<{ note: Note }> {
+    return ApiClient.request<{ note: Note }>(`/notes/${encodeURIComponent(id)}`, { cache: revalidate ? 'no-cache' : 'default' });
   }
 
   static async getNoteChunk(note_id: string, chunk_id: string): Promise<{ chunk: NoteChunkRef }> {
@@ -392,8 +392,8 @@ export class ApiClient {
     });
   }
 
-  static async listFolders(): Promise<{ folders: NoteFolderNode[] }> {
-    return ApiClient.request<{ folders: NoteFolderNode[] }>('/notes/folders');
+  static async listFolders(revalidate = false): Promise<{ folders: NoteFolderNode[] }> {
+    return ApiClient.request<{ folders: NoteFolderNode[] }>('/notes/folders', { cache: revalidate ? 'no-cache' : 'default' });
   }
 
   static async createFolder(body: NoteFolderCreateBody): Promise<{ folder: NoteFolderNode }> {

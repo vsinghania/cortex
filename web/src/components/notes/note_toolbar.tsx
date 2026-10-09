@@ -19,6 +19,9 @@ type Props = {
   folders_by_id: Map<string, NoteFolderNode>;
   folder_tree: FolderTreeNode[];
   mode: EditorMode;
+  refreshing: boolean;
+  deleted: boolean;
+  onRefresh: () => void;
   show_mode: boolean;
   list_collapsed: boolean;
   chat_open: boolean;
@@ -60,6 +63,17 @@ export function NoteToolbar(props: Props) {
             <span className="toolbar-divider" aria-hidden="true" />
             <button
               type="button"
+              className="icon-btn toolbar-btn"
+              onClick={props.onRefresh}
+              disabled={props.refreshing || props.deleted}
+              aria-label="Refresh current note"
+              aria-busy={props.refreshing}
+              title="Refresh current note"
+            >
+              {props.refreshing ? <span className="spin-ring spin-ring-sm" aria-hidden="true" /> : <Icon name="refresh" size={15} />}
+            </button>
+            <button
+              type="button"
               className={`icon-btn toolbar-btn${props.chat_open ? ' icon-btn-accent' : ''}`}
               onClick={props.onToggleChat}
               aria-label={props.chat_open ? 'Close chat' : 'Chat about this note'}
@@ -68,28 +82,30 @@ export function NoteToolbar(props: Props) {
             >
               <Icon name="sparkle" size={15} />
             </button>
-            {props.suggest && <SuggestButton {...props.suggest} />}
+            {!props.deleted && props.suggest && <SuggestButton {...props.suggest} />}
             <button
               type="button"
               className={`icon-btn toolbar-btn${note.is_pinned ? ' icon-btn-accent' : ''}`}
               onClick={() => props.onOrganize({ is_pinned: !note.is_pinned })}
+              disabled={props.deleted}
               aria-label={note.is_pinned ? 'Unpin note' : 'Pin note'}
               aria-pressed={!!note.is_pinned}
               title={note.is_pinned ? 'Unpin' : 'Pin'}
             >
               <Icon name="pin" size={15} />
             </button>
-            <FolderPicker tree={props.folder_tree} current_folder_id={note.folder_id} onMove={(folder_id) => props.onOrganize({ folder_id })} />
+            {!props.deleted && <FolderPicker tree={props.folder_tree} current_folder_id={note.folder_id} onMove={(folder_id) => props.onOrganize({ folder_id })} />}
             <button
               type="button"
               className="icon-btn toolbar-btn"
               onClick={() => props.onOrganize({ is_archived: !note.is_archived })}
+              disabled={props.deleted}
               aria-label={note.is_archived ? 'Unarchive note' : 'Archive note'}
               title={note.is_archived ? 'Unarchive' : 'Archive'}
             >
               <Icon name="archive" size={15} />
             </button>
-            <button type="button" className="icon-btn toolbar-btn icon-btn-danger" onClick={props.onDelete} aria-label="Delete note" title="Delete">
+            <button type="button" className="icon-btn toolbar-btn icon-btn-danger" disabled={props.deleted} onClick={props.onDelete} aria-label="Delete note" title="Delete">
               <Icon name="trash" size={15} />
             </button>
           </>

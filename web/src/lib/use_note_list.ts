@@ -52,13 +52,13 @@ export function useNoteList(filters: NoteFilters): NoteList {
   items_ref.current = items;
 
   const load = useCallback(
-    async (limit: number) => {
+    async (limit: number, revalidate = false) => {
       const seq = ++request_seq.current;
       set_loading(true);
       try {
         const [pinned_res, items_res] = await Promise.all([
-          ApiClient.listNotes({ ...query, pinned: true, limit: PINNED_LIMIT }),
-          ApiClient.listNotes({ ...query, pinned: false, limit, offset: 0 }),
+          ApiClient.listNotes({ ...query, pinned: true, limit: PINNED_LIMIT }, revalidate),
+          ApiClient.listNotes({ ...query, pinned: false, limit, offset: 0 }, revalidate),
         ]);
         if (seq !== request_seq.current) return;
         set_pinned(pinned_res.items);
@@ -79,12 +79,12 @@ export function useNoteList(filters: NoteFilters): NoteList {
   }, [load]);
 
   const refresh = useCallback(
-    () => load(Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, items_ref.current.length))),
+    () => load(Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, items_ref.current.length)), true),
     [load],
   );
 
   const loadMore = useCallback(async () => {
-    if (loading_more || items_ref.current.length >= total) return;
+    if (loading || loading_more || items_ref.current.length >= total) return;
     const seq = request_seq.current;
     set_loading_more(true);
     try {
@@ -101,7 +101,7 @@ export function useNoteList(filters: NoteFilters): NoteList {
     } finally {
       set_loading_more(false);
     }
-  }, [loading_more, query, total]);
+  }, [loading, loading_more, query, total]);
 
   const find = useCallback(
     (id: string) => pinned_ref.current.find((n) => n.id === id) ?? items_ref.current.find((n) => n.id === id),

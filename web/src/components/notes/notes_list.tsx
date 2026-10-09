@@ -27,6 +27,8 @@ type Props = {
   selected_id: string | null;
   search_ref: RefObject<HTMLInputElement>;
   folder_tree: FolderTreeNode[];
+  refreshing: boolean;
+  onRefresh: () => void;
   onSelect: (note_id: string) => void;
   onOrganizeNote: (note: Note, patch: NotePatchBody) => void;
   onDeleteNote: (note: Note) => void;
@@ -190,6 +192,17 @@ export function NotesList(props: Props) {
             {!is_initial_load && <span className="mono-count">{count}</span>}
           </div>
           <div className="list-header-actions">
+            <button
+              type="button"
+              className="icon-btn icon-btn-sm"
+              onClick={props.onRefresh}
+              disabled={list.loading || props.refreshing}
+              aria-label="Refresh current folder"
+              aria-busy={props.refreshing}
+              title="Refresh current folder"
+            >
+              {props.refreshing ? <span className="spin-ring spin-ring-sm" aria-hidden="true" /> : <Icon name="refresh" size={13} />}
+            </button>
             {/* Touch enters selection with a long press, so the button is desktop-only. */}
             {!is_mobile && (
               <button
@@ -217,6 +230,7 @@ export function NotesList(props: Props) {
       )}
 
       <div className={`list-scroll${list.loading && !is_initial_load ? ' list-scroll-refreshing' : ''}`} ref={scroll_ref} aria-busy={list.loading}>
+        {list.error && count > 0 && <p className="list-empty list-empty-error" role="alert">{list.error}</p>}
         {renderBody()}
       </div>
 
