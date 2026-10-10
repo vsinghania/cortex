@@ -116,8 +116,8 @@ export interface NoteRepository {
 
   listNotes(params: NoteListParams): Promise<NoteListResult>;
 
-  /** Distinct tags for one user with note counts, case-folded, most-used first. */
-  listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]>;
+  /** Distinct tags for one user with note counts, case-folded, most-used first. `all` bypasses the facet limit. */
+  listTags(params: { user_id: string; limit?: number; all?: boolean }): Promise<NoteTagCount[]>;
 
   /** Case-insensitively strips one tag from every note of the user; returns notes changed. */
   removeTagEverywhere(params: { user_id: string; tag: string }): Promise<number>;

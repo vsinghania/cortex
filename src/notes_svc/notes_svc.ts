@@ -140,7 +140,7 @@ export class NotesSvc {
     return this.notes_repo.listNoteIdsInFolders(params);
   }
 
-  async listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]> {
+  async listTags(params: { user_id: string; limit?: number; all?: boolean }): Promise<NoteTagCount[]> {
     return this.notes_repo.listTags(params);
   }
 

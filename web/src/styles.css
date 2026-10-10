@@ -2120,14 +2120,16 @@ body {
   flex: 1;
 }
 
-.bulk-tag-form {
+.tag-picker-form {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 0 4px 4px;
 }
 
-.bulk-tag-input {
+.tag-picker-input {
+  flex: 1;
+  min-width: 0;
   padding: 6px 10px;
 }
 

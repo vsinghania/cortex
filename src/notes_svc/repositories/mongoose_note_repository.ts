@@ -110,7 +110,7 @@ export class MongooseNoteRepository implements NoteRepository {
   }
 
   @logExecTime({ threshold_in_ms: 200 })
-  async listTags(params: { user_id: string; limit?: number }): Promise<NoteTagCount[]> {
+  async listTags(params: { user_id: string; limit?: number; all?: boolean }): Promise<NoteTagCount[]> {
     const limit = MongooseNoteRepository.normalizeTagFacetLimit(params.limit);
 
     const rows = await this.model
@@ -124,7 +124,7 @@ export class MongooseNoteRepository implements NoteRepository {
         { $sort: { count: -1, '_id.label': 1 } },
         { $group: { _id: '$_id.folded', tag: { $first: '$_id.label' }, count: { $sum: '$count' } } },
         { $sort: { count: -1, _id: 1 } },
-        { $limit: limit },
+        ...(params.all ? [] : [{ $limit: limit }]),
         { $project: { _id: 0, tag: 1, count: 1 } }
       ])
       .collation(NoteModelFactory.CASE_INSENSITIVE_COLLATION);

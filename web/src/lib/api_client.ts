@@ -1,4 +1,5 @@
 import { AuthStore } from './auth_store';
+import { NoteTagCache } from './note_tag_cache';
 import type { AuthResponse, RefreshResponse, RegisterResponse, User } from './auth.types';
 import type {
   Note,
@@ -11,7 +12,7 @@ import type {
   NoteListQuery,
   NoteListResponse,
   NotePatchBody,
-  NoteTagCount,
+  NoteTagListResponse,
 } from './note.types';
 import type {
   NoteFolderCreateBody,
@@ -344,8 +345,12 @@ export class ApiClient {
     return ApiClient.request<NoteListResponse>(`/notes${qs ? `?${qs}` : ''}`, { cache: revalidate ? 'no-cache' : 'default' });
   }
 
-  static async listNoteTags(revalidate = false): Promise<{ tags: NoteTagCount[] }> {
-    return ApiClient.request<{ tags: NoteTagCount[] }>('/notes/tags', { cache: revalidate ? 'no-cache' : 'default' });
+  static async listNoteTags(revalidate = false): Promise<NoteTagListResponse> {
+    return NoteTagCache.instance.listTags(
+      AuthStore.instance().getUser()?.user_id ?? null,
+      () => ApiClient.request<NoteTagListResponse>('/notes/tags?all=true', { cache: 'no-store' }),
+      revalidate,
+    );
   }
 
   static async getNote(id: string, revalidate = false): Promise<{ note: Note }> {
@@ -359,29 +364,42 @@ export class ApiClient {
   }
 
   static async createNote(body: NoteCreateBody): Promise<{ note: Note }> {
-    return ApiClient.request<{ note: Note }>('/notes', {
+    const response = await ApiClient.request<{ note: Note }>('/notes', {
       method: 'POST',
       body: JSON.stringify(body),
     });
+    if (response.note.tags.length > 0) NoteTagCache.instance.invalidate();
+    return response;
   }
 
   static async updateNote(id: string, body: NotePatchBody): Promise<{ note: Note }> {
-    return ApiClient.request<{ note: Note }>(`/notes/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    });
+    try {
+      return await ApiClient.request<{ note: Note }>(`/notes/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    } finally {
+      if (body.tags !== undefined) NoteTagCache.instance.invalidate();
+    }
   }
 
   static async deleteNote(id: string): Promise<void> {
     await ApiClient.request<void>(`/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    NoteTagCache.instance.invalidate();
   }
 
   /** One request per call; the server caps `ids` at 100, so callers batch larger selections. */
   static async bulkUpdateNotes(ids: string[], action: NoteBulkAction): Promise<NoteBulkResult> {
-    return ApiClient.request<NoteBulkResult>('/notes/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ ids, ...action }),
-    });
+    try {
+      return await ApiClient.request<NoteBulkResult>('/notes/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ ids, ...action }),
+      });
+    } finally {
+      if (action.action === 'add_tags' || action.action === 'remove_tags' || action.action === 'delete') {
+        NoteTagCache.instance.invalidate();
+      }
+    }
   }
 
   /** Asks the model where content would be filed; nothing is saved. */
@@ -411,9 +429,11 @@ export class ApiClient {
   }
 
   static async deleteFolder(folder_id: string): Promise<NoteFolderDeleteResult> {
-    return ApiClient.request<NoteFolderDeleteResult>(`/notes/folders/${encodeURIComponent(folder_id)}`, {
+    const response = await ApiClient.request<NoteFolderDeleteResult>(`/notes/folders/${encodeURIComponent(folder_id)}`, {
       method: 'DELETE',
     });
+    NoteTagCache.instance.invalidate();
+    return response;
   }
 
   static async runAgent(req: AgentRunRequest): Promise<AgentRunResponse> {

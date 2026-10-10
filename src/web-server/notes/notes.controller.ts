@@ -75,6 +75,7 @@ const NoteListQuerySchema = z.object({
 });
 
 const NoteTagsListQuerySchema = z.object({
+  all: BooleanQuerySchema.optional(),
   limit: z
     .string()
     .regex(/^\d+$/)
@@ -205,7 +206,7 @@ export class NotesController {
       const query_raw = req.query as Record<string, unknown>;
       const limit = typeof query_raw.limit === 'string' ? Number(query_raw.limit) : undefined;
       const notes_svc = await NotesSvc.create();
-      const tags = await notes_svc.listTags({ user_id, limit });
+      const tags = await notes_svc.listTags({ user_id, limit, all: query_raw.all === 'true' });
       res.status(200).json({ response: { tags } });
     } catch (e) {
       next(e);

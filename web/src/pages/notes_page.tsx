@@ -27,6 +27,7 @@ import { Hotkey } from '../lib/hotkey';
 import type { HotkeySpec } from '../lib/hotkey';
 import { NoteFilterParams } from '../lib/note_filter_params';
 import { NoteBulk } from '../lib/note_bulk';
+import { NoteTagCache } from '../lib/note_tag_cache';
 import { Plural } from '../lib/plural';
 import type { NoteDraftFields, NoteFilters, OutlineRequest } from '../lib/note_workspace.types';
 import { useCurrentNote } from '../lib/use_current_note';
@@ -68,6 +69,7 @@ export function NotesPage() {
 
   const [folders, set_folders] = useState<NoteFolderNode[]>([]);
   const [tags, set_tags] = useState<NoteTagCount[]>([]);
+  const tags_request_ref = useRef(0);
   const [list_collapsed, set_list_collapsed] = usePersistedFlag('cortex.listCollapsed', false);
   const [chat_open, set_chat_open] = usePersistedFlag('cortex.noteChatOpen', false);
   const [preview_preferred, set_preview_preferred] = usePersistedFlag('cortex.notePreviewPreferred', false);
@@ -108,12 +110,13 @@ export function NotesPage() {
   }, []);
 
   const loadTags = useCallback(async (revalidate = false) => {
+    const request_id = ++tags_request_ref.current;
     try {
       const res = await ApiClient.listNoteTags(revalidate);
-      set_tags(res.tags);
+      if (request_id === tags_request_ref.current) set_tags(res.tags);
     } catch (err) {
       if (revalidate) throw err;
-      set_tags([]);
+      if (request_id === tags_request_ref.current) set_tags([]);
     }
   }, []);
 
@@ -190,6 +193,8 @@ export function NotesPage() {
   };
 
   const refreshOpenNote = async () => {
+    NoteTagCache.instance.invalidate();
+    void loadTags();
     try {
       const note = await current.refreshNote();
       if (note) list.updateLocal(note);

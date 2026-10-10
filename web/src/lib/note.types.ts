@@ -108,6 +108,10 @@ export type NoteTagCount = {
   count: number;
 };
 
+export type NoteTagListResponse = {
+  tags: NoteTagCount[];
+};
+
 /** Mirrors NoteFilingSuggestionBodySchema in src/web-server/notes/notes.controller.ts; needs a non-blank title or body. */
 export type NoteFilingSuggestionBody = {
   title?: string;

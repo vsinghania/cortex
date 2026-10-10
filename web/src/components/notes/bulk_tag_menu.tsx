@@ -1,8 +1,9 @@
-import { useState } from 'react';
 import type { Note } from '../../lib/note.types';
 import { Icon } from '../icon';
 import { PopoverMenu } from '../popover_menu';
 import { NoteBulk } from '../../lib/note_bulk';
+import { NoteTagOptions } from '../../lib/note_tag_options';
+import { NoteTagPicker } from './note_tag_picker';
 
 type Props = {
   notes: Note[];
@@ -27,38 +28,19 @@ export function BulkTagMenu({ notes, disabled, onAddTag, onRemoveTag }: Props) {
 }
 
 function TagMenuContent({ notes, close, onAddTag, onRemoveTag }: Omit<Props, 'disabled'> & { close: () => void }) {
-  const [value, set_value] = useState('');
   const present = NoteBulk.tagsIn(notes);
-
-  function add() {
-    const tag = value.trim().replace(/^#/, '');
-    if (!tag) return;
-    close();
-    onAddTag(tag);
-  }
 
   return (
     <div className="picker">
       <div className="menu-heading">Add tag</div>
-      <form
-        className="bulk-tag-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          add();
+      <NoteTagPicker
+        selected_tags={NoteTagOptions.findCommonTags(notes.map(({ tags }) => tags))}
+        input_label="Tag to add to selected notes"
+        onAddTag={(tag) => {
+          close();
+          onAddTag(tag);
         }}
-      >
-        <input
-          className="input bulk-tag-input"
-          value={value}
-          autoFocus
-          placeholder="tag…"
-          aria-label="Tag to add to selected notes"
-          onChange={(e) => set_value(e.target.value)}
-        />
-        <button type="submit" className="icon-btn" disabled={!value.trim()} aria-label="Add tag" title="Add tag">
-          <Icon name="plus" size={14} />
-        </button>
-      </form>
+      />
       {present.length > 0 && (
         <>
           <div className="menu-divider" />
