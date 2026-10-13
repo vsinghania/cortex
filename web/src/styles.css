@@ -1553,14 +1553,47 @@ body {
 .rail-footer {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 10px 12px 14px;
+  flex-shrink: 0;
+  padding: 6px;
   border-top: 1px solid var(--border-soft);
 }
 
 .rail-collapsed .rail-footer {
   justify-content: center;
-  padding: 12px 0;
+}
+
+.rail-footer .popover-anchor {
+  width: 100%;
+  min-width: 0;
+}
+
+.cx-app .rail-account-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+
+.rail-account-button:hover,
+.rail-account-button[aria-expanded='true'] {
+  background: var(--surface-2);
+}
+
+.rail-account-icon {
+  flex-shrink: 0;
+  color: var(--subtext);
+}
+
+.rail-collapsed .rail-account-button {
+  justify-content: center;
+  padding: 6px 0;
 }
 
 .avatar {
@@ -3876,6 +3909,14 @@ body {
 .cx-app[data-layout='mobile'] .rail-drawer .icon-btn {
   width: 40px;
   height: 40px;
+}
+
+.cx-app[data-layout='mobile'] .rail-footer {
+  padding-bottom: calc(6px + var(--safe-bottom));
+}
+
+.cx-app[data-layout='mobile'] .rail-footer .menu-item {
+  min-height: var(--touch-min);
 }
 
 /* ── Bottom sheet ── */

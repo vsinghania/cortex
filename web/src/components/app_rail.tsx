@@ -49,7 +49,6 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
       <div className="rail-header">
         <BrandWordmark mark_only={collapsed} />
         <div className="rail-header-actions">
-          {!collapsed && <SettingsLink />}
           <button
             type="button"
             className="icon-btn"
@@ -90,7 +89,7 @@ export function AppRail({ action, variant = 'rail', onClose, children }: Props) 
         {children?.(collapsed)}
       </div>
 
-      <AccountFooter collapsed={collapsed} />
+      <AccountFooter collapsed={collapsed} onClose={onClose} />
     </aside>
   );
 }
@@ -131,21 +130,7 @@ function VoiceLink() {
   );
 }
 
-/** The one way into settings; theme and connections both live on that page. */
-function SettingsLink() {
-  return (
-    <NavLink
-      to={AppRoutes.settings()}
-      className={({ isActive }) => `icon-btn${isActive ? ' icon-btn-accent' : ''}`}
-      aria-label="Settings"
-      title="Settings"
-    >
-      <Icon name="settings" size={15} />
-    </NavLink>
-  );
-}
-
-function AccountFooter({ collapsed }: { collapsed: boolean }) {
+function AccountFooter({ collapsed, onClose }: { collapsed: boolean; onClose?: () => void }) {
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -159,25 +144,51 @@ function AccountFooter({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="rail-footer">
-      <span className="avatar" title={user?.name || user?.email} aria-hidden="true">
-        {UserInitials.from(user)}
-      </span>
-      {!collapsed && (
-        <>
-          <div className="rail-footer-text">
-            <span className="rail-footer-name">{user?.name || user?.email}</span>
-            <span className="rail-footer-email">{user?.email}</span>
-          </div>
-          <PopoverMenu label="Account menu" trigger={<Icon name="more" size={16} />} align="end" placement="above">
-            {() => (
-              <button type="button" role="menuitem" className="menu-item" onClick={() => void handleLogout()}>
-                <Icon name="logout" size={14} />
-                Log out
-              </button>
+      <PopoverMenu
+        label="Account menu: Settings and Log out"
+        trigger_class="rail-account-button"
+        align="start"
+        placement="above"
+        trigger={
+          <>
+            <span className="avatar" aria-hidden="true">{UserInitials.from(user)}</span>
+            {!collapsed && (
+              <>
+                <span className="rail-footer-text">
+                  <span className="rail-footer-name">{user?.name || user?.email}</span>
+                  <span className="rail-footer-email">{user?.email}</span>
+                </span>
+                <Icon name="settings" size={16} className="rail-account-icon" />
+              </>
             )}
-          </PopoverMenu>
-        </>
-      )}
+          </>
+        }
+      >
+        {(close) => (
+          <>
+            <NavLink
+              to={AppRoutes.settings()}
+              role="menuitem"
+              className={({ isActive }) => `menu-item${isActive ? ' menu-item-check' : ''}`}
+              onClick={() => {
+                close();
+                onClose?.();
+              }}
+            >
+              <Icon name="settings" size={14} />
+              Settings
+            </NavLink>
+            <div className="menu-divider" role="separator" />
+            <button type="button" role="menuitem" className="menu-item" onClick={() => {
+              close();
+              void handleLogout();
+            }}>
+              <Icon name="logout" size={14} />
+              Log out
+            </button>
+          </>
+        )}
+      </PopoverMenu>
     </div>
   );
 }

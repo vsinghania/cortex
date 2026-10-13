@@ -15,6 +15,7 @@ type Props = {
 export function PopoverMenu({ label, trigger, trigger_class = 'icon-btn', align = 'start', placement = 'below', children }: Props) {
   const [open, set_open] = useState(false);
   const container_ref = useRef<HTMLDivElement>(null);
+  const trigger_ref = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -22,7 +23,11 @@ export function PopoverMenu({ label, trigger, trigger_class = 'icon-btn', align 
       if (!container_ref.current?.contains(event.target as Node)) set_open(false);
     }
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') set_open(false);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        set_open(false);
+        trigger_ref.current?.focus();
+      }
     }
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
@@ -35,6 +40,7 @@ export function PopoverMenu({ label, trigger, trigger_class = 'icon-btn', align 
   return (
     <div className="popover-anchor" ref={container_ref}>
       <button
+        ref={trigger_ref}
         type="button"
         className={trigger_class}
         aria-label={label}
