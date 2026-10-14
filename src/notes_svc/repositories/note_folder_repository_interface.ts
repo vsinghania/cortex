@@ -28,7 +28,7 @@ export interface NoteFolderRepository {
   listFolders(params: { user_id: string }): Promise<NoteFolder[]>;
   listDescendants(params: NoteFolderKey): Promise<NoteFolder[]>;
 
-  renameFolder(params: NoteFolderKey & { name: string }): Promise<NoteFolder | null>;
+  updateFolderDetails(params: NoteFolderKey & { name?: string; description?: string }): Promise<NoteFolder | null>;
 
   /** Re-parents a folder and rewrites the ancestor chain of everything beneath it. */
   moveFolder(params: { folder: NoteFolder; placement: NoteFolderPlacement }): Promise<NoteFolder | null>;

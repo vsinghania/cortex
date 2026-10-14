@@ -62,14 +62,17 @@ export class MongooseNoteFolderRepository implements NoteFolderRepository {
     return docs.map((d) => MongooseUtils.toDomain<NoteFolder>(d));
   }
 
-  async renameFolder(params: NoteFolderKey & { name: string }): Promise<NoteFolder | null> {
+  async updateFolderDetails(params: NoteFolderKey & { name?: string; description?: string }): Promise<NoteFolder | null> {
+    const details: { name?: string; description?: string } = {};
+    if (params.name !== undefined) details.name = params.name;
+    if (params.description !== undefined) details.description = params.description;
     try {
       const updated = await this.model
-        .findOneAndUpdate({ user_id: params.user_id, id: params.id }, { $set: { name: params.name } }, { new: true })
+        .findOneAndUpdate({ user_id: params.user_id, id: params.id }, { $set: details }, { new: true })
         .lean();
       return updated ? MongooseUtils.toDomain<NoteFolder>(updated) : null;
     } catch (err) {
-      throw MongooseNoteFolderRepository.translateDuplicate(err, params.name);
+      throw MongooseNoteFolderRepository.translateDuplicate(err, params.name ?? '');
     }
   }
 

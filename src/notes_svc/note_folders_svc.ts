@@ -31,6 +31,7 @@ export type NoteFolderUpdateInput = {
   user_id: string;
   folder_id: string;
   name?: string;
+  description?: string;
   /** `null` moves the folder to the top level; omit to leave it where it is. */
   parent_id?: string | null;
 };
@@ -62,10 +63,11 @@ export class NoteFoldersSvc {
     return NoteFolderTree.buildNodes(folders, counts);
   }
 
-  async createFolder(params: { user_id: string; name: string; parent_id?: string | null }): Promise<NoteFolder> {
+  async createFolder(params: { user_id: string; name: string; description?: string; parent_id?: string | null }): Promise<NoteFolder> {
     const name = NoteFolderTree.normalizeName(params.name);
+    const description = NoteFolderTree.normalizeDescription(params.description ?? '');
     const parent = params.parent_id ? await this.requireFolder(params.user_id, params.parent_id) : null;
-    const folder = await this.insertFolder({ user_id: params.user_id, name, parent });
+    const folder = await this.insertFolder({ user_id: params.user_id, name, description, parent });
     logger.info({ folder_id: folder.id, depth: folder.ancestor_ids.length + 1 }, 'note folder created');
     return folder;
   }
@@ -74,8 +76,9 @@ export class NoteFoldersSvc {
    * Walks `Work/Clients`, creating any missing segment; idempotent. Returns the leaf and its
    * path as stored, which keeps existing folders' casing rather than the caller's.
    */
-  async ensureFolderPath(params: { user_id: string; path: string }): Promise<{ folder: NoteFolder; path: string[]; created_count: number }> {
+  async ensureFolderPath(params: { user_id: string; path: string; description?: string }): Promise<{ folder: NoteFolder; path: string[]; created_count: number }> {
     const segments = NoteFolderTree.parsePath(params.path);
+    const description = NoteFolderTree.normalizeDescription(params.description ?? '');
     let parent: NoteFolder | null = null;
     const path: string[] = [];
     let created_count = 0;
@@ -88,7 +91,10 @@ export class NoteFoldersSvc {
       if (existing) {
         parent = existing;
       } else {
-        parent = await this.insertFolderOrFindConcurrentMatch({ user_id: params.user_id, name, parent });
+        parent = await this.insertFolderOrFindConcurrentMatch({
+          user_id: params.user_id, name, parent,
+          description: path.length === segments.length - 1 ? description : ''
+        });
         created_count++;
       }
       path.push(parent.name);
@@ -123,7 +129,7 @@ export class NoteFoldersSvc {
   ): Promise<NoteFolder> {
     let current = folder;
     if (current.name !== params.name) {
-      current = (await this.folder_repo.renameFolder({ user_id: params.user_id, id: current.id, name: params.name })) ?? current;
+      current = (await this.folder_repo.updateFolderDetails({ user_id: params.user_id, id: current.id, name: params.name })) ?? current;
     }
     // A section moved to another notebook on the provider side moves here too.
     if ((params.parent_id ?? null) !== current.parent_id) {
@@ -163,16 +169,19 @@ export class NoteFoldersSvc {
   async updateFolder(input: NoteFolderUpdateInput): Promise<NoteFolder> {
     let folder = await this.requireFolder(input.user_id, input.folder_id);
     const moved = input.parent_id !== undefined && input.parent_id !== folder.parent_id;
+    const name = input.name !== undefined ? NoteFolderTree.normalizeName(input.name) : undefined;
+    const description = input.description !== undefined ? NoteFolderTree.normalizeDescription(input.description) : undefined;
 
-    if (input.name !== undefined) {
-      const name = NoteFolderTree.normalizeName(input.name);
-      folder = (await this.folder_repo.renameFolder({ user_id: input.user_id, id: folder.id, name })) ?? folder;
+    if (name !== undefined || description !== undefined) {
+      const updated = await this.folder_repo.updateFolderDetails({ user_id: input.user_id, id: folder.id, name, description });
+      if (!updated) throw new NotFoundError('Folder not found');
+      folder = updated;
     }
     if (moved) {
       folder = await this.moveFolder(folder, input.parent_id ?? null);
     }
 
-    logger.info({ folder_id: folder.id, renamed: input.name !== undefined, moved }, 'note folder updated');
+    logger.info({ folder_id: folder.id, renamed: input.name !== undefined, description_updated: description !== undefined, moved }, 'note folder updated');
     return folder;
   }
 
@@ -209,13 +218,14 @@ export class NoteFoldersSvc {
     return moved;
   }
 
-  private async insertFolder(params: { user_id: string; name: string; parent: NoteFolder | null }): Promise<NoteFolder> {
+  private async insertFolder(params: { user_id: string; name: string; description?: string; parent: NoteFolder | null }): Promise<NoteFolder> {
     NoteFolderTree.assertCanCreateUnder(params.parent);
     const now = new Date();
     return this.folder_repo.createFolder({
       id: Id.generateUuidV7(),
       user_id: params.user_id,
       name: params.name,
+      description: params.description ?? '',
       ...NoteFolderTree.placementUnder(params.parent),
       created_at: now,
       updated_at: now
@@ -223,7 +233,7 @@ export class NoteFoldersSvc {
   }
 
   /** Two concurrent ensurePath calls can race to create the same segment; the loser reuses the winner's. */
-  private async insertFolderOrFindConcurrentMatch(params: { user_id: string; name: string; parent: NoteFolder | null }): Promise<NoteFolder> {
+  private async insertFolderOrFindConcurrentMatch(params: { user_id: string; name: string; description?: string; parent: NoteFolder | null }): Promise<NoteFolder> {
     try {
       return await this.insertFolder(params);
     } catch (err) {

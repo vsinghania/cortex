@@ -5,17 +5,20 @@ import { NoteFoldersSvc } from '../../notes_svc/note_folders_svc.js';
 import { NoteFolderTree } from '../../notes_svc/note_folder_tree.js';
 
 const FolderNameSchema = z.string().trim().min(1).max(NoteFolderTree.MAX_NAME_CHARS);
+const FolderDescriptionSchema = z.string().trim().max(NoteFolderTree.MAX_DESCRIPTION_CHARS);
 
 const FolderCreateBodySchema = z.object({
   name: FolderNameSchema,
+  description: FolderDescriptionSchema.optional(),
   parent_id: z.string().min(1).nullable().optional()
 }).strict();
 
 const FolderPatchBodySchema = z.object({
   name: FolderNameSchema.optional(),
+  description: FolderDescriptionSchema.optional(),
   parent_id: z.string().min(1).nullable().optional()
-}).strict().refine((body) => body.name !== undefined || body.parent_id !== undefined, {
-  message: 'Provide name and/or parent_id'
+}).strict().refine((body) => body.name !== undefined || body.description !== undefined || body.parent_id !== undefined, {
+  message: 'Provide name, description and/or parent_id'
 });
 
 const FolderParamsSchema = z.object({

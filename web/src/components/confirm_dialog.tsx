@@ -8,12 +8,13 @@ type Props = {
   confirm_label: string;
   danger?: boolean;
   busy?: boolean;
+  confirm_autofocus?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
 
 /** A native modal <dialog>, so focus trapping and Esc come from the browser. */
-export function ConfirmDialog({ open, title, children, confirm_label, danger = false, busy = false, onConfirm, onCancel }: Props) {
+export function ConfirmDialog({ open, title, children, confirm_label, danger = false, busy = false, confirm_autofocus = true, onConfirm, onCancel }: Props) {
   const dialog_ref = useRef<HTMLDialogElement>(null);
   const title_id = useId();
 
@@ -45,7 +46,7 @@ export function ConfirmDialog({ open, title, children, confirm_label, danger = f
           className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
           onClick={onConfirm}
           disabled={busy}
-          autoFocus={!danger}
+          autoFocus={confirm_autofocus && !danger}
         >
           {busy ? 'Working…' : confirm_label}
         </button>

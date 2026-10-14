@@ -2,6 +2,7 @@
 export type NoteFolderNode = {
   id: string;
   name: string;
+  description?: string;
   parent_id: string | null;
   ancestor_ids: string[];
   /** Folder names from the top level down to and including this folder. */
@@ -20,11 +21,13 @@ export type NoteFolderNode = {
 
 export type NoteFolderCreateBody = {
   name: string;
+  description?: string;
   parent_id?: string | null;
 };
 
 export type NoteFolderPatchBody = {
   name?: string;
+  description?: string;
   parent_id?: string | null;
 };
 

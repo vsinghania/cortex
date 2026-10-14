@@ -328,9 +328,9 @@ export function NotesPage() {
     }
   }
 
-  async function createFolder(name: string, parent_id: string | null): Promise<boolean> {
+  async function createFolder(name: string, parent_id: string | null, description: string): Promise<boolean> {
     try {
-      await ApiClient.createFolder({ name, parent_id });
+      await ApiClient.createFolder({ name, parent_id, description });
       await loadFolders();
       return true;
     } catch (err) {
@@ -339,13 +339,13 @@ export function NotesPage() {
     }
   }
 
-  async function renameFolder(folder_id: string, name: string): Promise<boolean> {
+  async function updateFolderDetails(folder_id: string, name: string, description: string): Promise<boolean> {
     try {
-      await ApiClient.updateFolder(folder_id, { name });
+      await ApiClient.updateFolder(folder_id, { name, description });
       await loadFolders();
       return true;
     } catch (err) {
-      toast.show({ message: err instanceof Error ? err.message : "Couldn't rename the folder.", tone: 'error' });
+      toast.show({ message: err instanceof Error ? err.message : "Couldn't update the folder.", tone: 'error' });
       return false;
     }
   }
@@ -468,7 +468,7 @@ export function NotesPage() {
           filters={filters}
           onSelect={selectFilters}
           onCreateFolder={createFolder}
-          onRenameFolder={renameFolder}
+          onUpdateFolder={updateFolderDetails}
           onDeleteFolder={requestFolderDelete}
         />
       )}

@@ -12,6 +12,7 @@ export class NoteFolderModelFactory extends BaseModelFactory<NoteFolder> {
         id: { type: String, required: true, unique: true, index: true },
         user_id: { type: String, required: true, index: true },
         name: { type: String, required: true },
+        description: { type: String, default: '' },
         // Stored as an explicit null (not absent) so top-level siblings share one unique-index key.
         parent_id: { type: String, default: null },
         ancestor_ids: { type: [String], default: [] },

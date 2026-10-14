@@ -6,9 +6,18 @@ import { BadRequestError } from '../common/errors.js';
 export class NoteFolderTree {
   static readonly MAX_DEPTH = 8;
   static readonly MAX_NAME_CHARS = 100;
+  static readonly MAX_DESCRIPTION_CHARS = 1000;
   static readonly PATH_SEPARATOR = '/';
 
   private constructor() {}
+
+  static normalizeDescription(raw: string): string {
+    const description = raw.trim();
+    if (description.length > NoteFolderTree.MAX_DESCRIPTION_CHARS) {
+      throw new BadRequestError(`Folder description must be at most ${NoteFolderTree.MAX_DESCRIPTION_CHARS} characters`);
+    }
+    return description;
+  }
 
   /** Trims and collapses whitespace; `/` is reserved as the path separator. */
   static normalizeName(raw: string): string {

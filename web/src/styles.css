@@ -839,6 +839,17 @@ body {
   font-weight: 600;
 }
 
+.folder-details-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.folder-description-input {
+  resize: vertical;
+  min-height: 96px;
+}
+
 .dialog-warning {
   display: flex;
   align-items: center;

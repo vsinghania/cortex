@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NoteFilingSuggester } from '../src/notes_svc/filing/note_filing_suggester.js';
 import type { NoteFolderNode } from '../src/notes_svc/types/note_folder.types.js';
+import { AiSvc } from '../src/ai_svc/ai_svc.js';
 
 const FOLDERS: NoteFolderNode[] = [
   {
@@ -18,6 +19,29 @@ const FOLDERS: NoteFolderNode[] = [
 ];
 
 const TAGS = [{ tag: 'Meetings', count: 4 }, { tag: 'ideas', count: 1 }];
+
+test('filing suggestions send folder descriptions to AI and preserve multiline text as folder data', async (context) => {
+  const description = 'Client calls.\nExclude internal planning.';
+  let request: Parameters<AiSvc['generateStructured']>[0] | undefined;
+  context.mock.method(AiSvc, 'getInstance', async () => ({
+    generateStructured: async (params: Parameters<AiSvc['generateStructured']>[0]) => {
+      request = params;
+      return { data: { title: null, folder_match: 'clear', folder_id: 'f-clients', tags: [] }, model: 'test-model' };
+    }
+  } as unknown as AiSvc));
+  const { suggestion } = await NoteFilingSuggester.suggestNoteFiling({
+    title: 'Client call', body: 'Discussed delivery dates.',
+    folders: [{ ...FOLDERS[0], description }, { ...FOLDERS[0], id: 'legacy', description: undefined }], tags: TAGS
+  });
+  assert.ok(request);
+  assert.ok(JSON.stringify(request.messages).includes('full path and description'));
+  const user_prompt = request.messages[1].content;
+  assert.equal(typeof user_prompt, 'string');
+  const rows = String(user_prompt).split('\n').filter((line) => line.startsWith('{')).map((line) => JSON.parse(line));
+  assert.equal(rows[0].description, description);
+  assert.equal(rows[1].description, '');
+  assert.equal(suggestion.folder?.id, 'f-clients');
+});
 
 test('keeps a known folder with its path and drops an invented one', () => {
   const known = NoteFilingSuggester.sanitizeFilingSuggestion({ title: null, folder_match: 'clear', folder_id: 'f-clients', tags: [] }, { folders: FOLDERS, tags: TAGS });

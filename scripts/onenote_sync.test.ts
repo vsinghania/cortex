@@ -54,9 +54,10 @@ class InMemoryFolderRepo implements NoteFolderRepository {
   async listDescendants(p: { user_id: string; id: string }) {
     return this.folders.filter((f) => f.ancestor_ids.includes(p.id));
   }
-  async renameFolder(p: { user_id: string; id: string; name: string }) {
+  async updateFolderDetails(p: { user_id: string; id: string; name?: string; description?: string }) {
     const f = await this.getFolder(p);
-    if (f) f.name = p.name;
+    if (f && p.name !== undefined) f.name = p.name;
+    if (f && p.description !== undefined) f.description = p.description;
     return f;
   }
   async moveFolder(p: { folder: NoteFolder; placement: { parent_id: string | null; ancestor_ids: string[] } }) {

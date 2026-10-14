@@ -112,7 +112,9 @@ const zFolderCreateInput = z.object({
   path: z.string().min(1).describe(
     `Slash-separated folder path such as "Work/Clients", at most ${NoteFolderTree.MAX_DEPTH} levels. ` +
     'Missing folders along the path are created; existing ones are reused.'
-  )
+  ),
+  description: z.string().trim().max(NoteFolderTree.MAX_DESCRIPTION_CHARS).optional()
+    .describe('What notes belong in the leaf folder. Set only if the leaf folder is newly created; existing descriptions are preserved.')
 });
 
 const zBulkIds = z.array(z.string().min(1)).min(1).max(NoteBulkActionMapper.MAX_IDS);
@@ -411,12 +413,13 @@ export class NotesMcpModule extends McpModule {
       required_scope: NotesMcpContract.READ,
       config: {
         title: 'List Note Folders',
-        description: 'List every note folder the authenticated user has, as `{ id, path, note_count }` rows ' +
+        description: 'List every note folder the authenticated user has, as `{ id, path, description, note_count }` rows ' +
           'ordered so parents precede children. `path` is the folder names from the top level down. ' +
+          'Use folder descriptions to choose where to file notes more accurately. ' +
           'Use this to resolve a folder id before notes_list, notes_update or notes_bulk_update, ' +
           'and to answer questions about how notes are organised.',
         inputSchema: zFoldersInput,
-        outputSchema: z.object({ folders: z.array(z.object({ id: z.string(), path: z.string(), note_count: z.number() })) }),
+        outputSchema: z.object({ folders: z.array(z.object({ id: z.string(), path: z.string(), description: z.string(), note_count: z.number() })) }),
         annotations: READ_ONLY_TOOL
       },
       handler: async () => {
@@ -425,6 +428,7 @@ export class NotesMcpModule extends McpModule {
         const folders = nodes.map((n) => ({
           id: n.id,
           path: n.path.join(NoteFolderTree.PATH_SEPARATOR),
+          description: n.description ?? '',
           note_count: n.note_count
         }));
         return NotesMcpModule.toStructuredToolResult({ folders });
@@ -443,15 +447,15 @@ export class NotesMcpModule extends McpModule {
           'wants a folder created or wants notes filed into a folder that does not exist yet. ' +
           'Folder names ignore case when matching existing folders.',
         inputSchema: zFolderCreateInput,
-        outputSchema: z.object({ folder: z.object({ id: z.string(), path: z.string() }), created_count: z.number() }),
+        outputSchema: z.object({ folder: z.object({ id: z.string(), path: z.string(), description: z.string() }), created_count: z.number() }),
         annotations: { ...ADDITIVE_WRITE_TOOL, idempotentHint: true }
       },
       handler: async (raw) => {
         const user_id = McpCallers.requireCallerUserId(caller);
-        const { path } = zFolderCreateInput.parse(raw ?? {});
-        const ensured = await this.requireFoldersSvc().ensureFolderPath({ user_id, path });
+        const { path, description } = zFolderCreateInput.parse(raw ?? {});
+        const ensured = await this.requireFoldersSvc().ensureFolderPath({ user_id, path, description });
         return NotesMcpModule.toStructuredToolResult({
-          folder: { id: ensured.folder.id, path: ensured.path.join(NoteFolderTree.PATH_SEPARATOR) },
+          folder: { id: ensured.folder.id, path: ensured.path.join(NoteFolderTree.PATH_SEPARATOR), description: ensured.folder.description ?? '' },
           created_count: ensured.created_count
         });
       }

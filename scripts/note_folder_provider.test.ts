@@ -16,6 +16,7 @@ import type {
   NoteFolderRepository
 } from '../src/notes_svc/repositories/note_folder_repository_interface.js';
 import type { NotesSvc } from '../src/notes_svc/notes_svc.js';
+import { NoteFolderTree } from '../src/notes_svc/note_folder_tree.js';
 
 const USER_ID = 'user-1';
 
@@ -64,9 +65,10 @@ class InMemoryFolderRepo implements NoteFolderRepository {
     return this.folders.filter((f) => f.user_id === params.user_id && f.ancestor_ids.includes(params.id));
   }
 
-  async renameFolder(params: NoteFolderKey & { name: string }) {
+  async updateFolderDetails(params: NoteFolderKey & { name?: string; description?: string }) {
     const folder = await this.getFolder(params);
-    if (folder) folder.name = params.name;
+    if (folder && params.name !== undefined) folder.name = params.name;
+    if (folder && params.description !== undefined) folder.description = params.description;
     return folder;
   }
 
@@ -87,8 +89,60 @@ class InMemoryFolderRepo implements NoteFolderRepository {
 }
 
 async function svcWith(folder_repo: InMemoryFolderRepo) {
-  return NoteFoldersSvc.create({ folder_repo, notes_svc: {} as NotesSvc });
+  return NoteFoldersSvc.create({ folder_repo, notes_svc: { countNotesByFolder: async () => [] } as unknown as NotesSvc });
 }
+
+test('folder descriptions can be created, listed, edited and cleared without changing placement', async () => {
+  const svc = await svcWith(new InMemoryFolderRepo());
+  const folder = await svc.createFolder({ user_id: USER_ID, name: 'Work', description: '  Client meetings\nand projects.  ' });
+  assert.equal(folder.description, 'Client meetings\nand projects.');
+  assert.equal((await svc.listFolderTree({ user_id: USER_ID }))[0].description, folder.description);
+
+  const updated = await svc.updateFolder({ user_id: USER_ID, folder_id: folder.id, description: '  Project plans. ' });
+  assert.equal(updated.description, 'Project plans.');
+  assert.equal(updated.name, 'Work');
+  assert.equal(updated.parent_id, null);
+  await svc.updateFolder({ user_id: USER_ID, folder_id: folder.id, name: 'Projects' });
+  assert.equal(folder.description, 'Project plans.', 'omitting description preserves it');
+  await svc.updateFolder({ user_id: USER_ID, folder_id: folder.id, description: '   ' });
+  assert.equal(folder.description, '');
+});
+
+test('folder descriptions are limited before writes and updates remain user scoped', async () => {
+  const repo = new InMemoryFolderRepo();
+  const svc = await svcWith(repo);
+  const description = 'x'.repeat(NoteFolderTree.MAX_DESCRIPTION_CHARS);
+  const folder = await svc.createFolder({ user_id: USER_ID, name: 'Work', description });
+  await assert.rejects(svc.createFolder({ user_id: USER_ID, name: 'Too long', description: `${description}x` }), /at most 1000/);
+  await assert.rejects(svc.updateFolder({ user_id: USER_ID, folder_id: folder.id, name: 'Changed', description: `${description}x` }), /at most 1000/);
+  assert.equal(folder.name, 'Work');
+  assert.equal(repo.folders.length, 1);
+  await assert.rejects(svc.updateFolder({ user_id: 'another-user', folder_id: folder.id, description: 'Overwrite' }), /not found/);
+  assert.equal(folder.description, description);
+});
+
+test('descriptions survive moves and provider reconciliation', async () => {
+  const svc = await svcWith(new InMemoryFolderRepo());
+  const parent = await svc.createFolder({ user_id: USER_ID, name: 'Parent' });
+  const folder = await svc.ensureProviderFolder(ensure());
+  await svc.updateFolder({ user_id: USER_ID, folder_id: folder.id, description: 'Engineering notes.' });
+  const moved = await svc.ensureProviderFolder(ensure({ name: 'Engineering', parent_id: parent.id }));
+  assert.equal(moved.description, 'Engineering notes.');
+  assert.equal(moved.parent_id, parent.id);
+  await svc.updateFolder({ user_id: USER_ID, folder_id: folder.id, parent_id: null });
+  assert.equal(folder.description, 'Engineering notes.');
+});
+
+test('ensuring a folder path describes only a new leaf and preserves existing descriptions', async () => {
+  const repo = new InMemoryFolderRepo();
+  const svc = await svcWith(repo);
+  const first = await svc.ensureFolderPath({ user_id: USER_ID, path: 'Work/Clients', description: '  Client notes.  ' });
+  assert.equal(first.folder.description, 'Client notes.');
+  assert.equal(repo.folders[0].description, '');
+  const again = await svc.ensureFolderPath({ user_id: USER_ID, path: 'work/clients', description: 'Replacement' });
+  assert.equal(again.folder.description, 'Client notes.');
+  assert.equal(again.created_count, 0);
+});
 
 function ensure(overrides: Partial<Parameters<NoteFoldersSvc['ensureProviderFolder']>[0]> = {}) {
   return {

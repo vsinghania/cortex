@@ -9,7 +9,7 @@ import type { FolderTreeNode, NoteFilters } from '../../lib/note_workspace.types
 import { FolderTree } from '../../lib/folder_tree';
 import { NoteFilterParams } from '../../lib/note_filter_params';
 import { PopoverMenu } from '../popover_menu';
-import { FolderNameInput } from './folder_name_input';
+import { FolderDetailsDialog } from './folder_details_dialog';
 
 type Props = {
   collapsed: boolean;
@@ -17,8 +17,8 @@ type Props = {
   tags: NoteTagCount[];
   filters: NoteFilters;
   onSelect: (patch: Partial<NoteFilters>) => void;
-  onCreateFolder: (name: string, parent_id: string | null) => Promise<boolean>;
-  onRenameFolder: (folder_id: string, name: string) => Promise<boolean>;
+  onCreateFolder: (name: string, parent_id: string | null, description: string) => Promise<boolean>;
+  onUpdateFolder: (folder_id: string, name: string, description: string) => Promise<boolean>;
   onDeleteFolder: (folder: NoteFolderNode) => void;
 };
 
@@ -53,7 +53,7 @@ export function NotesRailSections(props: Props) {
   const tree = useMemo(() => FolderTree.build(folders), [folders]);
   const [collapsed_ids, set_collapsed_ids] = useState<Set<string>>(() => new Set());
   const [create_target, set_create_target] = useState<CreateTarget>(undefined);
-  const [renaming_id, set_renaming_id] = useState<string | null>(null);
+  const [editing_id, set_editing_id] = useState<string | null>(null);
 
   const no_tag = !filters.tag;
   const views: { key: string; label: string; icon: IconName; active: boolean; patch: Partial<NoteFilters> }[] = [
@@ -84,7 +84,7 @@ export function NotesRailSections(props: Props) {
   }
 
   function startCreate(parent_id: string | null) {
-    set_renaming_id(null);
+    set_editing_id(null);
     set_create_target(parent_id);
     if (parent_id) {
       set_collapsed_ids((current) => {
@@ -95,18 +95,6 @@ export function NotesRailSections(props: Props) {
     }
   }
 
-  async function commitCreate(name: string, parent_id: string | null) {
-    const ok = await props.onCreateFolder(name, parent_id);
-    if (ok) set_create_target(undefined);
-    return ok;
-  }
-
-  async function commitRename(folder_id: string, name: string) {
-    const ok = await props.onRenameFolder(folder_id, name);
-    if (ok) set_renaming_id(null);
-    return ok;
-  }
-
   function renderFolder(node: FolderTreeNode) {
     const is_expanded = !collapsed_ids.has(node.id);
     const is_active = no_tag && filters.folder === node.id;
@@ -114,77 +102,59 @@ export function NotesRailSections(props: Props) {
 
     return (
       <div key={node.id} role="treeitem" aria-expanded={has_children ? is_expanded : undefined} aria-selected={is_active}>
-        {renaming_id === node.id ? (
-          <FolderNameInput
-            initial={node.name}
-            depth={node.depth}
-            placeholder="Folder name"
-            onCommit={(name) => commitRename(node.id, name)}
-            onCancel={() => set_renaming_id(null)}
-          />
-        ) : (
-          <div className={`tree-row${is_active ? ' tree-row-active' : ''}`} style={{ '--depth': node.depth } as CSSProperties}>
-            {has_children ? (
-              <button
-                type="button"
-                className="tree-chevron"
-                onClick={() => toggleExpanded(node.id)}
-                aria-label={is_expanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
-              >
-                <Icon name={is_expanded ? 'chevron_down' : 'chevron_right'} size={14} />
-              </button>
-            ) : (
-              <span className="tree-chevron-spacer" aria-hidden="true" />
-            )}
+        <div className={`tree-row${is_active ? ' tree-row-active' : ''}`} style={{ '--depth': node.depth } as CSSProperties}>
+          {has_children ? (
             <button
               type="button"
-              className="tree-select"
-              title={folderHint(node)}
-              onClick={() => onSelect({ folder: node.id, archived: false, tag: null })}
+              className="tree-chevron"
+              onClick={() => toggleExpanded(node.id)}
+              aria-label={is_expanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
             >
-              {/* The provider's own mark on the root it owns; its children stay monochrome
-                  so one coloured logo reads as a heading, not as noise down the tree. */}
-              {isProviderRoot(node) ? (
-                <OneNoteLogo size={14} className="rail-item-icon" />
-              ) : (
-                <Icon
-                  name={folderIcon(node)}
-                  size={14}
-                  className={`rail-item-icon${node.source ? ' rail-item-icon-synced' : ''}`}
-                />
-              )}
-              <span className="rail-item-label">{node.name}</span>
-              {node.note_count > 0 && <span className="rail-count">{node.note_count}</span>}
+              <Icon name={is_expanded ? 'chevron_down' : 'chevron_right'} size={14} />
             </button>
-            <PopoverMenu label={`Actions for ${node.name}`} trigger={<Icon name="more" size={14} />} trigger_class="icon-btn tree-menu" align="end">
-              {(close) => (
-                <>
-                  <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); startCreate(node.id); }}>
-                    <Icon name="folder_plus" size={14} />
-                    New subfolder
-                  </button>
-                  <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); set_create_target(undefined); set_renaming_id(node.id); }}>
-                    <Icon name="edit" size={14} />
-                    Rename
-                  </button>
-                  <div className="menu-divider" />
-                  <button type="button" role="menuitem" className="menu-item menu-item-danger" onClick={() => { close(); props.onDeleteFolder(node); }}>
-                    <Icon name="trash" size={14} />
-                    Delete folder…
-                  </button>
-                </>
-              )}
-            </PopoverMenu>
-          </div>
-        )}
-        {create_target === node.id && (
-          <FolderNameInput
-            depth={node.depth + 1}
-            placeholder="New subfolder"
-            onCommit={(name) => commitCreate(name, node.id)}
-            onCancel={() => set_create_target(undefined)}
-          />
-        )}
+          ) : (
+            <span className="tree-chevron-spacer" aria-hidden="true" />
+          )}
+          <button
+            type="button"
+            className="tree-select"
+            title={[folderHint(node), node.description].filter(Boolean).join('\n') || undefined}
+            onClick={() => onSelect({ folder: node.id, archived: false, tag: null })}
+          >
+            {/* The provider's own mark on the root it owns; its children stay monochrome
+                so one coloured logo reads as a heading, not as noise down the tree. */}
+            {isProviderRoot(node) ? (
+              <OneNoteLogo size={14} className="rail-item-icon" />
+            ) : (
+              <Icon
+                name={folderIcon(node)}
+                size={14}
+                className={`rail-item-icon${node.source ? ' rail-item-icon-synced' : ''}`}
+              />
+            )}
+            <span className="rail-item-label">{node.name}</span>
+            {node.note_count > 0 && <span className="rail-count">{node.note_count}</span>}
+          </button>
+          <PopoverMenu label={`Actions for ${node.name}`} trigger={<Icon name="more" size={14} />} trigger_class="icon-btn tree-menu" align="end">
+            {(close) => (
+              <>
+                <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); startCreate(node.id); }}>
+                  <Icon name="folder_plus" size={14} />
+                  New subfolder
+                </button>
+                <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); set_create_target(undefined); set_editing_id(node.id); }}>
+                  <Icon name="edit" size={14} />
+                  Edit folder…
+                </button>
+                <div className="menu-divider" />
+                <button type="button" role="menuitem" className="menu-item menu-item-danger" onClick={() => { close(); props.onDeleteFolder(node); }}>
+                  <Icon name="trash" size={14} />
+                  Delete folder…
+                </button>
+              </>
+            )}
+          </PopoverMenu>
+        </div>
         {has_children && is_expanded && <div role="group">{node.children.map(renderFolder)}</div>}
       </div>
     );
@@ -231,9 +201,6 @@ export function NotesRailSections(props: Props) {
             <Icon name="plus" size={13} />
           </button>
         </div>
-        {create_target === null && (
-          <FolderNameInput depth={0} placeholder="New folder" onCommit={(name) => commitCreate(name, null)} onCancel={() => set_create_target(undefined)} />
-        )}
         {tree.length > 0 ? (
           <div role="tree" aria-label="Folders">{tree.map(renderFolder)}</div>
         ) : (
@@ -245,6 +212,25 @@ export function NotesRailSections(props: Props) {
           )
         )}
       </div>
+
+      {create_target !== undefined && (
+        <FolderDetailsDialog
+          key={`create-${create_target}`}
+          title={create_target ? 'New subfolder' : 'New folder'}
+          onSave={(name, description) => props.onCreateFolder(name, create_target, description)}
+          onCancel={() => set_create_target(undefined)}
+        />
+      )}
+      {editing_id && folders.filter((folder) => folder.id === editing_id).map((folder) => (
+        <FolderDetailsDialog
+          key={folder.id}
+          title="Edit folder"
+          initial_name={folder.name}
+          initial_description={folder.description}
+          onSave={(name, description) => props.onUpdateFolder(folder.id, name, description)}
+          onCancel={() => set_editing_id(null)}
+        />
+      ))}
 
       {tags.length > 0 && (
         <div className="rail-section">

@@ -7,6 +7,7 @@ export interface NoteFolder {
   id: string; // domain ID (UUID v7)
   user_id: string; // domain ID (UUID)
   name: string;
+  description?: string;
   parent_id: string | null; // null = top level
   /** Root-first ids of every ancestor, so a whole subtree is one indexed match. */
   ancestor_ids: string[];

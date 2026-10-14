@@ -8,9 +8,10 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { NotesMcpModule } from '../src/mcp/server/notes/notes_mcp_module.js';
 import { McpCallers } from '../src/mcp/server/mcp_caller.js';
 import type { McpCaller } from '../src/mcp/server/types/mcp_server.types.js';
+import { z } from 'zod';
 
 type RegisteredTool = {
-  config: { inputSchema: { shape: Record<string, unknown> } };
+  config: { inputSchema: z.ZodObject; outputSchema: z.ZodObject };
   handler: (args: unknown) => Promise<{ structuredContent: any }>;
 };
 
@@ -26,6 +27,19 @@ function registeredTools(caller: McpCaller, seen_user_ids: string[] = []): Map<s
       listNotes: async (params: { user_id: string }) => {
         seen_user_ids.push(params.user_id);
         return { total: 0, items: [] };
+      }
+    },
+    folders_svc: {
+      listFolderTree: async (params: { user_id: string }) => {
+        seen_user_ids.push(params.user_id);
+        return [
+          { id: 'work', path: ['Work'], description: 'Projects and meetings.', note_count: 2 },
+          { id: 'legacy', path: ['Legacy'], note_count: 0 }
+        ];
+      },
+      ensureFolderPath: async (params: { user_id: string; path: string; description?: string }) => {
+        seen_user_ids.push(params.user_id);
+        return { folder: { id: 'new-folder', description: params.description }, path: params.path.split('/'), created_count: 1 };
       }
     }
   });
@@ -57,6 +71,26 @@ test('tools act for the authenticated caller, and refuse a caller with no user',
 test('tool schemas are full zod objects, as SDK v2 requires', () => {
   const tools = registeredTools({ kind: 'internal', user_id: 'u-1' });
   assert.ok('title' in tools.get('notes_create')!.config.inputSchema.shape);
+});
+
+test('AI assistants receive folder descriptions including an empty description for legacy folders', async () => {
+  const seen: string[] = [];
+  const tool = registeredTools({ kind: 'internal', user_id: 'u-1' }, seen).get('notes_folders')!;
+  const result = await tool.handler({});
+  assert.deepEqual(tool.config.outputSchema.parse(result.structuredContent), { folders: [
+    { id: 'work', path: 'Work', description: 'Projects and meetings.', note_count: 2 },
+    { id: 'legacy', path: 'Legacy', description: '', note_count: 0 }
+  ] });
+  assert.deepEqual(seen, ['u-1']);
+});
+
+test('AI assistants can describe a newly created leaf folder and overlong descriptions are rejected', async () => {
+  const tool = registeredTools({ kind: 'internal', user_id: 'u-1' }).get('notes_folder_create')!;
+  const result = await tool.handler({ path: 'Work/Clients', description: '  Client notes.  ' });
+  assert.deepEqual(tool.config.outputSchema.parse(result.structuredContent), {
+    folder: { id: 'new-folder', path: 'Work/Clients', description: 'Client notes.' }, created_count: 1
+  });
+  await assert.rejects(tool.handler({ path: 'Work', description: 'x'.repeat(1001) }));
 });
 
 test('authInfo carries an internal caller to the server factory and nothing else becomes one', () => {
