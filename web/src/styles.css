@@ -3443,11 +3443,30 @@ body {
   flex-direction: column;
 }
 
+.side-rail.note-rail {
+  padding: 0;
+  overflow: visible;
+}
+
+.note-rail-border-toggle {
+  position: absolute;
+  top: 12px;
+  left: -13px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
 .note-rail-content {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  padding: 20px 18px;
+  overflow-y: auto;
 }
 
 .note-rail-content[hidden] {
@@ -3456,8 +3475,6 @@ body {
 
 .side-rail.note-rail-collapsed {
   width: var(--rail-collapsed-w);
-  padding: 20px 8px;
-  overflow: visible;
 }
 
 .note-rail-collapsed-actions {
@@ -3465,6 +3482,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  padding: 52px 8px 20px;
 }
 
 .note-rail-tabs {
@@ -3487,6 +3505,11 @@ body {
 
 .side-rail-wide .note-rail-tabs {
   margin-bottom: 12px;
+}
+
+.side-rail-wide .note-rail-content {
+  padding-bottom: 0;
+  overflow: hidden;
 }
 
 .note-chat {
@@ -4080,6 +4103,11 @@ body {
   overflow: visible;
   border-left: none;
   box-shadow: none;
+}
+
+.m-sheet .note-rail-content {
+  padding: 0;
+  overflow: visible;
 }
 
 .m-sheet .note-chat {

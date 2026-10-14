@@ -25,28 +25,31 @@ type Props = {
 export function NoteRightRail(props: Props) {
   const { note, tab, onTabChange, collapsed = false, onToggleCollapse } = props;
   const content_id = useId();
-  const expand_button_ref = useRef<HTMLButtonElement>(null);
-  const collapse_button_ref = useRef<HTMLButtonElement>(null);
-
-  function togglePanelCollapse() {
-    onToggleCollapse?.();
-    window.requestAnimationFrame(() => {
-      (collapsed ? collapse_button_ref : expand_button_ref).current?.focus();
-    });
-  }
+  const toggle_button_ref = useRef<HTMLButtonElement>(null);
 
   function expandPanelTab(value: NoteRailTab) {
     onTabChange(value);
-    window.requestAnimationFrame(() => collapse_button_ref.current?.focus());
+    window.requestAnimationFrame(() => toggle_button_ref.current?.focus());
   }
 
   return (
     <aside className={`side-rail note-rail${tab === 'chat' ? ' side-rail-wide' : ''}${collapsed ? ' note-rail-collapsed' : ''}`} aria-label="Note details">
+      {onToggleCollapse && (
+        <button
+          ref={toggle_button_ref}
+          type="button"
+          className="icon-btn note-rail-border-toggle"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand note panel' : 'Collapse note panel'}
+          title={collapsed ? 'Expand note panel' : 'Collapse note panel'}
+          aria-expanded={!collapsed}
+          aria-controls={content_id}
+        >
+          <Icon name={collapsed ? 'chevrons_left' : 'chevrons_right'} size={14} />
+        </button>
+      )}
       {collapsed && (
         <div className="note-rail-collapsed-actions">
-          <button ref={expand_button_ref} type="button" className="icon-btn" onClick={togglePanelCollapse} aria-label="Expand note panel" title="Expand note panel" aria-expanded={false} aria-controls={content_id}>
-            <Icon name="chevrons_left" size={15} />
-          </button>
           {(['details', 'chat'] as const).map((value) => (
             <button key={value} type="button" className="icon-btn" onClick={() => expandPanelTab(value)} aria-label={value === 'details' ? 'Open note details' : 'Chat about this note'} title={value === 'details' ? 'Open note details' : 'Chat about this note'}>
               <Icon name={value === 'details' ? 'layers' : 'sparkle'} size={15} />
@@ -72,11 +75,6 @@ export function NoteRightRail(props: Props) {
           {tab === 'chat' && (
             <button type="button" className="icon-btn icon-btn-sm note-rail-close" onClick={() => onTabChange('details')} aria-label="Close chat" title="Close chat">
               <Icon name="close" size={13} />
-            </button>
-          )}
-          {onToggleCollapse && (
-            <button ref={collapse_button_ref} type="button" className="icon-btn icon-btn-sm" onClick={togglePanelCollapse} aria-label="Collapse note panel" title="Collapse note panel" aria-expanded={true} aria-controls={content_id}>
-              <Icon name="chevrons_right" size={15} />
             </button>
           )}
         </div>
