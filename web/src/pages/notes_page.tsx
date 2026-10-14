@@ -72,6 +72,7 @@ export function NotesPage() {
   const tags_request_ref = useRef(0);
   const [list_collapsed, set_list_collapsed] = usePersistedFlag('cortex.listCollapsed', false);
   const [chat_open, set_chat_open] = usePersistedFlag('cortex.noteChatOpen', false);
+  const [right_panel_collapsed, set_right_panel_collapsed] = usePersistedFlag('cortex.notePanelCollapsed', false);
   const [preview_preferred, set_preview_preferred] = usePersistedFlag('cortex.notePreviewPreferred', false);
   const [folder_refreshing, set_folder_refreshing] = useState(false);
   const [deleted_note_id, set_deleted_note_id] = useState<string | null>(null);
@@ -155,7 +156,21 @@ export function NotesPage() {
     window.requestAnimationFrame(() => search_ref.current?.focus());
   });
   useHotkey(LIST_TOGGLE_HOTKEY, () => set_list_collapsed((c) => !c));
-  useHotkey(CHAT_TOGGLE_HOTKEY, () => set_chat_open((open) => !open));
+  useHotkey(CHAT_TOGGLE_HOTKEY, toggleNoteChat);
+
+  function toggleNoteChat() {
+    if (!is_mobile && right_panel_collapsed) {
+      set_right_panel_collapsed(false);
+      set_chat_open(true);
+      return;
+    }
+    set_chat_open((open) => !open);
+  }
+
+  function openNotePanelTab(tab: NoteRailTab) {
+    set_right_panel_collapsed(false);
+    set_chat_open(tab === 'chat');
+  }
 
   const flushEditor = useCallback(async () => {
     await flush_ref.current?.();
@@ -430,7 +445,7 @@ export function NotesPage() {
         return_link={return_link}
         list_collapsed={list_collapsed}
         outline_request={outline_request}
-        chat_open={chat_open}
+        chat_open={chat_open && !right_panel_collapsed}
         preferred_mode={preview_preferred ? 'preview' : 'edit'}
         onModeChange={(mode) => set_preview_preferred(mode === 'preview')}
         onRefresh={refreshOpenNote}
@@ -438,7 +453,7 @@ export function NotesPage() {
         onDeleted={() => selected_id_ref.current === selected_id && set_deleted_note_id(selected_id)}
         flush_ref={flush_ref}
         onToggleList={() => set_list_collapsed((c) => !c)}
-        onToggleChat={() => set_chat_open((open) => !open)}
+        onToggleChat={toggleNoteChat}
         onCreate={handleCreate}
         onSaved={handleSaved}
         onOrganize={(patch) => editor_note && void organizeNote(editor_note, patch)}
@@ -650,7 +665,9 @@ export function NotesPage() {
           folders_by_id={folders_by_id}
           related={related}
           tab={chat_open ? 'chat' : 'details'}
-          onTabChange={(tab: NoteRailTab) => set_chat_open(tab === 'chat')}
+          collapsed={right_panel_collapsed}
+          onToggleCollapse={() => set_right_panel_collapsed((collapsed) => !collapsed)}
+          onTabChange={openNotePanelTab}
           flush={flushEditor}
           onOutline={(line) => set_outline_request((prev) => ({ line, nonce: (prev?.nonce ?? 0) + 1 }))}
           onOpenNote={openNote}

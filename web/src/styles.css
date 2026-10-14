@@ -3443,6 +3443,30 @@ body {
   flex-direction: column;
 }
 
+.note-rail-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.note-rail-content[hidden] {
+  display: none;
+}
+
+.side-rail.note-rail-collapsed {
+  width: var(--rail-collapsed-w);
+  padding: 20px 8px;
+  overflow: visible;
+}
+
+.note-rail-collapsed-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
 .note-rail-tabs {
   display: flex;
   flex-shrink: 0;
