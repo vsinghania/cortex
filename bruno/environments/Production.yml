@@ -5,9 +5,9 @@ variables:
   - secret: true
     name: access_token
   - name: conversation_id
-    value: 019e06d2-68b5-737e-9a48-31dd838c316c
+    value: ""
   - name: agent_id
-    value: smoke-notes-agent
+    value: notes-recall
   - name: note_id
     value: ""
   - name: folder_id

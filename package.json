@@ -1,15 +1,20 @@
 {
   "name": "cortex",
   "version": "1.0.0",
+  "private": true,
   "main": "index.js",
   "type": "module",
   "keywords": [],
-  "author": "",
+  "author": "Vishal Singhania",
   "license": "ISC",
-  "description": "",
+  "description": "A personal knowledge app with notes, cited AI recall, voice capture, and MCP integrations.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vsinghania/cortex.git"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",
-    "@azure/msal-node": "^6.0.1",
+    "@azure/msal-node": "^7.2.3",
     "@modelcontextprotocol/node": "^2.1.1",
     "@modelcontextprotocol/sdk": "^1.20.0",
     "@modelcontextprotocol/server": "^2.3.1",
@@ -54,6 +59,9 @@
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   },
+  "overrides": {
+    "@hono/node-server": "^2.1.4"
+  },
   "scripts": {
     "dev": "tsx watch src/web-server/server",
     "build": "tsc -p tsconfig.json",
@@ -84,6 +92,6 @@
     "notes:backfill-edited-at": "tsx scripts/backfill_note_edited_at.ts"
   },
   "engines": {
-    "node": ">=22 <23"
+    "node": ">=22.12 <23"
   }
 }

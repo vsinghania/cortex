@@ -50,3 +50,9 @@ Database names come from `DbNameResolver` — see [architecture.md §6](architec
 `GET /api/v1/health/db` reports every root connection; status is `up` only when all are connected.
 
 **No migrations.** Schemas and indexes are declared in the model factories and applied by Mongoose on first use.
+
+## 7. Dependency security
+
+Both npm projects require Node.js 22.12 or later within 22.x. Lockfiles are committed and CI installs them with `npm ci`.
+
+The root `overrides` entry keeps `@hono/node-server` on a patched v2 release because the MCP Node adapter still declares a v1 dependency affected by [GHSA-rmxm-3fg6-px4f](https://github.com/advisories/GHSA-rmxm-3fg6-px4f). Both MCP SDKs use its `getRequestListener` API; the [v2 release](https://github.com/honojs/node-server/releases/tag/v2.0.0) preserves that API and requires Node.js 20 or later. Remove the override when the upstream dependency ranges allow a patched version without it. Validate the MCP HTTP transport when changing this dependency.

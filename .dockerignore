@@ -21,3 +21,15 @@ Dockerfile
 .dockerignore
 docker-compose.yml
 deploy
+.aws
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+gitleaks-report*
+trufflehog-report*

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       git_ref:
-        description: 'Branch, tag or SHA to deploy (resolved to a full SHA; must already be built by build-image)'
+        description: 'Ref already merged into main (must already be built by build-image)'
         required: false
         default: main
 
@@ -20,12 +20,15 @@ permissions:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       # Full history so any branch, tag or SHA the caller names can be resolved.
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       # Resolve whatever was asked for to one immutable SHA, then check that out.
       # Everything downstream — the image tag, the S3 prefix, the compose file
@@ -33,19 +36,9 @@ jobs:
       # configuration can never come from different commits.
       - name: Resolve ref to a commit
         id: resolve
-        run: |
-          set -euo pipefail
-          REF="${{ inputs.git_ref }}"
-          SHA=$(git rev-parse --verify --quiet "${REF}^{commit}" \
-             || git rev-parse --verify --quiet "origin/${REF}^{commit}" || true)
-          if [ -z "$SHA" ]; then
-            echo "::error::could not resolve '$REF' to a commit"
-            exit 1
-          fi
-          git checkout --detach "$SHA"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "$REF -> $SHA"
-          git log -1 --format='%s' "$SHA"
+        env:
+          DEPLOY_REF: ${{ inputs.git_ref }}
+        run: bash scripts/resolve_deploy_commit.sh
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -164,11 +157,13 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          REQUESTED_REF: ${{ inputs.git_ref }}
         run: |
           {
             echo "### deploy-api"
             echo
-            echo "- requested: \`${{ inputs.git_ref }}\`"
+            echo "- requested: \`$REQUESTED_REF\`"
             echo "- commit: \`${{ steps.resolve.outputs.sha }}\`"
             echo "- image: \`${{ steps.pre.outputs.image }}\`"
             echo "- instance: \`${{ steps.pre.outputs.instance }}\`"

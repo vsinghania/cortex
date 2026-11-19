@@ -57,6 +57,20 @@ blob-report/
 # Deploy config (account-specific values; template is committed)
 deploy/aws.env
 
+# Private credentials, data exports, and secret-scanner reports
+.aws/
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+gitleaks-report*
+trufflehog-report*
+
 # OS-specific files
 .DS_Store
 Thumbs.db

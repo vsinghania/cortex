@@ -22,11 +22,11 @@ http:
 runtime:
   variables:
     - name: name
-      value: Vishal S1
+      value: Example User
     - name: email
-      value: vishals+1@cortex.com
+      value: user@example.com
     - name: password
-      value: Password@123
+      value: ""
 
 settings:
   encodeUrl: true

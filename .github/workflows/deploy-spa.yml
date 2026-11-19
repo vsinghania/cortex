@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       git_ref:
-        description: 'Branch, tag or SHA to build and publish'
+        description: 'Ref already merged into main to build and publish'
         required: false
         default: main
 
@@ -18,11 +18,20 @@ permissions:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.git_ref }}
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve ref to a commit
+        id: resolve
+        env:
+          DEPLOY_REF: ${{ inputs.git_ref }}
+        run: bash scripts/resolve_deploy_commit.sh
 
       - uses: actions/setup-node@v4
         with:
@@ -60,11 +69,14 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          REQUESTED_REF: ${{ inputs.git_ref }}
         run: |
           {
             echo "### deploy-spa"
             echo
-            echo "- ref: \`${{ inputs.git_ref }}\`"
+            echo "- ref: \`$REQUESTED_REF\`"
+            echo "- commit: \`${{ steps.resolve.outputs.sha }}\`"
             echo "- bucket: \`${{ vars.SPA_BUCKET }}\`"
             echo "- result: **${{ job.status }}**"
           } >> "$GITHUB_STEP_SUMMARY"

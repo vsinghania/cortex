@@ -3,7 +3,7 @@ services:
     image: mongo:7
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodb_data:/data/db
     healthcheck:
@@ -17,8 +17,8 @@ services:
     image: qdrant/qdrant:latest
     restart: unless-stopped
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -38,8 +38,8 @@ services:
       # gateway IP before the SMTP banner.
       MP_SMTP_DISABLE_RDNS: "true"
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
   web-server:
     build:
@@ -112,7 +112,7 @@ services:
       MS_OAUTH_CLIENT_SECRET: ${MS_OAUTH_CLIENT_SECRET:-}
       MS_OAUTH_REDIRECT_URI: http://localhost:3000/api/v1/integrations/onenote/callback
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
 
   # Runs queued jobs. No ports: it only talks to Mongo, Qdrant, SMTP and the
   # provider APIs. Recurring schedules are ticked by web-server.
@@ -183,7 +183,7 @@ services:
       OPENAI_EMBEDDING_MODEL: text-embedding-3-small
       QDRANT_URL: http://qdrant:6333
     ports:
-      - "3010:3010"
+      - "127.0.0.1:3010:3010"
 
 volumes:
   mongodb_data:

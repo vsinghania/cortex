@@ -23,3 +23,8 @@ Design-level documentation: what the pieces are, why they are shaped that way, a
 **Reading order** — new to the codebase: architecture → web → the module you are touching. Working on recall quality: recall → agent_svc. Working on capture: voice → mcp → recall. Working on external assistants: oauth → mcp. Working on grounding or citations: citation_svc → recall.
 
 Coding conventions live in [CLAUDE.md](../CLAUDE.md). Request/response shapes live in [bruno/](../bruno/). Environment variables live in [.env.example](../.env.example).
+
+## Setup and publication
+
+- [local_development.md](local_development.md) — local configuration, sample agent seed, email verification, and optional integrations
+- [public_release.md](public_release.md) — source/history checks and GitHub settings before publication

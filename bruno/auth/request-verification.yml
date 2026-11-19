@@ -20,7 +20,7 @@ http:
 runtime:
   variables:
     - name: email
-      value: vishals+1@cortex.com
+      value: user@example.com
 
 settings:
   encodeUrl: true

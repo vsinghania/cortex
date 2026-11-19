@@ -585,6 +585,8 @@ Resend dashboard, not in our logs.
 
 ## 11. Deploy and rollback
 
+Run build/deploy workflows from the `main` workflow branch. Manual deploy refs must resolve to a commit already merged into `main`; unmerged branch commits are rejected before application build scripts or AWS credential setup. Older commits on `main` remain valid rollback targets. Ref resolution is shared in [resolve_deploy_commit.sh](../scripts/resolve_deploy_commit.sh).
+
 **Backend:** push to `main` (CI builds the image) → **Actions → deploy-api → Run
 workflow**, `git_ref` = `main`. The run is green only if the box answered
 `/healthz` with `ok` and neither app container is crash-looping.
