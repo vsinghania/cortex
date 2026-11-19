@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Full history so any branch, tag or SHA the caller names can be resolved.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
